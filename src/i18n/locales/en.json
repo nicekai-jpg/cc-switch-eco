@@ -2685,5 +2685,25 @@
     "expiredHint": "Run the {{tool}} command to refresh your login",
     "queryFailed": "Query failed",
     "refresh": "Refresh"
+  },
+  "ecosystem": {
+    "title": "Ecosystems",
+    "loading": "Loading ecosystems...",
+    "count": "{{count}} ecosystem(s)",
+    "empty": "No ecosystems yet",
+    "emptyDescription": "Create an ecosystem to isolate skills, commands, hooks, agents, and plugins.",
+    "create": "Create",
+    "cancel": "Cancel",
+    "namePlaceholder": "Ecosystem name (e.g. gsd, pua)",
+    "descriptionPlaceholder": "Description (optional)",
+    "switch": "Switch",
+    "created": "Ecosystem \"{{name}}\" created",
+    "createFailed": "Failed to create ecosystem",
+    "switched": "Ecosystem switched",
+    "switchFailed": "Failed to switch ecosystem",
+    "deleted": "Ecosystem \"{{name}}\" deleted",
+    "deleteFailed": "Failed to delete ecosystem",
+    "confirmDeleteTitle": "Delete Ecosystem",
+    "confirmDeleteMessage": "Are you sure you want to delete ecosystem \"{{name}}\"? This cannot be undone."
   }
 }

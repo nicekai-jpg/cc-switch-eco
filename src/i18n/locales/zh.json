@@ -2685,5 +2685,25 @@
     "expiredHint": "请运行 {{tool}} 命令刷新登录",
     "queryFailed": "查询失败",
     "refresh": "刷新"
+  },
+  "ecosystem": {
+    "title": "生态管理",
+    "loading": "加载中...",
+    "count": "{{count}} 个生态",
+    "empty": "暂无生态",
+    "emptyDescription": "创建生态以隔离 skills、commands、hooks、agents 和 plugins。",
+    "create": "创建",
+    "cancel": "取消",
+    "namePlaceholder": "生态名称（如 gsd、pua）",
+    "descriptionPlaceholder": "描述（可选）",
+    "switch": "切换",
+    "created": "生态「{{name}}」已创建",
+    "createFailed": "创建生态失败",
+    "switched": "生态已切换",
+    "switchFailed": "切换生态失败",
+    "deleted": "生态「{{name}}」已删除",
+    "deleteFailed": "删除生态失败",
+    "confirmDeleteTitle": "删除生态",
+    "confirmDeleteMessage": "确定要删除生态「{{name}}」吗？此操作不可撤销。"
   }
 }

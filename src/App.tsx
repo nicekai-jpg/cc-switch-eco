@@ -26,6 +26,7 @@ import {
   Shield,
   Cpu,
   LayoutDashboard,
+  Trees,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Provider, VisibleApps } from "@/types";
@@ -90,6 +91,7 @@ import ToolsPanel from "@/components/openclaw/ToolsPanel";
 import AgentsDefaultsPanel from "@/components/openclaw/AgentsDefaultsPanel";
 import OpenClawHealthBanner from "@/components/openclaw/OpenClawHealthBanner";
 import HermesMemoryPanel from "@/components/hermes/HermesMemoryPanel";
+import { EcosystemPanel } from "@/components/ecosystem/EcosystemPanel";
 
 type View =
   | "providers"
@@ -102,6 +104,7 @@ type View =
   | "universal"
   | "sessions"
   | "workspace"
+  | "ecosystem"
   | "openclawEnv"
   | "openclawTools"
   | "openclawAgents"
@@ -910,6 +913,8 @@ function App() {
           );
         case "workspace":
           return <WorkspaceFilesPanel />;
+        case "ecosystem":
+          return <EcosystemPanel />;
         case "openclawEnv":
           return <EnvPanel />;
         case "openclawTools":
@@ -1138,6 +1143,7 @@ function App() {
                   {currentView === "openclawAgents" &&
                     t("openclaw.agents.title")}
                   {currentView === "hermesMemory" && t("hermes.memory.title")}
+                  {currentView === "ecosystem" && t("ecosystem.title")}
                 </h1>
               </div>
             ) : (
@@ -1487,6 +1493,15 @@ function App() {
                                 title={t("mcp.title")}
                               >
                                 <McpIcon size={16} />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setCurrentView("ecosystem")}
+                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 w-8 px-2"
+                                title={t("ecosystem.title")}
+                              >
+                                <Trees size={16} />
                               </Button>
                             </>
                           )}

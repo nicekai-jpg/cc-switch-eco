@@ -3,6 +3,7 @@
 //! Handles reading and writing live configuration files for Claude, Codex, and Gemini.
 
 use std::collections::HashMap;
+use std::fs;
 
 use serde_json::{json, Value};
 use toml_edit::{DocumentMut, Item, TableLike};
@@ -515,6 +516,9 @@ pub(crate) fn write_live_with_common_config(
     effective_provider.settings_config =
         build_effective_settings_with_common_config(db, app_type, provider)?;
 
+    // 合并当前生态的 enabledPlugins 和 hooks
+    merge_ecosystem_fields(db, &mut effective_provider.settings_config)?;
+
     if matches!(app_type, AppType::ClaudeDesktop) {
         crate::claude_desktop_config::apply_provider(db, &effective_provider)?;
         log::info!(
@@ -526,6 +530,60 @@ pub(crate) fn write_live_with_common_config(
     }
 
     write_live_snapshot(app_type, &effective_provider)
+}
+
+/// 合并当前生态的 enabledPlugins 和 hooks 到 settings_config
+fn merge_ecosystem_fields(db: &Database, settings: &mut Value) -> Result<(), AppError> {
+    let current_eco = match db.get_current_ecosystem() {
+        Ok(Some(eco)) => eco,
+        Ok(None) => return Ok(()), // 无当前生态，跳过
+        Err(e) => {
+            log::warn!("读取当前生态失败: {e}");
+            return Ok(());
+        }
+    };
+
+    let eco_dir = crate::config::get_app_config_dir()
+        .join("ecosystems")
+        .join(&current_eco.id);
+
+    // 合并 enabledPlugins
+    let plugins_path = eco_dir.join("plugins").join("installed_plugins.json");
+    if plugins_path.exists() {
+        if let Ok(plugins_content) = fs::read_to_string(&plugins_path) {
+            if let Ok(plugins_value) = serde_json::from_str::<Value>(&plugins_content) {
+                if let Some(plugins_obj) = plugins_value.as_object() {
+                    if let Some(settings_obj) = settings.as_object_mut() {
+                        // 合并 enabledPlugins 数组
+                        if let Some(eco_plugins) = plugins_obj.get("enabledPlugins") {
+                            settings_obj.insert(
+                                "enabledPlugins".to_string(),
+                                eco_plugins.clone(),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 合并 hooks
+    let hooks_path = eco_dir.join("hooks").join("hooks.json");
+    if hooks_path.exists() {
+        if let Ok(hooks_content) = fs::read_to_string(&hooks_path) {
+            if let Ok(hooks_value) = serde_json::from_str::<Value>(&hooks_content) {
+                if let Some(hooks_obj) = hooks_value.as_object() {
+                    if let Some(settings_obj) = settings.as_object_mut() {
+                        if let Some(eco_hooks) = hooks_obj.get("hooks") {
+                            settings_obj.insert("hooks".to_string(), eco_hooks.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub(crate) fn strip_common_config_from_live_settings(

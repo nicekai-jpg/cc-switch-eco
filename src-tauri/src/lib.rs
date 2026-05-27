@@ -1374,6 +1374,12 @@ pub fn run() {
             commands::enter_lightweight_mode,
             commands::exit_lightweight_mode,
             commands::is_lightweight_mode,
+            // Ecosystem management (生态隔离)
+            commands::create_ecosystem,
+            commands::switch_ecosystem,
+            commands::delete_ecosystem,
+            commands::list_ecosystems,
+            commands::get_current_ecosystem,
         ]);
 
     let app = builder
