@@ -5,7 +5,10 @@
 //! 通过 symlink 隔离到 `~/.claude/` 下。
 
 use std::fs;
+#[cfg(target_family = "unix")]
 use std::os::unix::fs as unix_fs;
+#[cfg(target_family = "windows")]
+use std::os::windows::fs as windows_fs;
 use std::path::PathBuf;
 
 use crate::config::get_app_config_dir;
@@ -221,12 +224,25 @@ impl EcosystemService {
 
     /// 创建符号链接
     fn create_symlink(target: &PathBuf, link: &PathBuf) -> Result<(), AppError> {
-        unix_fs::symlink(target, link)
-            .map_err(|e| AppError::Message(format!(
-                "创建符号链接失败: {} → {}: {e}",
-                link.display(),
-                target.display()
-            )))?;
+        #[cfg(target_family = "unix")]
+        {
+            unix_fs::symlink(target, link)
+                .map_err(|e| AppError::Message(format!(
+                    "创建符号链接失败: {} → {}: {e}",
+                    link.display(),
+                    target.display()
+                )))?;
+        }
+        #[cfg(target_family = "windows")]
+        {
+            // Windows 上创建目录符号链接需要 dir_symlink
+            windows_fs::symlink_dir(target, link)
+                .map_err(|e| AppError::Message(format!(
+                    "创建符号链接失败: {} → {}: {e}",
+                    link.display(),
+                    target.display()
+                )))?;
+        }
         Ok(())
     }
 
