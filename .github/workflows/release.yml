@@ -96,59 +96,52 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Prepare Tauri signing key
-        if: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
         shell: bash
+        env:
+          RAW_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          RAW=”${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}”
-          # 目标：提供正确的私钥”文件路径”给 Tauri CLI，避免内容解码歧义
-          KEY_PATH=”$RUNNER_TEMP/tauri_signing.key”
-          # 情况 1：原始两行文本（第一行以 “untrusted comment:” 开头）
-          if echo “$RAW” | head -n1 | grep -q '^untrusted comment:'; then
-            printf '%s\n' “$RAW” > “$KEY_PATH”
-            echo “Using raw two-line key file format”
+          if [ -z "$RAW_KEY" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY secret is not set — updater signatures will not be generated"
+            echo "Build will proceed without signing"
+            exit 0
+          fi
+          RAW="$RAW_KEY"
+          KEY_PATH="$RUNNER_TEMP/tauri_signing.key"
+          if echo "$RAW" | head -n1 | grep -q '^untrusted comment:'; then
+            printf '%s\n' "$RAW" > "$KEY_PATH"
+            echo "Using raw two-line key file format"
           else
-            # 情况 2：整体被 base64 包裹（解包后应当是两行）
-            if DECODED=$(printf '%s' “$RAW” | (base64 --decode 2>/dev/null || base64 -D 2>/dev/null)) \
-               && echo “$DECODED” | head -n1 | grep -q '^untrusted comment:'; then
-              printf '%s\n' “$DECODED” > “$KEY_PATH”
-              echo “Decoded base64-wrapped key, restored two-line file”
+            if DECODED=$(printf '%s' "$RAW" | (base64 --decode 2>/dev/null || base64 -D 2>/dev/null)) \
+               && echo "$DECODED" | head -n1 | grep -q '^untrusted comment:'; then
+              printf '%s\n' "$DECODED" > "$KEY_PATH"
+              echo "Decoded base64-wrapped key, restored two-line file"
             else
-              # 情况 3：已是第二行（纯 Base64 一行）→ 构造两行文件
-              if echo “$RAW” | grep -Eq '^[A-Za-z0-9+/=]+$'; then
-                ONE=$(printf '%s' “$RAW” | tr -d '\r\n')
-                printf '%s\n%s\n' “untrusted comment: tauri signing key” “$ONE” > “$KEY_PATH”
-                echo “Using single-line Base64 key, constructed two-line file”
+              if echo "$RAW" | grep -Eq '^[A-Za-z0-9+/=]+$'; then
+                ONE=$(printf '%s' "$RAW" | tr -d '\r\n')
+                printf '%s\n%s\n' "untrusted comment: tauri signing key" "$ONE" > "$KEY_PATH"
+                echo "Using single-line Base64 key, constructed two-line file"
               else
-                echo “TAURI_SIGNING_PRIVATE_KEY format unrecognized” >&2
-                echo “Key first 10 chars: $(echo “$RAW” | head -c 10)...” >&2
+                echo "TAURI_SIGNING_PRIVATE_KEY format unrecognized" >&2
                 exit 1
               fi
             fi
           fi
-          # 将完整两行私钥内容进行 base64 编码，作为单行内容注入环境变量
           if command -v base64 >/dev/null 2>&1; then
-            KEY_B64=$(base64 < “$KEY_PATH” | tr -d '\r\n')
+            KEY_B64=$(base64 < "$KEY_PATH" | tr -d '\r\n')
           elif command -v openssl >/dev/null 2>&1; then
-            KEY_B64=$(openssl base64 -A -in “$KEY_PATH”)
+            KEY_B64=$(openssl base64 -A -in "$KEY_PATH")
           else
-            KEY_B64=$(KEY_PATH=”$KEY_PATH” node -e “process.stdout.write(require('fs').readFileSync(process.env.KEY_PATH).toString('base64'))”)
+            KEY_B64=$(KEY_PATH="$KEY_PATH" node -e "process.stdout.write(require('fs').readFileSync(process.env.KEY_PATH).toString('base64'))")
           fi
-          if [ -z “$KEY_B64” ]; then
-            echo “Failed to generate base64 key content” >&2
+          if [ -z "$KEY_B64" ]; then
+            echo "Failed to generate base64 key content" >&2
             exit 1
           fi
-          echo “TAURI_SIGNING_PRIVATE_KEY=$KEY_B64” >> “$GITHUB_ENV”
-          if [ -n “${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}” ]; then
-            echo “TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}” >> $GITHUB_ENV
+          echo "TAURI_SIGNING_PRIVATE_KEY=$KEY_B64" >> "$GITHUB_ENV"
+          if [ -n "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" >> $GITHUB_ENV
           fi
-          echo “Tauri signing key prepared”
-
-      - name: Skip Tauri signing key
-        if: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY == '' }}
-        shell: bash
-        run: |
-          echo “TAURI_SIGNING_PRIVATE_KEY secret is not set — updater signatures will not be generated”
-          echo “Build will proceed without signing”
+          echo "Tauri signing key prepared"
 
       - name: Build Tauri App (macOS)
         if: runner.os == 'macOS'
