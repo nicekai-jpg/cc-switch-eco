@@ -119,7 +119,7 @@ interface WebDavSyncStatusUpdatedPayload {
 const DEFAULT_DRAG_BAR_HEIGHT = isWindows() || isLinux() ? 0 : 28; // px
 const HEADER_HEIGHT = 64; // px
 
-const STORAGE_KEY = "cc-switch-last-app";
+const STORAGE_KEY = "cc-switch-eco-last-app";
 const VALID_APPS: AppId[] = [
   "claude",
   "claude-desktop",
@@ -138,7 +138,7 @@ const getInitialApp = (): AppId => {
   return "claude";
 };
 
-const VIEW_STORAGE_KEY = "cc-switch-last-view";
+const VIEW_STORAGE_KEY = "cc-switch-eco-last-view";
 const VALID_VIEWS: View[] = [
   "providers",
   "settings",
@@ -1160,7 +1160,7 @@ function App() {
                         : "text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300",
                     )}
                   >
-                    CC Switch
+                    CC Switch Eco
                   </a>
                 </div>
                 <Button

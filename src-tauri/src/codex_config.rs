@@ -11,7 +11,7 @@ use std::process::Command;
 use toml_edit::DocumentMut;
 
 pub const CC_SWITCH_CODEX_MODEL_PROVIDER_ID: &str = "custom";
-pub const CC_SWITCH_CODEX_MODEL_CATALOG_FILENAME: &str = "cc-switch-model-catalog.json";
+pub const CC_SWITCH_CODEX_MODEL_CATALOG_FILENAME: &str = "cc-switch-eco-model-catalog.json";
 const CODEX_MODEL_CATALOG_TEMPLATE_SLUG: &str = "gpt-5.5";
 
 /// Reserved built-in provider IDs from OpenAI Codex's config/model-provider
@@ -284,11 +284,11 @@ fn rewrite_codex_profile_model_provider_refs(
     }
 }
 
-/// Keep Codex's active `model_provider` stable across CC Switch provider changes.
+/// Keep Codex's active `model_provider` stable across CC Switch Eco provider changes.
 ///
 /// Codex stores and filters resume history by `model_provider`, so switching between
 /// provider-specific ids like `rightcode` and `aihubmix` makes history appear to move.
-/// CC Switch-managed third-party providers share one stable bucket while official
+/// CC Switch Eco-managed third-party providers share one stable bucket while official
 /// built-in providers such as `openai` keep their original identity.
 pub fn normalize_codex_settings_config_model_provider(
     settings: &mut Value,
@@ -759,7 +759,7 @@ pub fn prepare_codex_config_text_with_model_catalog(
 ///
 /// We only reverse-parse catalogs whose `model_catalog_json` path is the
 /// cc-switch–generated file (identified by filename
-/// `cc-switch-model-catalog.json`). A user-managed external catalog file is
+/// `cc-switch-eco-model-catalog.json`). A user-managed external catalog file is
 /// left alone — surfacing its richer structure as the simplified table would
 /// be a downgrade we can't safely round-trip.
 ///
@@ -1883,7 +1883,7 @@ base_url = "https://production.api/v1"
 [model_providers.any]
 name = "any"
 "#;
-        let catalog_path = Path::new("/tmp/cc-switch-model-catalog.json");
+        let catalog_path = Path::new("/tmp/cc-switch-eco-model-catalog.json");
 
         let result = set_codex_model_catalog_json_field(input, Some(catalog_path)).unwrap();
         let parsed: toml::Value = toml::from_str(&result).unwrap();
@@ -1891,7 +1891,7 @@ name = "any"
             parsed
                 .get("model_catalog_json")
                 .and_then(|value| value.as_str()),
-            Some("/tmp/cc-switch-model-catalog.json")
+            Some("/tmp/cc-switch-eco-model-catalog.json")
         );
         assert!(
             parsed
@@ -1905,7 +1905,7 @@ name = "any"
 
     #[test]
     fn resolve_catalog_path_returns_none_when_config_missing_field() {
-        let generated = PathBuf::from("/tmp/.codex/cc-switch-model-catalog.json");
+        let generated = PathBuf::from("/tmp/.codex/cc-switch-eco-model-catalog.json");
         assert!(resolve_cc_switch_catalog_path("", &generated).is_none());
         assert!(
             resolve_cc_switch_catalog_path("model = \"gpt-5\"", &generated).is_none(),
@@ -1915,8 +1915,8 @@ name = "any"
 
     #[test]
     fn resolve_catalog_path_accepts_cc_switch_owned_file() {
-        let generated = PathBuf::from("/tmp/.codex/cc-switch-model-catalog.json");
-        let config = r#"model_catalog_json = "/tmp/.codex/cc-switch-model-catalog.json"
+        let generated = PathBuf::from("/tmp/.codex/cc-switch-eco-model-catalog.json");
+        let config = r#"model_catalog_json = "/tmp/.codex/cc-switch-eco-model-catalog.json"
 "#;
         let resolved = resolve_cc_switch_catalog_path(config, &generated).expect("path resolves");
         assert_eq!(resolved, generated);
@@ -1924,7 +1924,7 @@ name = "any"
 
     #[test]
     fn resolve_catalog_path_rejects_user_owned_external_file() {
-        let generated = PathBuf::from("/tmp/.codex/cc-switch-model-catalog.json");
+        let generated = PathBuf::from("/tmp/.codex/cc-switch-eco-model-catalog.json");
         let config = r#"model_catalog_json = "/Users/me/.codex/my-handwritten-catalog.json"
 "#;
         assert!(
