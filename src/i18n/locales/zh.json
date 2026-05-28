@@ -2704,6 +2704,22 @@
     "deleted": "生态「{{name}}」已删除",
     "deleteFailed": "删除生态失败",
     "confirmDeleteTitle": "删除生态",
-    "confirmDeleteMessage": "确定要删除生态「{{name}}」吗？此操作不可撤销。"
+    "confirmDeleteMessage": "确定要删除生态「{{name}}」吗？此操作不可撤销。",
+    "selectFrameworks": "选择要安装的框架",
+    "installing": "安装中...",
+    "installedFrameworks": "已安装框架",
+    "noFrameworks": "尚未安装任何框架",
+    "addFramework": "添加框架",
+    "availableFrameworks": "可安装的框架",
+    "allFrameworksInstalled": "所有框架已安装",
+    "install": "安装",
+    "updateFramework": "更新",
+    "uninstallFramework": "卸载",
+    "frameworkInstalled": "框架「{{name}}」已安装",
+    "frameworkInstallFailed": "安装框架失败",
+    "frameworkUninstalled": "框架「{{name}}」已卸载",
+    "frameworkUninstallFailed": "卸载框架失败",
+    "frameworkUpdated": "框架「{{name}}」已更新",
+    "frameworkUpdateFailed": "更新框架失败"
   }
 }

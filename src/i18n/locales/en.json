@@ -2704,6 +2704,22 @@
     "deleted": "Ecosystem \"{{name}}\" deleted",
     "deleteFailed": "Failed to delete ecosystem",
     "confirmDeleteTitle": "Delete Ecosystem",
-    "confirmDeleteMessage": "Are you sure you want to delete ecosystem \"{{name}}\"? This cannot be undone."
+    "confirmDeleteMessage": "Are you sure you want to delete ecosystem \"{{name}}\"? This cannot be undone.",
+    "selectFrameworks": "Select frameworks to install",
+    "installing": "Installing...",
+    "installedFrameworks": "Installed frameworks",
+    "noFrameworks": "No frameworks installed",
+    "addFramework": "Add framework",
+    "availableFrameworks": "Available frameworks",
+    "allFrameworksInstalled": "All frameworks installed",
+    "install": "Install",
+    "updateFramework": "Update",
+    "uninstallFramework": "Uninstall",
+    "frameworkInstalled": "Framework \"{{name}}\" installed",
+    "frameworkInstallFailed": "Failed to install framework",
+    "frameworkUninstalled": "Framework \"{{name}}\" uninstalled",
+    "frameworkUninstallFailed": "Failed to uninstall framework",
+    "frameworkUpdated": "Framework \"{{name}}\" updated",
+    "frameworkUpdateFailed": "Failed to update framework"
   }
 }

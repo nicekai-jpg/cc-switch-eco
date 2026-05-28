@@ -1380,6 +1380,11 @@ pub fn run() {
             commands::delete_ecosystem,
             commands::list_ecosystems,
             commands::get_current_ecosystem,
+            commands::list_frameworks,
+            commands::install_framework_to_ecosystem,
+            commands::uninstall_framework_from_ecosystem,
+            commands::update_framework_in_ecosystem,
+            commands::get_ecosystem_frameworks,
         ]);
 
     let app = builder
