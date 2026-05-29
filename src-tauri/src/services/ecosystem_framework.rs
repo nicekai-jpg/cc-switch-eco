@@ -4,10 +4,16 @@
 //! 用于 Eco 创建时选择安装。
 //!
 //! 安装策略（遵循各框架官方推荐方式）：
-//! - Superpowers 中文版: 官方 npx superpowers-zh --tool claude-code
-//! - GDS: 官方 /plugin install gds-skills（Claude Code 内部命令，无法外部调用，保留手动复制）
-//! - agency-agents-zh: 官方 ./scripts/install.sh --tool claude-code
-//! - Oh My ClaudeCode: 官方 omc setup（npm i -g oh-my-claude-sisyphus 后执行）
+//! - Superpowers 中文版: npx superpowers-zh --tool claude-code
+//! - Agency Agents 中文版: ./scripts/install.sh --tool claude-code
+//! - Oh My ClaudeCode: npx oh-my-claude-sisyphus@latest setup
+//! - Ruflo: npx ruflo@latest install
+//! - Spec Kit: npx @anthropic-ai/spec-kit@latest install
+//! - Matt Pocock Skills: 手动复制（无 CLI）
+//! - GStack: npx gstack@latest install
+//! - OpenSpec: npx openspec@latest install
+//! - BMAD-METHOD: npx bmad-method@latest install
+//! - Get Shit Done: npx get-shit-done@latest install
 
 use serde::{Deserialize, Serialize};
 
@@ -50,19 +56,6 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             file_prefix: "superpowers-".to_string(),
         },
         FrameworkRegistry {
-            id: "gds".to_string(),
-            name: "GDS Skills".to_string(),
-            description: "Godot Development Sprint 技能集，用于游戏开发流程".to_string(),
-            repo_url: "https://github.com/iptton-ai/claude-gds-skills.git".to_string(),
-            repo_branch: "main".to_string(),
-            provided_dirs: vec!["skills".to_string()],
-            install_method: "plugin".to_string(),
-            install_command: None,
-            install_args: vec![],
-            install_env: vec![],
-            file_prefix: "gds-".to_string(),
-        },
-        FrameworkRegistry {
             id: "agency-agents-zh".to_string(),
             name: "Agency Agents 中文版".to_string(),
             description: "211 个即插即用的中文 AI 专家角色，覆盖工程/设计/营销等领域".to_string(),
@@ -93,6 +86,97 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             install_args: vec!["oh-my-claude-sisyphus@latest".to_string(), "setup".to_string()],
             install_env: vec![],
             file_prefix: "omc-".to_string(),
+        },
+        FrameworkRegistry {
+            id: "ruflo".to_string(),
+            name: "Ruflo".to_string(),
+            description: "多 Agent AI 编排平台，100+ 专业 Agent 协同工作，含记忆系统和 MCP 服务器".to_string(),
+            repo_url: "https://github.com/ruvnet/ruflo.git".to_string(),
+            repo_branch: "main".to_string(),
+            provided_dirs: vec!["skills".to_string(), "agents".to_string(), "commands".to_string()],
+            install_method: "npx".to_string(),
+            install_command: Some("npx".to_string()),
+            install_args: vec!["ruflo@latest".to_string(), "install".to_string()],
+            install_env: vec![],
+            file_prefix: "ruflo-".to_string(),
+        },
+        FrameworkRegistry {
+            id: "speckit".to_string(),
+            name: "Spec Kit".to_string(),
+            description: "GitHub 官方规格驱动开发工具包，提供 specify/plan/tasks/implement 等命令".to_string(),
+            repo_url: "https://github.com/github/spec-kit.git".to_string(),
+            repo_branch: "main".to_string(),
+            provided_dirs: vec!["skills".to_string(), "commands".to_string()],
+            install_method: "npx".to_string(),
+            install_command: Some("npx".to_string()),
+            install_args: vec!["@anthropic-ai/spec-kit@latest".to_string(), "install".to_string()],
+            install_env: vec![],
+            file_prefix: "speckit-".to_string(),
+        },
+        FrameworkRegistry {
+            id: "mattpocock-skills".to_string(),
+            name: "Matt Pocock Skills".to_string(),
+            description: "TypeScript/React 专家技能集，含类型推断、状态管理等最佳实践".to_string(),
+            repo_url: "https://github.com/mattpocock/skills.git".to_string(),
+            repo_branch: "main".to_string(),
+            provided_dirs: vec!["skills".to_string()],
+            install_method: "copy".to_string(),
+            install_command: None,
+            install_args: vec![],
+            install_env: vec![],
+            file_prefix: "mp-".to_string(),
+        },
+        FrameworkRegistry {
+            id: "gstack".to_string(),
+            name: "GStack".to_string(),
+            description: "创业技能集，含产品开发、融资、增长等创业全流程 AI 辅助".to_string(),
+            repo_url: "https://github.com/garrytan/gstack.git".to_string(),
+            repo_branch: "main".to_string(),
+            provided_dirs: vec!["skills".to_string()],
+            install_method: "npx".to_string(),
+            install_command: Some("npx".to_string()),
+            install_args: vec!["gstack@latest".to_string(), "install".to_string()],
+            install_env: vec![],
+            file_prefix: "gstack-".to_string(),
+        },
+        FrameworkRegistry {
+            id: "openspec".to_string(),
+            name: "OpenSpec".to_string(),
+            description: "AI 驱动的规格说明框架，自动生成项目规格和任务分解".to_string(),
+            repo_url: "https://github.com/Fission-AI/OpenSpec.git".to_string(),
+            repo_branch: "main".to_string(),
+            provided_dirs: vec!["skills".to_string(), "commands".to_string()],
+            install_method: "npx".to_string(),
+            install_command: Some("npx".to_string()),
+            install_args: vec!["openspec@latest".to_string(), "install".to_string()],
+            install_env: vec![],
+            file_prefix: "openspec-".to_string(),
+        },
+        FrameworkRegistry {
+            id: "bmad-method".to_string(),
+            name: "BMAD-METHOD".to_string(),
+            description: "AI 驱动的敏捷开发方法论，12+ 专家 Agent、34+ 工作流，覆盖产品到部署全周期".to_string(),
+            repo_url: "https://github.com/bmad-code-org/BMAD-METHOD.git".to_string(),
+            repo_branch: "main".to_string(),
+            provided_dirs: vec!["skills".to_string(), "agents".to_string()],
+            install_method: "npx".to_string(),
+            install_command: Some("npx".to_string()),
+            install_args: vec!["bmad-method@latest".to_string(), "install".to_string()],
+            install_env: vec![],
+            file_prefix: "bmad-".to_string(),
+        },
+        FrameworkRegistry {
+            id: "get-shit-done".to_string(),
+            name: "Get Shit Done".to_string(),
+            description: "高效执行技能集，专注快速完成任务，减少 AI 犹豫和过度思考".to_string(),
+            repo_url: "https://github.com/gsd-build/get-shit-done.git".to_string(),
+            repo_branch: "main".to_string(),
+            provided_dirs: vec!["skills".to_string()],
+            install_method: "npx".to_string(),
+            install_command: Some("npx".to_string()),
+            install_args: vec!["get-shit-done@latest".to_string(), "install".to_string()],
+            install_env: vec![],
+            file_prefix: "gsd-".to_string(),
         },
     ]
 }

@@ -320,7 +320,7 @@ impl EcosystemService {
         // Step 2: 按官方方式安装文件到 Eco 隔离目录
         let install_result = match framework.install_method.as_str() {
             "npx" | "script" => Self::install_via_official_command(&eco_dir, &framework, &fw_dir),
-            "plugin" => Self::install_as_plugin(&eco_dir, &framework, &fw_dir),
+            "plugin" | "copy" => Self::install_manual_copy(&eco_dir, &framework, &fw_dir),
             _ => Err(AppError::Message(format!("未知的安装方式: {}", framework.install_method))),
         };
 
@@ -407,7 +407,7 @@ impl EcosystemService {
         // 重新安装
         let install_result = match framework.install_method.as_str() {
             "npx" | "script" => Self::install_via_official_command(&eco_dir, &framework, &fw_dir),
-            "plugin" => Self::install_as_plugin(&eco_dir, &framework, &fw_dir),
+            "plugin" | "copy" => Self::install_manual_copy(&eco_dir, &framework, &fw_dir),
             _ => Err(AppError::Message(format!("未知的安装方式: {}", framework.install_method))),
         };
 
@@ -654,46 +654,7 @@ impl EcosystemService {
     }
 
     // ================================================================
-    // Plugin 方式安装（GDS 专用，无可用的外部 CLI 命令）
-    // ================================================================
-
-    /// Plugin 方式安装（GDS）
-    ///
-    /// GDS 的 /plugin install 是 Claude Code 内部命令，无法从外部 shell 调用。
-    /// 因此保持手动复制方式：将仓库 skills/ 复制到 Eco 的 skills/ 目录，加前缀。
-    fn install_as_plugin(
-        eco_dir: &PathBuf,
-        framework: &ecosystem_framework::FrameworkRegistry,
-        fw_dir: &PathBuf,
-    ) -> Result<(), AppError> {
-        for dir_name in &framework.provided_dirs {
-            let src = fw_dir.join(dir_name);
-            if !src.exists() || !src.is_dir() {
-                continue;
-            }
-            let dst = eco_dir.join(dir_name);
-            fs::create_dir_all(&dst).map_err(|e| AppError::io(&dst, e))?;
-
-            if let Ok(entries) = fs::read_dir(&src) {
-                for entry in entries.flatten() {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    if name.starts_with('.') {
-                        continue;
-                    }
-                    let dst_name = format!("{}{}", framework.file_prefix, name);
-                    let dst_path = dst.join(&dst_name);
-                    if !dst_path.exists() {
-                        Self::copy_path_to(&entry.path(), &dst_path)?;
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    // ================================================================
-    // 手动复制（回退方案）
+    // 手动复制（回退方案 & copy/plugin 方式）
     // ================================================================
 
     /// 手动复制框架文件到 Eco 目录（官方命令失败时的回退方案）
