@@ -877,7 +877,7 @@ export const providerPresets: ProviderPreset[] = [
         ANTHROPIC_BASE_URL: "https://e-flowcode.cc",
       },
       enabledPlugins: {
-        "superpowers@superpowers-marketplace": true,
+        "superpowers-zh@superpowers-zh": true,
       },
       includeCoAuthoredBy: false,
       ENABLE_TOOL_SEARCH: true,

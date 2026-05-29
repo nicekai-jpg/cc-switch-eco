@@ -5,10 +5,10 @@
 //! 通过 symlink 隔离到 `~/.claude/` 下。
 //!
 //! 框架安装策略（遵循各框架官方推荐方式）：
-//! - Superpowers: 官方 /plugin install → 将仓库作为 plugin 安装到 plugins/ 目录
-//! - GDS: 官方 /plugin install → 将仓库作为 plugin 安装到 plugins/ 目录
-//! - agency-agents-zh: 官方 install.sh --tool claude-code → 将 .md 文件安装到 agents/ 目录
-//! - Oh_my_OpenClaude: 官方 cp -R 到 plugins/omo/ → 整个仓库作为 plugin
+//! - Superpowers 中文版: 官方 npx superpowers-zh --tool claude-code → 安装到 ~/.claude/ → 观察差异 → 移动到 Eco
+//! - GDS: 官方 /plugin install（内部命令，无法外部调用）→ 手动复制到 Eco
+//! - agency-agents-zh: 官方 ./scripts/install.sh --tool claude-code → 安装到 ~/.claude/ → 观察差异 → 移动到 Eco
+//! - Oh My ClaudeCode: 官方 npx oh-my-claude-sisyphus setup → 安装到 ~/.claude/ → 观察差异 → 移动到 Eco
 
 use std::fs;
 #[cfg(target_family = "unix")]
@@ -318,11 +318,22 @@ impl EcosystemService {
         }
 
         // Step 2: 按官方方式安装文件到 Eco 隔离目录
-        match framework.install_method.as_str() {
-            "plugin" => Self::install_as_plugin(&eco_dir, framework_id, &fw_dir)?,
-            "script" => Self::install_via_script(&eco_dir, framework_id, &fw_dir)?,
-            _ => return Err(AppError::Message(format!("未知的安装方式: {}", framework.install_method))),
-        }
+        let install_result = match framework.install_method.as_str() {
+            "npx" | "script" => Self::install_via_official_command(&eco_dir, &framework, &fw_dir),
+            "plugin" => Self::install_as_plugin(&eco_dir, &framework, &fw_dir),
+            _ => Err(AppError::Message(format!("未知的安装方式: {}", framework.install_method))),
+        };
+
+        // 官方命令失败时回退到手动复制
+        let install_result = match install_result {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                log::warn!("官方安装命令失败: {e}，回退到手动复制");
+                Self::install_manual_copy(&eco_dir, &framework, &fw_dir)
+            }
+        };
+
+        install_result?;
 
         // Step 3: 获取 commit hash 并更新 eco.json
         let commit_hash = Self::get_git_commit_hash(&fw_dir).unwrap_or_default();
@@ -346,14 +357,10 @@ impl EcosystemService {
         }
 
         let framework = ecosystem_framework::find_framework(framework_id);
-        let install_method = framework.as_ref().map(|f| f.install_method.as_str()).unwrap_or("plugin");
 
-        // 按安装方式反向移除文件
-        match install_method {
-            "plugin" => Self::uninstall_plugin(&eco_dir, framework_id)?,
-            "script" => Self::uninstall_script(&eco_dir, framework_id)?,
-            _ => {}
-        }
+        // 统一使用前缀匹配卸载
+        let prefix = framework.as_ref().map(|f| f.file_prefix.as_str()).unwrap_or(framework_id);
+        Self::uninstall_by_prefix(&eco_dir, prefix, framework_id)?;
 
         // 删除框架 git 仓库
         fs::remove_dir_all(&fw_dir).map_err(|e| AppError::io(&fw_dir, e))?;
@@ -391,20 +398,28 @@ impl EcosystemService {
         }
 
         // 先卸载旧文件，再重新安装
-        let framework = ecosystem_framework::find_framework(framework_id);
-        let install_method = framework.as_ref().map(|f| f.install_method.as_str()).unwrap_or("plugin");
+        let framework = ecosystem_framework::find_framework(framework_id)
+            .ok_or_else(|| AppError::Message(format!("框架 '{framework_id}' 不存在")))?;
 
-        match install_method {
-            "plugin" => {
-                Self::uninstall_plugin(&eco_dir, framework_id)?;
-                Self::install_as_plugin(&eco_dir, framework_id, &fw_dir)?;
+        let prefix = framework.file_prefix.as_str();
+        Self::uninstall_by_prefix(&eco_dir, prefix, framework_id)?;
+
+        // 重新安装
+        let install_result = match framework.install_method.as_str() {
+            "npx" | "script" => Self::install_via_official_command(&eco_dir, &framework, &fw_dir),
+            "plugin" => Self::install_as_plugin(&eco_dir, &framework, &fw_dir),
+            _ => Err(AppError::Message(format!("未知的安装方式: {}", framework.install_method))),
+        };
+
+        let install_result = match install_result {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                log::warn!("官方安装命令失败: {e}，回退到手动复制");
+                Self::install_manual_copy(&eco_dir, &framework, &fw_dir)
             }
-            "script" => {
-                Self::uninstall_script(&eco_dir, framework_id)?;
-                Self::install_via_script(&eco_dir, framework_id, &fw_dir)?;
-            }
-            _ => {}
-        }
+        };
+
+        install_result?;
 
         // 更新 eco.json
         let commit_hash = Self::get_git_commit_hash(&fw_dir).unwrap_or_default();
@@ -437,187 +452,325 @@ impl EcosystemService {
     }
 
     // ================================================================
-    // 官方安装方式实现
+    // 官方安装方式：快照-安装-对比-移动
     // ================================================================
 
-    /// Plugin 方式安装（Superpowers、GDS、Oh_my_OpenClaude）
+    /// 使用官方命令安装框架（npx / script 方式）
     ///
-    /// 官方方式：/plugin marketplace add <repo> + /plugin install <name>
-    /// 实际效果：将仓库目录复制到 ~/.claude/plugins/<name>/
-    /// 我们的做法：将仓库目录复制到 Eco 的 plugins/<id>/ 目录
-    fn install_as_plugin(eco_dir: &PathBuf, framework_id: &str, fw_dir: &PathBuf) -> Result<(), AppError> {
-        match framework_id {
-            // Superpowers: 官方 /plugin install swift@claude-superpowers
-            // 实际将 plugins/swift/ 复制到 ~/.claude/plugins/swift/
-            // 同时 .claude/skills/ 中的技能也会被加载
-            "superpowers" => {
-                // 安装 plugin（官方方式：复制 plugin 目录到 plugins/）
-                let plugin_src = fw_dir.join("plugins").join("swift");
-                if plugin_src.exists() {
-                    let plugin_dst = eco_dir.join("plugins").join("superpowers-swift");
-                    Self::copy_dir_recursive(&plugin_src, &plugin_dst)?;
-                }
+    /// 流程：
+    /// 1. 在 Eco 目录下创建 .claude/ 目录结构
+    /// 2. 运行官方安装命令（设置 HOME=<eco_dir> 使其写入 Eco 的 .claude/ 目录）
+    /// 3. 将 .claude/ 中的文件移动到 Eco 的 skills/agents/commands/hooks/ 目录，加前缀
+    /// 4. 清理 Eco 的 .claude/ 目录
+    fn install_via_official_command(
+        eco_dir: &PathBuf,
+        framework: &ecosystem_framework::FrameworkRegistry,
+        fw_dir: &PathBuf,
+    ) -> Result<(), AppError> {
+        // Step 1: 在 Eco 目录下创建 .claude/ 目录结构，供 HOME 重定向使用
+        let eco_claude_dir = eco_dir.join(".claude");
+        for sub_dir in &["skills", "agents", "commands", "hooks", "plugins"] {
+            fs::create_dir_all(eco_claude_dir.join(sub_dir))
+                .map_err(|e| AppError::io(&eco_claude_dir.join(sub_dir), e))?;
+        }
 
-                // 安装 skills（官方 plugin 系统会自动加载 .claude/skills/）
-                let skills_src = fw_dir.join(".claude").join("skills");
-                if skills_src.exists() {
-                    let skills_dst = eco_dir.join("skills");
-                    fs::create_dir_all(&skills_dst).map_err(|e| AppError::io(&skills_dst, e))?;
-                    for entry in fs::read_dir(&skills_src).map_err(|e| AppError::io(&skills_src, e))? {
-                        let entry = entry.map_err(|e| AppError::io(&skills_src, e))?;
-                        let name = entry.file_name().to_string_lossy().to_string();
-                        if name.starts_with('.') {
-                            continue;
+        // Step 2: 运行官方安装命令
+        let real_home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+        let result = match framework.install_method.as_str() {
+            "npx" => Self::run_npx_command(eco_dir, framework, fw_dir, &real_home),
+            "script" => Self::run_script_command(eco_dir, framework, fw_dir, &real_home),
+            _ => Err(AppError::Message(format!("不支持的安装方式: {}", framework.install_method))),
+        };
+
+        if let Err(e) = result {
+            // 官方命令失败，清理 .claude/ 目录后返回错误（由调用方回退到手动复制）
+            let _ = fs::remove_dir_all(&eco_claude_dir);
+            return Err(AppError::Message(format!("官方安装命令失败: {e}")));
+        }
+
+        // Step 4: 将 Eco 的 .claude/ 中的文件移动到 Eco 对应目录
+        // （.claude/ 是我们刚创建的空目录，官方命令写入的文件都是新的）
+        Self::move_claude_files_to_eco(&eco_claude_dir, eco_dir, &framework.file_prefix)?;
+
+        // Step 5: 清理 Eco 的 .claude/ 目录
+        let _ = fs::remove_dir_all(&eco_claude_dir);
+
+        Ok(())
+    }
+
+    /// 将 Eco 的 .claude/ 目录下的文件移动到 Eco 对应的 skills/agents/ 等目录
+    ///
+    /// 例如：.claude/skills/brainstorming/ → skills/superpowers-brainstorming/
+    fn move_claude_files_to_eco(
+        eco_claude_dir: &PathBuf,
+        eco_dir: &PathBuf,
+        prefix: &str,
+    ) -> Result<(), AppError> {
+        for dir_name in ISOLATED_DIRS {
+            let src_dir = eco_claude_dir.join(dir_name);
+            if !src_dir.exists() || !src_dir.is_dir() {
+                continue;
+            }
+            let dst_dir = eco_dir.join(dir_name);
+            fs::create_dir_all(&dst_dir).map_err(|e| AppError::io(&dst_dir, e))?;
+
+            if let Ok(entries) = fs::read_dir(&src_dir) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.starts_with('.') {
+                        continue;
+                    }
+                    let dst_name = format!("{prefix}{name}");
+                    let dst_path = dst_dir.join(&dst_name);
+                    if dst_path.exists() {
+                        if dst_path.is_dir() {
+                            fs::remove_dir_all(&dst_path).map_err(|e| AppError::io(&dst_path, e))?;
+                        } else {
+                            fs::remove_file(&dst_path).map_err(|e| AppError::io(&dst_path, e))?;
                         }
-                        let dst = skills_dst.join(format!("superpowers-{name}"));
-                        if !dst.exists() {
+                    }
+                    fs::rename(entry.path(), &dst_path)
+                        .or_else(|_| {
+                            // rename 跨设备可能失败，回退到 copy + remove
+                            Self::copy_path_to(&entry.path(), &dst_path)?;
                             if entry.path().is_dir() {
-                                Self::copy_dir_recursive(&entry.path(), &dst)?;
+                                fs::remove_dir_all(entry.path())
                             } else {
-                                fs::copy(&entry.path(), &dst).map_err(|e| AppError::io(&dst, e))?;
+                                fs::remove_file(entry.path())
                             }
-                        }
-                    }
+                            .map_err(|e| AppError::io(&entry.path(), e))
+                        })?;
                 }
             }
+        }
 
-            // GDS: 官方 /plugin install gds-skills
-            // 实际将 skills/ 复制到 ~/.claude/skills/（通过 plugin 系统加载）
-            "gds" => {
-                let skills_src = fw_dir.join("skills");
-                if skills_src.exists() {
-                    let skills_dst = eco_dir.join("skills");
-                    fs::create_dir_all(&skills_dst).map_err(|e| AppError::io(&skills_dst, e))?;
-                    for entry in fs::read_dir(&skills_src).map_err(|e| AppError::io(&skills_src, e))? {
-                        let entry = entry.map_err(|e| AppError::io(&skills_src, e))?;
-                        let name = entry.file_name().to_string_lossy().to_string();
-                        if name.starts_with('.') {
-                            continue;
-                        }
-                        let dst = skills_dst.join(format!("gds-{name}"));
-                        if !dst.exists() {
-                            if entry.path().is_dir() {
-                                Self::copy_dir_recursive(&entry.path(), &dst)?;
-                            } else {
-                                fs::copy(&entry.path(), &dst).map_err(|e| AppError::io(&dst, e))?;
-                            }
-                        }
-                    }
+        // 处理 .claude/ 根目录的文件（如 CLAUDE.md）
+        if let Ok(entries) = fs::read_dir(eco_claude_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') || name == "skills" || name == "agents"
+                    || name == "commands" || name == "hooks" || name == "plugins" {
+                    continue;
                 }
-            }
-
-            // Oh_my_OpenClaude: 官方 cp -R Oh_my_OpenClaude ~/.claude/plugins/omo
-            // 然后运行 claude plugin install --path ~/.claude/plugins/omo
-            "ohmyopenclaude" => {
-                // 官方方式：整个仓库复制到 plugins/omo/
-                let plugin_dst = eco_dir.join("plugins").join("omo");
-                if !plugin_dst.exists() {
-                    Self::copy_dir_recursive(fw_dir, &plugin_dst)?;
+                // 将 CLAUDE.md 等文件移动到 Eco 根目录，加前缀
+                let dst_name = format!("{prefix}{name}");
+                let dst_path = eco_dir.join(&dst_name);
+                if entry.path().is_file() {
+                    fs::copy(entry.path(), &dst_path).map_err(|e| AppError::io(&dst_path, e))?;
                 }
-
-                // 同时将 agents/commands/hooks/skills 也复制到 Eco 对应目录
-                // 这样即使 plugin 系统未完全加载，文件也能通过 symlink 生效
-                for dir_name in &["agents", "commands", "hooks", "skills"] {
-                    let src = fw_dir.join(dir_name);
-                    if src.exists() && src.is_dir() {
-                        let dst = eco_dir.join(dir_name);
-                        fs::create_dir_all(&dst).map_err(|e| AppError::io(&dst, e))?;
-                        for entry in fs::read_dir(&src).map_err(|e| AppError::io(&src, e))? {
-                            let entry = entry.map_err(|e| AppError::io(&src, e))?;
-                            let name = entry.file_name().to_string_lossy().to_string();
-                            if name.starts_with('.') {
-                                continue;
-                            }
-                            let dst_path = dst.join(format!("omo-{name}"));
-                            if !dst_path.exists() {
-                                if entry.path().is_dir() {
-                                    Self::copy_dir_recursive(&entry.path(), &dst_path)?;
-                                } else {
-                                    fs::copy(&entry.path(), &dst_path).map_err(|e| AppError::io(&dst_path, e))?;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            _ => {
-                return Err(AppError::Message(format!("未知的 plugin 框架: {framework_id}")));
             }
         }
 
         Ok(())
     }
 
-    /// Script 方式安装（agency-agents-zh）
+    /// 运行 npx 安装命令
+    fn run_npx_command(
+        eco_dir: &PathBuf,
+        framework: &ecosystem_framework::FrameworkRegistry,
+        _fw_dir: &PathBuf,
+        _real_home: &PathBuf,
+    ) -> Result<(), AppError> {
+        let command = framework.install_command.as_deref().ok_or_else(|| {
+            AppError::Message(format!("框架 '{}' 未配置安装命令", framework.id))
+        })?;
+
+        let args: Vec<String> = framework.install_args.iter()
+            .map(|arg| Self::resolve_template(arg, eco_dir, _fw_dir, _real_home))
+            .collect();
+
+        let output = Command::new(command)
+            .args(&args)
+            .env("HOME", eco_dir)
+            .current_dir(eco_dir)
+            .output()
+            .map_err(|e| AppError::Message(format!("执行 npx 命令失败: {e}")))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return Err(AppError::Message(format!(
+                "npx 命令执行失败:\nstdout: {stdout}\nstderr: {stderr}"
+            )));
+        }
+
+        log::info!("npx 命令执行成功: {} {:?}", command, args);
+        Ok(())
+    }
+
+    /// 运行脚本安装命令
+    fn run_script_command(
+        eco_dir: &PathBuf,
+        framework: &ecosystem_framework::FrameworkRegistry,
+        fw_dir: &PathBuf,
+        _real_home: &PathBuf,
+    ) -> Result<(), AppError> {
+        let script_relative = framework.install_command.as_deref().ok_or_else(|| {
+            AppError::Message(format!("框架 '{}' 未配置安装脚本", framework.id))
+        })?;
+
+        let script_path = fw_dir.join(script_relative);
+        if !script_path.exists() {
+            return Err(AppError::Message(format!("安装脚本不存在: {}", script_path.display())));
+        }
+
+        let args: Vec<String> = framework.install_args.iter()
+            .map(|arg| Self::resolve_template(arg, eco_dir, fw_dir, _real_home))
+            .collect();
+
+        let mut cmd = Command::new("bash");
+        cmd.arg(&script_path)
+            .args(&args)
+            .env("HOME", eco_dir)
+            .current_dir(fw_dir);
+
+        // 添加额外环境变量
+        for (key, value) in &framework.install_env {
+            let resolved = Self::resolve_template(value, eco_dir, fw_dir, _real_home);
+            cmd.env(key, resolved);
+        }
+
+        let output = cmd.output()
+            .map_err(|e| AppError::Message(format!("执行脚本失败: {e}")))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return Err(AppError::Message(format!(
+                "脚本执行失败:\nstdout: {stdout}\nstderr: {stderr}"
+            )));
+        }
+
+        log::info!("脚本执行成功: {}", script_path.display());
+        Ok(())
+    }
+
+    /// 解析模板变量
+    fn resolve_template(template: &str, eco_dir: &PathBuf, fw_dir: &PathBuf, real_home: &PathBuf) -> String {
+        template
+            .replace("{eco_dir}", eco_dir.to_str().unwrap_or(""))
+            .replace("{fw_dir}", fw_dir.to_str().unwrap_or(""))
+            .replace("{real_home}", real_home.to_str().unwrap_or(""))
+    }
+
+    // ================================================================
+    // Plugin 方式安装（GDS 专用，无可用的外部 CLI 命令）
+    // ================================================================
+
+    /// Plugin 方式安装（GDS）
     ///
-    /// 官方方式：./scripts/install.sh --tool claude-code
-    /// 实际效果：扫描各分类目录中的 .md 文件，将有 YAML front matter 的文件
-    ///          复制到 ~/.claude/agents/（扁平结构，不保留子目录）
-    /// 我们的做法：运行 install.sh，但将目标目录设为 Eco 的 agents/ 目录
-    fn install_via_script(eco_dir: &PathBuf, framework_id: &str, fw_dir: &PathBuf) -> Result<(), AppError> {
-        match framework_id {
-            "agency-agents-zh" => {
-                let agents_dst = eco_dir.join("agents");
-                fs::create_dir_all(&agents_dst).map_err(|e| AppError::io(&agents_dst, e))?;
+    /// GDS 的 /plugin install 是 Claude Code 内部命令，无法从外部 shell 调用。
+    /// 因此保持手动复制方式：将仓库 skills/ 复制到 Eco 的 skills/ 目录，加前缀。
+    fn install_as_plugin(
+        eco_dir: &PathBuf,
+        framework: &ecosystem_framework::FrameworkRegistry,
+        fw_dir: &PathBuf,
+    ) -> Result<(), AppError> {
+        for dir_name in &framework.provided_dirs {
+            let src = fw_dir.join(dir_name);
+            if !src.exists() || !src.is_dir() {
+                continue;
+            }
+            let dst = eco_dir.join(dir_name);
+            fs::create_dir_all(&dst).map_err(|e| AppError::io(&dst, e))?;
 
-                // 尝试运行官方 install.sh，设置 CLAUDE_AGENTS_DIR 环境变量指向 Eco 目录
-                let script_path = fw_dir.join("scripts").join("install.sh");
-                if script_path.exists() {
-                    let output = Command::new("bash")
-                        .arg(&script_path)
-                        .arg("--tool")
-                        .arg("claude-code")
-                        .env("CLAUDE_AGENTS_DIR", &agents_dst)
-                        .env("HOME", eco_dir.parent().unwrap_or(eco_dir))
-                        .current_dir(fw_dir)
-                        .output();
-
-                    match output {
-                        Ok(out) if out.status.success() => {
-                            log::info!("agency-agents-zh install.sh 执行成功");
-                            return Ok(());
-                        }
-                        Ok(out) => {
-                            let stderr = String::from_utf8_lossy(&out.stderr);
-                            log::warn!("install.sh 执行失败: {stderr}，回退到手动复制");
-                        }
-                        Err(e) => {
-                            log::warn!("无法执行 install.sh: {e}，回退到手动复制");
-                        }
-                    }
-                }
-
-                // 回退方案：手动复制（模拟 install.sh 的行为）
-                // install.sh 会扫描各分类目录，将含 YAML front matter 的 .md 文件
-                // 扁平复制到 agents/ 目录
-                let categories = [
-                    "academic", "design", "engineering", "finance",
-                    "game-development", "hr", "integrations", "legal",
-                    "marketing", "paid-media", "product", "project-management",
-                    "sales", "spatial-computing", "specialized", "strategy",
-                    "supply-chain", "support", "testing",
-                ];
-
-                for cat in &categories {
-                    let cat_dir = fw_dir.join(cat);
-                    if !cat_dir.exists() || !cat_dir.is_dir() {
+            if let Ok(entries) = fs::read_dir(&src) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.starts_with('.') {
                         continue;
                     }
-                    Self::copy_agent_md_files(&cat_dir, &agents_dst, "agency-")?;
+                    let dst_name = format!("{}{}", framework.file_prefix, name);
+                    let dst_path = dst.join(&dst_name);
+                    if !dst_path.exists() {
+                        Self::copy_path_to(&entry.path(), &dst_path)?;
+                    }
                 }
             }
+        }
 
-            _ => {
-                return Err(AppError::Message(format!("未知的 script 框架: {framework_id}")));
+        Ok(())
+    }
+
+    // ================================================================
+    // 手动复制（回退方案）
+    // ================================================================
+
+    /// 手动复制框架文件到 Eco 目录（官方命令失败时的回退方案）
+    ///
+    /// 将仓库的 provided_dirs 中的文件复制到 Eco 对应目录，加前缀。
+    fn install_manual_copy(
+        eco_dir: &PathBuf,
+        framework: &ecosystem_framework::FrameworkRegistry,
+        fw_dir: &PathBuf,
+    ) -> Result<(), AppError> {
+        for dir_name in &framework.provided_dirs {
+            let src = fw_dir.join(dir_name);
+            if !src.exists() {
+                continue;
             }
+
+            // .claude-plugin 特殊处理：复制到 plugins/ 目录
+            if dir_name == ".claude-plugin" {
+                let plugin_dst = eco_dir.join("plugins").join(&framework.id);
+                if !plugin_dst.exists() {
+                    Self::copy_dir_recursive(&src, &plugin_dst)?;
+                }
+                continue;
+            }
+
+            if !src.is_dir() {
+                continue;
+            }
+
+            let dst = eco_dir.join(dir_name);
+            fs::create_dir_all(&dst).map_err(|e| AppError::io(&dst, e))?;
+
+            if let Ok(entries) = fs::read_dir(&src) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.starts_with('.') {
+                        continue;
+                    }
+                    let dst_name = format!("{}{}", framework.file_prefix, name);
+                    let dst_path = dst.join(&dst_name);
+                    if !dst_path.exists() {
+                        Self::copy_path_to(&entry.path(), &dst_path)?;
+                    }
+                }
+            }
+        }
+
+        // agency-agents-zh 特殊处理：需要递归扫描分类目录中的 .md 文件
+        if framework.id == "agency-agents-zh" {
+            Self::copy_agency_agents_fallback(fw_dir, eco_dir, &framework.file_prefix)?;
+        }
+
+        Ok(())
+    }
+
+    /// agency-agents-zh 回退方案：递归扫描分类目录，将含 YAML front matter 的 .md 文件扁平复制
+    fn copy_agency_agents_fallback(fw_dir: &PathBuf, eco_dir: &PathBuf, prefix: &str) -> Result<(), AppError> {
+        let agents_dst = eco_dir.join("agents");
+        fs::create_dir_all(&agents_dst).map_err(|e| AppError::io(&agents_dst, e))?;
+
+        for entry in fs::read_dir(fw_dir).map_err(|e| AppError::io(fw_dir, e))? {
+            let entry = entry.map_err(|e| AppError::io(fw_dir, e))?;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') || name == "scripts" || name == "frameworks" {
+                continue;
+            }
+            Self::copy_agent_md_files(&path, &agents_dst, prefix)?;
         }
 
         Ok(())
     }
 
     /// 递归扫描目录，将含 YAML front matter 的 .md 文件扁平复制到目标目录
-    /// 模拟 agency-agents-zh 的 install.sh 行为
     fn copy_agent_md_files(src_dir: &PathBuf, dst_dir: &PathBuf, prefix: &str) -> Result<(), AppError> {
         for entry in fs::read_dir(src_dir).map_err(|e| AppError::io(src_dir, e))? {
             let entry = entry.map_err(|e| AppError::io(src_dir, e))?;
@@ -629,16 +782,12 @@ impl EcosystemService {
             }
 
             if path.is_dir() && !Self::is_symlink(&path) {
-                // 递归子目录（如 game-development/unity/）
                 Self::copy_agent_md_files(&path, dst_dir, prefix)?;
             } else if path.is_file() && name.ends_with(".md") {
-                // 检查是否有 YAML front matter（以 --- 开头）
                 if let Ok(content) = fs::read_to_string(&path) {
                     if !content.starts_with("---") {
                         continue;
                     }
-
-                    // 添加前缀避免冲突
                     let dst_path = dst_dir.join(format!("{prefix}{name}"));
                     if !dst_path.exists() {
                         fs::copy(&path, &dst_path).map_err(|e| AppError::io(&dst_path, e))?;
@@ -650,37 +799,14 @@ impl EcosystemService {
         Ok(())
     }
 
-    /// 卸载 plugin 方式安装的框架
-    fn uninstall_plugin(eco_dir: &PathBuf, framework_id: &str) -> Result<(), AppError> {
-        let prefix = match framework_id {
-            "superpowers" => "superpowers-",
-            "gds" => "gds-",
-            "ohmyopenclaude" => "omo-",
-            _ => framework_id,
-        };
+    // ================================================================
+    // 卸载
+    // ================================================================
 
-        // 从 plugins/ 目录移除
-        let plugins_dir = eco_dir.join("plugins");
-        if plugins_dir.exists() {
-            match framework_id {
-                "superpowers" => {
-                    let p = plugins_dir.join("superpowers-swift");
-                    if p.exists() {
-                        fs::remove_dir_all(&p).map_err(|e| AppError::io(&p, e))?;
-                    }
-                }
-                "ohmyopenclaude" => {
-                    let p = plugins_dir.join("omo");
-                    if p.exists() {
-                        fs::remove_dir_all(&p).map_err(|e| AppError::io(&p, e))?;
-                    }
-                }
-                _ => {}
-            }
-        }
-
+    /// 按前缀卸载框架文件
+    fn uninstall_by_prefix(eco_dir: &PathBuf, prefix: &str, _framework_id: &str) -> Result<(), AppError> {
         // 从各隔离目录移除带前缀的文件
-        for dir_name in &["skills", "commands", "hooks", "agents"] {
+        for dir_name in ISOLATED_DIRS {
             let dir = eco_dir.join(dir_name);
             if !dir.exists() {
                 continue;
@@ -700,32 +826,20 @@ impl EcosystemService {
             }
         }
 
-        Ok(())
-    }
-
-    /// 卸载 script 方式安装的框架
-    fn uninstall_script(eco_dir: &PathBuf, framework_id: &str) -> Result<(), AppError> {
-        let prefix = match framework_id {
-            "agency-agents-zh" => "agency-",
-            _ => framework_id,
-        };
-
-        // 从 agents/ 目录移除带前缀的文件
-        let agents_dir = eco_dir.join("agents");
-        if agents_dir.exists() {
-            if let Ok(entries) = fs::read_dir(&agents_dir) {
-                for entry in entries.flatten() {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    if name.starts_with(prefix) {
-                        let path = entry.path();
-                        if path.is_dir() {
-                            fs::remove_dir_all(&path).map_err(|e| AppError::io(&path, e))?;
-                        } else {
-                            fs::remove_file(&path).map_err(|e| AppError::io(&path, e))?;
-                        }
-                    }
+        // 从 Eco 根目录移除带前缀的文件（如 CLAUDE.md 等）
+        if let Ok(entries) = fs::read_dir(eco_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with(prefix) && entry.path().is_file() {
+                    let _ = fs::remove_file(entry.path());
                 }
             }
+        }
+
+        // 清理可能残留的 .claude/ 目录
+        let eco_claude_dir = eco_dir.join(".claude");
+        if eco_claude_dir.exists() {
+            let _ = fs::remove_dir_all(&eco_claude_dir);
         }
 
         Ok(())
@@ -817,5 +931,18 @@ impl EcosystemService {
         fs::write(&eco_json_path, content).map_err(|e| AppError::io(&eco_json_path, e))?;
 
         Ok(())
+    }
+
+    /// 复制文件或目录到目标路径
+    fn copy_path_to(src: &PathBuf, dst: &PathBuf) -> Result<(), AppError> {
+        if src.is_dir() {
+            Self::copy_dir_recursive(src, dst)
+        } else {
+            if let Some(parent) = dst.parent() {
+                fs::create_dir_all(parent).map_err(|e| AppError::io(parent, e))?;
+            }
+            fs::copy(src, dst).map_err(|e| AppError::io(dst, e))?;
+            Ok(())
+        }
     }
 }
