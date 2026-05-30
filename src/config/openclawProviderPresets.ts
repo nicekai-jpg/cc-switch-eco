@@ -1610,7 +1610,8 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
   {
     name: "CrazyRouter",
     websiteUrl: "https://www.crazyrouter.com",
-    apiKeyUrl: "https://www.crazyrouter.com/register?aff=OZcm&ref=cc-switch-eco",
+    apiKeyUrl:
+      "https://www.crazyrouter.com/register?aff=OZcm&ref=cc-switch-eco",
     settingsConfig: {
       baseUrl: "https://cn.crazyrouter.com/v1",
       apiKey: "",

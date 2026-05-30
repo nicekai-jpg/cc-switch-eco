@@ -948,7 +948,8 @@ requires_openai_auth = true`,
   {
     name: "CrazyRouter",
     websiteUrl: "https://www.crazyrouter.com",
-    apiKeyUrl: "https://www.crazyrouter.com/register?aff=OZcm&ref=cc-switch-eco",
+    apiKeyUrl:
+      "https://www.crazyrouter.com/register?aff=OZcm&ref=cc-switch-eco",
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "crazyrouter",

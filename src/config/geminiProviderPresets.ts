@@ -162,7 +162,8 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
   {
     name: "CrazyRouter",
     websiteUrl: "https://www.crazyrouter.com",
-    apiKeyUrl: "https://www.crazyrouter.com/register?aff=OZcm&ref=cc-switch-eco",
+    apiKeyUrl:
+      "https://www.crazyrouter.com/register?aff=OZcm&ref=cc-switch-eco",
     settingsConfig: {
       env: {
         GOOGLE_GEMINI_BASE_URL: "https://cn.crazyrouter.com",

@@ -54,7 +54,12 @@ impl EcosystemService {
     }
 
     /// 创建新生态
-    pub fn create(state: &AppState, name: &str, description: &str, frameworks: Vec<String>) -> Result<Ecosystem, AppError> {
+    pub fn create(
+        state: &AppState,
+        name: &str,
+        description: &str,
+        frameworks: Vec<String>,
+    ) -> Result<Ecosystem, AppError> {
         let id = Self::sanitize_id(name);
 
         if state.db.ecosystem_exists(&id)? {
@@ -75,8 +80,10 @@ impl EcosystemService {
         fs::create_dir_all(&rootfiles_dir).map_err(|e| AppError::io(&rootfiles_dir, e))?;
 
         // 收集初始隔离信息（基于预选框架）
-        let mut isolated_dirs: std::collections::HashSet<String> = BASE_ISOLATED_DIRS.iter().map(|s| s.to_string()).collect();
-        let mut isolated_files: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut isolated_dirs: std::collections::HashSet<String> =
+            BASE_ISOLATED_DIRS.iter().map(|s| s.to_string()).collect();
+        let mut isolated_files: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         for fw_id in &frameworks {
             if let Some(fw) = ecosystem_framework::find_framework(fw_id) {
                 for dir in &fw.isolated_dirs {
@@ -98,8 +105,11 @@ impl EcosystemService {
             "frameworkDetails": {},
         });
         let eco_json_path = eco_dir.join("eco.json");
-        fs::write(&eco_json_path, serde_json::to_string_pretty(&eco_json).unwrap_or_default())
-            .map_err(|e| AppError::io(&eco_json_path, e))?;
+        fs::write(
+            &eco_json_path,
+            serde_json::to_string_pretty(&eco_json).unwrap_or_default(),
+        )
+        .map_err(|e| AppError::io(&eco_json_path, e))?;
 
         // 保存到 DB
         let now = chrono::Utc::now().timestamp_millis();
@@ -201,8 +211,7 @@ impl EcosystemService {
             if claude_path.exists() || Self::is_symlink(&claude_path) {
                 // 如果已经是 symlink，直接删除
                 if Self::is_symlink(&claude_path) {
-                    fs::remove_file(&claude_path)
-                        .map_err(|e| AppError::io(&claude_path, e))?;
+                    fs::remove_file(&claude_path).map_err(|e| AppError::io(&claude_path, e))?;
                 } else if claude_path.is_dir() {
                     // 如果是真实目录，需要先备份再替换
                     Self::backup_and_replace_dir(&claude_path, &eco_path, dir_name)?;
@@ -229,15 +238,16 @@ impl EcosystemService {
             // 如果 claude_path 已存在
             if claude_path.exists() || Self::is_symlink(&claude_path) {
                 if Self::is_symlink(&claude_path) {
-                    fs::remove_file(&claude_path)
-                        .map_err(|e| AppError::io(&claude_path, e))?;
+                    fs::remove_file(&claude_path).map_err(|e| AppError::io(&claude_path, e))?;
                 } else if claude_path.is_file() {
                     // 备份真实文件到 Eco 的 rootfiles（仅当 Eco 中还没有时）
-                    if fs::read_to_string(&eco_path).map(|s| s.is_empty()).unwrap_or(true) {
+                    if fs::read_to_string(&eco_path)
+                        .map(|s| s.is_empty())
+                        .unwrap_or(true)
+                    {
                         let _ = fs::copy(&claude_path, &eco_path);
                     }
-                    fs::remove_file(&claude_path)
-                        .map_err(|e| AppError::io(&claude_path, e))?;
+                    fs::remove_file(&claude_path).map_err(|e| AppError::io(&claude_path, e))?;
                 }
             }
 
@@ -252,12 +262,18 @@ impl EcosystemService {
     }
 
     /// 清理不再需要的旧 symlink
-    fn cleanup_stale_symlinks(claude_dir: &PathBuf, current_isolation: &EcoIsolation) -> Result<(), AppError> {
-        let current_dirs: std::collections::HashSet<&str> = current_isolation.dirs.iter().map(|s| s.as_str()).collect();
-        let current_files: std::collections::HashSet<&str> = current_isolation.files.iter().map(|s| s.as_str()).collect();
+    fn cleanup_stale_symlinks(
+        claude_dir: &PathBuf,
+        current_isolation: &EcoIsolation,
+    ) -> Result<(), AppError> {
+        let current_dirs: std::collections::HashSet<&str> =
+            current_isolation.dirs.iter().map(|s| s.as_str()).collect();
+        let current_files: std::collections::HashSet<&str> =
+            current_isolation.files.iter().map(|s| s.as_str()).collect();
 
         // 检查基础+扩展目录中不再需要的 symlink
-        let all_possible_dirs: Vec<&str> = BASE_ISOLATED_DIRS.iter()
+        let all_possible_dirs: Vec<&str> = BASE_ISOLATED_DIRS
+            .iter()
             .chain(std::iter::once(&"helpers"))
             .chain(std::iter::once(&"hud"))
             .chain(std::iter::once(&"get-shit-done"))
@@ -349,21 +365,23 @@ impl EcosystemService {
     fn create_symlink(target: &PathBuf, link: &PathBuf) -> Result<(), AppError> {
         #[cfg(target_family = "unix")]
         {
-            unix_fs::symlink(target, link)
-                .map_err(|e| AppError::Message(format!(
+            unix_fs::symlink(target, link).map_err(|e| {
+                AppError::Message(format!(
                     "创建符号链接失败: {} → {}: {e}",
                     link.display(),
                     target.display()
-                )))?;
+                ))
+            })?;
         }
         #[cfg(target_family = "windows")]
         {
-            windows_fs::symlink_dir(target, link)
-                .map_err(|e| AppError::Message(format!(
+            windows_fs::symlink_dir(target, link).map_err(|e| {
+                AppError::Message(format!(
                     "创建符号链接失败: {} → {}: {e}",
                     link.display(),
                     target.display()
-                )))?;
+                ))
+            })?;
         }
         Ok(())
     }
@@ -377,7 +395,8 @@ impl EcosystemService {
 
     /// 收集 Eco 的隔离信息（从已安装框架收集 isolated_dirs 和 isolated_files）
     fn collect_eco_isolation(eco_dir: &PathBuf) -> EcoIsolation {
-        let mut dirs: std::collections::HashSet<String> = BASE_ISOLATED_DIRS.iter().map(|s| s.to_string()).collect();
+        let mut dirs: std::collections::HashSet<String> =
+            BASE_ISOLATED_DIRS.iter().map(|s| s.to_string()).collect();
         let mut files: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         // 读取 eco.json 获取已安装框架
@@ -410,7 +429,13 @@ impl EcosystemService {
     /// 清理生态 ID（只保留字母、数字、连字符、下划线）
     fn sanitize_id(name: &str) -> String {
         name.chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '-'
+                }
+            })
             .collect::<String>()
             .to_lowercase()
     }
@@ -425,7 +450,11 @@ impl EcosystemService {
     /// 1. git clone 框架仓库到 frameworks/<id>/（获取源码，不可避免）
     /// 2. 按各框架官方推荐方式将文件安装到 Eco 隔离目录
     /// 3. 更新 eco.json
-    pub fn install_framework(state: &AppState, eco_id: &str, framework_id: &str) -> Result<(), AppError> {
+    pub fn install_framework(
+        state: &AppState,
+        eco_id: &str,
+        framework_id: &str,
+    ) -> Result<(), AppError> {
         let framework = ecosystem_framework::find_framework(framework_id)
             .ok_or_else(|| AppError::Message(format!("框架 '{framework_id}' 不存在")))?;
 
@@ -438,14 +467,24 @@ impl EcosystemService {
 
         // 检查是否已安装
         if fw_dir.exists() {
-            return Err(AppError::Message(format!("框架 '{framework_id}' 已安装在生态 '{eco_id}' 中")));
+            return Err(AppError::Message(format!(
+                "框架 '{framework_id}' 已安装在生态 '{eco_id}' 中"
+            )));
         }
 
         // Step 1: git clone 获取源码
         fs::create_dir_all(fw_dir.parent().unwrap()).map_err(|e| AppError::io(&fw_dir, e))?;
 
         let output = Command::new("git")
-            .args(["clone", "--depth", "1", "--branch", &framework.repo_branch, &framework.repo_url, fw_dir.to_str().unwrap_or("")])
+            .args([
+                "clone",
+                "--depth",
+                "1",
+                "--branch",
+                &framework.repo_branch,
+                &framework.repo_url,
+                fw_dir.to_str().unwrap_or(""),
+            ])
             .output()
             .map_err(|e| AppError::Message(format!("执行 git clone 失败: {e}")))?;
 
@@ -459,7 +498,10 @@ impl EcosystemService {
         let install_result = match framework.install_method.as_str() {
             "npx" | "script" => Self::install_via_official_command(&eco_dir, &framework, &fw_dir),
             "plugin" | "copy" => Self::install_manual_copy(&eco_dir, &framework, &fw_dir),
-            _ => Err(AppError::Message(format!("未知的安装方式: {}", framework.install_method))),
+            _ => Err(AppError::Message(format!(
+                "未知的安装方式: {}",
+                framework.install_method
+            ))),
         };
 
         // 官方命令失败时回退到手动复制
@@ -482,7 +524,11 @@ impl EcosystemService {
     }
 
     /// 卸载框架
-    pub fn uninstall_framework(state: &AppState, eco_id: &str, framework_id: &str) -> Result<(), AppError> {
+    pub fn uninstall_framework(
+        state: &AppState,
+        eco_id: &str,
+        framework_id: &str,
+    ) -> Result<(), AppError> {
         if !state.db.ecosystem_exists(eco_id)? {
             return Err(AppError::Message(format!("生态 '{eco_id}' 不存在")));
         }
@@ -491,13 +537,18 @@ impl EcosystemService {
         let fw_dir = eco_dir.join("frameworks").join(framework_id);
 
         if !fw_dir.exists() {
-            return Err(AppError::Message(format!("框架 '{framework_id}' 未安装在生态 '{eco_id}' 中")));
+            return Err(AppError::Message(format!(
+                "框架 '{framework_id}' 未安装在生态 '{eco_id}' 中"
+            )));
         }
 
         let framework = ecosystem_framework::find_framework(framework_id);
 
         // 统一使用前缀匹配卸载
-        let prefix = framework.as_ref().map(|f| f.file_prefix.as_str()).unwrap_or(framework_id);
+        let prefix = framework
+            .as_ref()
+            .map(|f| f.file_prefix.as_str())
+            .unwrap_or(framework_id);
         Self::uninstall_by_prefix(&eco_dir, prefix, framework_id)?;
 
         // 删除框架 git 仓库
@@ -511,7 +562,11 @@ impl EcosystemService {
     }
 
     /// 更新框架（git pull + 重新安装）
-    pub fn update_framework(state: &AppState, eco_id: &str, framework_id: &str) -> Result<(), AppError> {
+    pub fn update_framework(
+        state: &AppState,
+        eco_id: &str,
+        framework_id: &str,
+    ) -> Result<(), AppError> {
         if !state.db.ecosystem_exists(eco_id)? {
             return Err(AppError::Message(format!("生态 '{eco_id}' 不存在")));
         }
@@ -520,7 +575,9 @@ impl EcosystemService {
         let fw_dir = eco_dir.join("frameworks").join(framework_id);
 
         if !fw_dir.exists() {
-            return Err(AppError::Message(format!("框架 '{framework_id}' 未安装在生态 '{eco_id}' 中")));
+            return Err(AppError::Message(format!(
+                "框架 '{framework_id}' 未安装在生态 '{eco_id}' 中"
+            )));
         }
 
         // git pull 更新源码
@@ -546,7 +603,10 @@ impl EcosystemService {
         let install_result = match framework.install_method.as_str() {
             "npx" | "script" => Self::install_via_official_command(&eco_dir, &framework, &fw_dir),
             "plugin" | "copy" => Self::install_manual_copy(&eco_dir, &framework, &fw_dir),
-            _ => Err(AppError::Message(format!("未知的安装方式: {}", framework.install_method))),
+            _ => Err(AppError::Message(format!(
+                "未知的安装方式: {}",
+                framework.install_method
+            ))),
         };
 
         let install_result = match install_result {
@@ -576,14 +636,19 @@ impl EcosystemService {
             return Ok(vec![]);
         }
 
-        let content = fs::read_to_string(&eco_json_path)
-            .map_err(|e| AppError::io(&eco_json_path, e))?;
+        let content =
+            fs::read_to_string(&eco_json_path).map_err(|e| AppError::io(&eco_json_path, e))?;
         let json: serde_json::Value = serde_json::from_str(&content)
             .map_err(|e| AppError::Message(format!("解析 eco.json 失败: {e}")))?;
 
-        let frameworks = json.get("frameworks")
+        let frameworks = json
+            .get("frameworks")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
 
         Ok(frameworks)
@@ -622,7 +687,10 @@ impl EcosystemService {
         let result = match framework.install_method.as_str() {
             "npx" => Self::run_npx_command(eco_dir, framework, fw_dir, &real_home),
             "script" => Self::run_script_command(eco_dir, framework, fw_dir, &real_home),
-            _ => Err(AppError::Message(format!("不支持的安装方式: {}", framework.install_method))),
+            _ => Err(AppError::Message(format!(
+                "不支持的安装方式: {}",
+                framework.install_method
+            ))),
         };
 
         if let Err(e) = result {
@@ -671,22 +739,22 @@ impl EcosystemService {
                     let dst_path = dst_dir.join(&dst_name);
                     if dst_path.exists() {
                         if dst_path.is_dir() {
-                            fs::remove_dir_all(&dst_path).map_err(|e| AppError::io(&dst_path, e))?;
+                            fs::remove_dir_all(&dst_path)
+                                .map_err(|e| AppError::io(&dst_path, e))?;
                         } else {
                             fs::remove_file(&dst_path).map_err(|e| AppError::io(&dst_path, e))?;
                         }
                     }
-                    fs::rename(entry.path(), &dst_path)
-                        .or_else(|_| {
-                            // rename 跨设备可能失败，回退到 copy + remove
-                            Self::copy_path_to(&entry.path(), &dst_path)?;
-                            if entry.path().is_dir() {
-                                fs::remove_dir_all(entry.path())
-                            } else {
-                                fs::remove_file(entry.path())
-                            }
-                            .map_err(|e| AppError::io(&entry.path(), e))
-                        })?;
+                    fs::rename(entry.path(), &dst_path).or_else(|_| {
+                        // rename 跨设备可能失败，回退到 copy + remove
+                        Self::copy_path_to(&entry.path(), &dst_path)?;
+                        if entry.path().is_dir() {
+                            fs::remove_dir_all(entry.path())
+                        } else {
+                            fs::remove_file(entry.path())
+                        }
+                        .map_err(|e| AppError::io(&entry.path(), e))
+                    })?;
                 }
             }
         }
@@ -714,8 +782,8 @@ impl EcosystemService {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
                 // 跳过目录、隐藏文件、已处理的隔离文件
-                if name.starts_with('.') || entry.path().is_dir()
-                    || isolation.files.contains(&name) {
+                if name.starts_with('.') || entry.path().is_dir() || isolation.files.contains(&name)
+                {
                     continue;
                 }
                 // 跳过基础隔离目录
@@ -740,7 +808,11 @@ impl EcosystemService {
 
     /// 合并根文件（CLAUDE.md 追加，settings.json/mcp.json JSON merge）
     fn merge_root_file(src: &PathBuf, dst: &PathBuf, prefix: &str) -> Result<(), AppError> {
-        let file_name = dst.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let file_name = dst
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
 
         if file_name == "CLAUDE.md" {
             // CLAUDE.md: 追加内容，用分隔标记
@@ -757,10 +829,14 @@ impl EcosystemService {
             let src_content = fs::read_to_string(src).unwrap_or_default();
             let dst_content = fs::read_to_string(dst).unwrap_or_default();
 
-            let mut src_json: serde_json::Value = serde_json::from_str(&src_content).unwrap_or(serde_json::json!({}));
-            let mut dst_json: serde_json::Value = serde_json::from_str(&dst_content).unwrap_or(serde_json::json!({}));
+            let mut src_json: serde_json::Value =
+                serde_json::from_str(&src_content).unwrap_or(serde_json::json!({}));
+            let mut dst_json: serde_json::Value =
+                serde_json::from_str(&dst_content).unwrap_or(serde_json::json!({}));
 
-            if let (Some(src_obj), Some(dst_obj)) = (src_json.as_object_mut(), dst_json.as_object_mut()) {
+            if let (Some(src_obj), Some(dst_obj)) =
+                (src_json.as_object_mut(), dst_json.as_object_mut())
+            {
                 for (key, value) in src_obj {
                     // 只合并不存在的 key，避免覆盖其他框架的配置
                     if !dst_obj.contains_key(key) {
@@ -786,11 +862,14 @@ impl EcosystemService {
         _fw_dir: &PathBuf,
         _real_home: &PathBuf,
     ) -> Result<(), AppError> {
-        let command = framework.install_command.as_deref().ok_or_else(|| {
-            AppError::Message(format!("框架 '{}' 未配置安装命令", framework.id))
-        })?;
+        let command = framework
+            .install_command
+            .as_deref()
+            .ok_or_else(|| AppError::Message(format!("框架 '{}' 未配置安装命令", framework.id)))?;
 
-        let args: Vec<String> = framework.install_args.iter()
+        let args: Vec<String> = framework
+            .install_args
+            .iter()
             .map(|arg| Self::resolve_template(arg, eco_dir, _fw_dir, _real_home))
             .collect();
 
@@ -820,16 +899,22 @@ impl EcosystemService {
         fw_dir: &PathBuf,
         _real_home: &PathBuf,
     ) -> Result<(), AppError> {
-        let script_relative = framework.install_command.as_deref().ok_or_else(|| {
-            AppError::Message(format!("框架 '{}' 未配置安装脚本", framework.id))
-        })?;
+        let script_relative = framework
+            .install_command
+            .as_deref()
+            .ok_or_else(|| AppError::Message(format!("框架 '{}' 未配置安装脚本", framework.id)))?;
 
         let script_path = fw_dir.join(script_relative);
         if !script_path.exists() {
-            return Err(AppError::Message(format!("安装脚本不存在: {}", script_path.display())));
+            return Err(AppError::Message(format!(
+                "安装脚本不存在: {}",
+                script_path.display()
+            )));
         }
 
-        let args: Vec<String> = framework.install_args.iter()
+        let args: Vec<String> = framework
+            .install_args
+            .iter()
             .map(|arg| Self::resolve_template(arg, eco_dir, fw_dir, _real_home))
             .collect();
 
@@ -845,7 +930,8 @@ impl EcosystemService {
             cmd.env(key, resolved);
         }
 
-        let output = cmd.output()
+        let output = cmd
+            .output()
             .map_err(|e| AppError::Message(format!("执行脚本失败: {e}")))?;
 
         if !output.status.success() {
@@ -861,7 +947,12 @@ impl EcosystemService {
     }
 
     /// 解析模板变量
-    fn resolve_template(template: &str, eco_dir: &PathBuf, fw_dir: &PathBuf, real_home: &PathBuf) -> String {
+    fn resolve_template(
+        template: &str,
+        eco_dir: &PathBuf,
+        fw_dir: &PathBuf,
+        real_home: &PathBuf,
+    ) -> String {
         template
             .replace("{eco_dir}", eco_dir.to_str().unwrap_or(""))
             .replace("{fw_dir}", fw_dir.to_str().unwrap_or(""))
@@ -926,7 +1017,11 @@ impl EcosystemService {
     }
 
     /// agency-agents-zh 回退方案：递归扫描分类目录，将含 YAML front matter 的 .md 文件扁平复制
-    fn copy_agency_agents_fallback(fw_dir: &PathBuf, eco_dir: &PathBuf, prefix: &str) -> Result<(), AppError> {
+    fn copy_agency_agents_fallback(
+        fw_dir: &PathBuf,
+        eco_dir: &PathBuf,
+        prefix: &str,
+    ) -> Result<(), AppError> {
         let agents_dst = eco_dir.join("agents");
         fs::create_dir_all(&agents_dst).map_err(|e| AppError::io(&agents_dst, e))?;
 
@@ -947,7 +1042,11 @@ impl EcosystemService {
     }
 
     /// 递归扫描目录，将含 YAML front matter 的 .md 文件扁平复制到目标目录
-    fn copy_agent_md_files(src_dir: &PathBuf, dst_dir: &PathBuf, prefix: &str) -> Result<(), AppError> {
+    fn copy_agent_md_files(
+        src_dir: &PathBuf,
+        dst_dir: &PathBuf,
+        prefix: &str,
+    ) -> Result<(), AppError> {
         for entry in fs::read_dir(src_dir).map_err(|e| AppError::io(src_dir, e))? {
             let entry = entry.map_err(|e| AppError::io(src_dir, e))?;
             let path = entry.path();
@@ -980,7 +1079,11 @@ impl EcosystemService {
     // ================================================================
 
     /// 按前缀卸载框架文件
-    fn uninstall_by_prefix(eco_dir: &PathBuf, prefix: &str, framework_id: &str) -> Result<(), AppError> {
+    fn uninstall_by_prefix(
+        eco_dir: &PathBuf,
+        prefix: &str,
+        framework_id: &str,
+    ) -> Result<(), AppError> {
         // 收集当前 Eco 的隔离信息
         let isolation = Self::collect_eco_isolation(eco_dir);
 
@@ -1043,7 +1146,11 @@ impl EcosystemService {
 
     /// 从根文件中移除框架的内容
     fn remove_framework_from_rootfile(file_path: &PathBuf, prefix: &str) -> Result<(), AppError> {
-        let file_name = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let file_name = file_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
 
         if file_name == "CLAUDE.md" {
             // CLAUDE.md: 移除该框架的分隔段
@@ -1079,13 +1186,20 @@ impl EcosystemService {
             return Ok(());
         }
 
-        let content = fs::read_to_string(&eco_json_path)
-            .map_err(|e| AppError::io(&eco_json_path, e))?;
-        let mut json: serde_json::Value = serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
+        let content =
+            fs::read_to_string(&eco_json_path).map_err(|e| AppError::io(&eco_json_path, e))?;
+        let mut json: serde_json::Value =
+            serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
 
         if let Some(obj) = json.as_object_mut() {
-            obj.insert("isolatedDirs".to_string(), serde_json::json!(isolation.dirs));
-            obj.insert("isolatedFiles".to_string(), serde_json::json!(isolation.files));
+            obj.insert(
+                "isolatedDirs".to_string(),
+                serde_json::json!(isolation.dirs),
+            );
+            obj.insert(
+                "isolatedFiles".to_string(),
+                serde_json::json!(isolation.files),
+            );
         }
 
         let content = serde_json::to_string_pretty(&json).unwrap_or_default();
@@ -1110,12 +1224,16 @@ impl EcosystemService {
     }
 
     /// 更新 eco.json 中的框架信息
-    fn update_eco_json_frameworks(eco_dir: &PathBuf, framework_id: &str, commit_hash: &str) -> Result<(), AppError> {
+    fn update_eco_json_frameworks(
+        eco_dir: &PathBuf,
+        framework_id: &str,
+        commit_hash: &str,
+    ) -> Result<(), AppError> {
         let eco_json_path = eco_dir.join("eco.json");
 
         let mut json: serde_json::Value = if eco_json_path.exists() {
-            let content = fs::read_to_string(&eco_json_path)
-                .map_err(|e| AppError::io(&eco_json_path, e))?;
+            let content =
+                fs::read_to_string(&eco_json_path).map_err(|e| AppError::io(&eco_json_path, e))?;
             serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
         } else {
             serde_json::json!({})
@@ -1140,12 +1258,18 @@ impl EcosystemService {
         if !map.contains_key("frameworkDetails") {
             map.insert("frameworkDetails".to_string(), serde_json::json!({}));
         }
-        if let Some(obj) = map.get_mut("frameworkDetails").and_then(|v| v.as_object_mut()) {
+        if let Some(obj) = map
+            .get_mut("frameworkDetails")
+            .and_then(|v| v.as_object_mut())
+        {
             let now = chrono::Utc::now().timestamp_millis();
-            obj.insert(framework_id.to_string(), serde_json::json!({
-                "installedAt": now,
-                "commitHash": commit_hash,
-            }));
+            obj.insert(
+                framework_id.to_string(),
+                serde_json::json!({
+                    "installedAt": now,
+                    "commitHash": commit_hash,
+                }),
+            );
         }
 
         let content = serde_json::to_string_pretty(&json).unwrap_or_default();
@@ -1165,9 +1289,10 @@ impl EcosystemService {
             return Ok(());
         }
 
-        let content = fs::read_to_string(&eco_json_path)
-            .map_err(|e| AppError::io(&eco_json_path, e))?;
-        let mut json: serde_json::Value = serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
+        let content =
+            fs::read_to_string(&eco_json_path).map_err(|e| AppError::io(&eco_json_path, e))?;
+        let mut json: serde_json::Value =
+            serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
 
         // 从 frameworks 数组中移除
         if let Some(arr) = json.get_mut("frameworks").and_then(|v| v.as_array_mut()) {
@@ -1175,7 +1300,10 @@ impl EcosystemService {
         }
 
         // 从 frameworkDetails 中移除
-        if let Some(obj) = json.get_mut("frameworkDetails").and_then(|v| v.as_object_mut()) {
+        if let Some(obj) = json
+            .get_mut("frameworkDetails")
+            .and_then(|v| v.as_object_mut())
+        {
             obj.remove(framework_id);
         }
 

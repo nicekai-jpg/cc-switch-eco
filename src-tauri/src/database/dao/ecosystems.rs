@@ -97,14 +97,10 @@ impl Database {
 
         tx.execute("UPDATE ecosystems SET is_current = 0", [])
             .map_err(|e| AppError::Database(e.to_string()))?;
-        tx.execute(
-            "UPDATE ecosystems SET is_current = 1 WHERE id = ?1",
-            [id],
-        )
-        .map_err(|e| AppError::Database(e.to_string()))?;
-
-        tx.commit()
+        tx.execute("UPDATE ecosystems SET is_current = 1 WHERE id = ?1", [id])
             .map_err(|e| AppError::Database(e.to_string()))?;
+
+        tx.commit().map_err(|e| AppError::Database(e.to_string()))?;
         Ok(())
     }
 

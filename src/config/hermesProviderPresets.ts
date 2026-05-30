@@ -905,7 +905,8 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
   {
     name: "CrazyRouter",
     websiteUrl: "https://www.crazyrouter.com",
-    apiKeyUrl: "https://www.crazyrouter.com/register?aff=OZcm&ref=cc-switch-eco",
+    apiKeyUrl:
+      "https://www.crazyrouter.com/register?aff=OZcm&ref=cc-switch-eco",
     settingsConfig: {
       name: "crazyrouter",
       base_url: "https://cn.crazyrouter.com",

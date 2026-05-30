@@ -49,13 +49,19 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
         FrameworkRegistry {
             id: "superpowers".to_string(),
             name: "Superpowers 中文版".to_string(),
-            description: "AI 编程超能力中文增强版，20 个 skills（14 翻译 + 4 中国原创 + 2 上游保留）".to_string(),
+            description:
+                "AI 编程超能力中文增强版，20 个 skills（14 翻译 + 4 中国原创 + 2 上游保留）"
+                    .to_string(),
             repo_url: "https://github.com/jnMetaCode/superpowers-zh.git".to_string(),
             repo_branch: "main".to_string(),
             provided_dirs: vec!["skills".to_string(), ".claude-plugin".to_string()],
             install_method: "npx".to_string(),
             install_command: Some("npx".to_string()),
-            install_args: vec!["superpowers-zh".to_string(), "--tool".to_string(), "claude-code".to_string()],
+            install_args: vec![
+                "superpowers-zh".to_string(),
+                "--tool".to_string(),
+                "claude-code".to_string(),
+            ],
             install_env: vec![],
             isolated_dirs: vec![],
             isolated_files: vec!["CLAUDE.md".to_string()],
@@ -71,7 +77,10 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             install_method: "script".to_string(),
             install_command: Some("scripts/install.sh".to_string()),
             install_args: vec!["--tool".to_string(), "claude-code".to_string()],
-            install_env: vec![("CLAUDE_AGENTS_DIR".to_string(), "{eco_dir}/agents".to_string())],
+            install_env: vec![(
+                "CLAUDE_AGENTS_DIR".to_string(),
+                "{eco_dir}/agents".to_string(),
+            )],
             isolated_dirs: vec![],
             isolated_files: vec![],
             file_prefix: "agency-".to_string(),
@@ -79,7 +88,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
         FrameworkRegistry {
             id: "ohmyclaudecode".to_string(),
             name: "Oh My ClaudeCode".to_string(),
-            description: "Teams-first 多 Agent 编排框架，含 10 个 Agent、10 个命令、9 个 Hook".to_string(),
+            description: "Teams-first 多 Agent 编排框架，含 10 个 Agent、10 个命令、9 个 Hook"
+                .to_string(),
             repo_url: "https://github.com/Yeachan-Heo/oh-my-claudecode.git".to_string(),
             repo_branch: "main".to_string(),
             provided_dirs: vec![
@@ -91,7 +101,10 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             ],
             install_method: "npx".to_string(),
             install_command: Some("npx".to_string()),
-            install_args: vec!["oh-my-claude-sisyphus@latest".to_string(), "setup".to_string()],
+            install_args: vec![
+                "oh-my-claude-sisyphus@latest".to_string(),
+                "setup".to_string(),
+            ],
             install_env: vec![],
             isolated_dirs: vec!["hud".to_string()],
             isolated_files: vec!["CLAUDE.md".to_string(), "settings.json".to_string()],
@@ -100,28 +113,41 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
         FrameworkRegistry {
             id: "ruflo".to_string(),
             name: "Ruflo".to_string(),
-            description: "多 Agent AI 编排平台，100+ 专业 Agent 协同工作，含记忆系统和 MCP 服务器".to_string(),
+            description: "多 Agent AI 编排平台，100+ 专业 Agent 协同工作，含记忆系统和 MCP 服务器"
+                .to_string(),
             repo_url: "https://github.com/ruvnet/ruflo.git".to_string(),
             repo_branch: "main".to_string(),
-            provided_dirs: vec!["skills".to_string(), "agents".to_string(), "commands".to_string()],
+            provided_dirs: vec![
+                "skills".to_string(),
+                "agents".to_string(),
+                "commands".to_string(),
+            ],
             install_method: "npx".to_string(),
             install_command: Some("npx".to_string()),
             install_args: vec!["ruflo@latest".to_string(), "install".to_string()],
             install_env: vec![],
             isolated_dirs: vec!["helpers".to_string()],
-            isolated_files: vec!["CLAUDE.md".to_string(), "settings.json".to_string(), "mcp.json".to_string()],
+            isolated_files: vec![
+                "CLAUDE.md".to_string(),
+                "settings.json".to_string(),
+                "mcp.json".to_string(),
+            ],
             file_prefix: "ruflo-".to_string(),
         },
         FrameworkRegistry {
             id: "speckit".to_string(),
             name: "Spec Kit".to_string(),
-            description: "GitHub 官方规格驱动开发工具包，提供 specify/plan/tasks/implement 等命令".to_string(),
+            description: "GitHub 官方规格驱动开发工具包，提供 specify/plan/tasks/implement 等命令"
+                .to_string(),
             repo_url: "https://github.com/github/spec-kit.git".to_string(),
             repo_branch: "main".to_string(),
             provided_dirs: vec!["skills".to_string(), "commands".to_string()],
             install_method: "npx".to_string(),
             install_command: Some("npx".to_string()),
-            install_args: vec!["@anthropic-ai/spec-kit@latest".to_string(), "install".to_string()],
+            install_args: vec![
+                "@anthropic-ai/spec-kit@latest".to_string(),
+                "install".to_string(),
+            ],
             install_env: vec![],
             isolated_dirs: vec![],
             isolated_files: vec!["CLAUDE.md".to_string()],
@@ -175,7 +201,9 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
         FrameworkRegistry {
             id: "bmad-method".to_string(),
             name: "BMAD-METHOD".to_string(),
-            description: "AI 驱动的敏捷开发方法论，12+ 专家 Agent、34+ 工作流，覆盖产品到部署全周期".to_string(),
+            description:
+                "AI 驱动的敏捷开发方法论，12+ 专家 Agent、34+ 工作流，覆盖产品到部署全周期"
+                    .to_string(),
             repo_url: "https://github.com/bmad-code-org/BMAD-METHOD.git".to_string(),
             repo_branch: "main".to_string(),
             provided_dirs: vec!["skills".to_string(), "agents".to_string()],

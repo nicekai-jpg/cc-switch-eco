@@ -760,7 +760,8 @@ export const providerPresets: ProviderPreset[] = [
   {
     name: "CrazyRouter",
     websiteUrl: "https://www.crazyrouter.com",
-    apiKeyUrl: "https://www.crazyrouter.com/register?aff=OZcm&ref=cc-switch-eco",
+    apiKeyUrl:
+      "https://www.crazyrouter.com/register?aff=OZcm&ref=cc-switch-eco",
     settingsConfig: {
       env: {
         ANTHROPIC_BASE_URL: "https://cn.crazyrouter.com",

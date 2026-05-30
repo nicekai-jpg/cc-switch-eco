@@ -556,10 +556,7 @@ fn merge_ecosystem_fields(db: &Database, settings: &mut Value) -> Result<(), App
                     if let Some(settings_obj) = settings.as_object_mut() {
                         // 合并 enabledPlugins 数组
                         if let Some(eco_plugins) = plugins_obj.get("enabledPlugins") {
-                            settings_obj.insert(
-                                "enabledPlugins".to_string(),
-                                eco_plugins.clone(),
-                            );
+                            settings_obj.insert("enabledPlugins".to_string(), eco_plugins.clone());
                         }
                     }
                 }

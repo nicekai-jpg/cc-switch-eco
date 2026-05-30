@@ -37,8 +37,8 @@ pub(crate) use dao::proxy::{
     validate_cost_multiplier, validate_pricing_source, PRICING_SOURCE_REQUEST,
     PRICING_SOURCE_RESPONSE,
 };
-pub use dao::FailoverQueueItem;
 pub use dao::Ecosystem;
+pub use dao::FailoverQueueItem;
 
 use crate::config::get_app_config_dir;
 use crate::error::AppError;

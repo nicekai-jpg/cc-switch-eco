@@ -31,7 +31,9 @@ interface EcosystemPanelProps {
   onOpenChange?: (open: boolean) => void;
 }
 
-export function EcosystemPanel({ onOpenChange: _onOpenChange }: EcosystemPanelProps) {
+export function EcosystemPanel({
+  onOpenChange: _onOpenChange,
+}: EcosystemPanelProps) {
   const { t } = useTranslation();
   const { data: ecosystems, isLoading } = useAllEcosystems();
   const createMutation = useCreateEcosystem();
@@ -227,9 +229,7 @@ export function EcosystemPanel({ onOpenChange: _onOpenChange }: EcosystemPanelPr
                   setExpandedEco(expandedEco === eco.id ? null : eco.id)
                 }
                 onSwitch={handleSwitch}
-                onDelete={(id, name) =>
-                  setConfirmDelete({ id, name })
-                }
+                onDelete={(id, name) => setConfirmDelete({ id, name })}
                 switchPending={switchMutation.isPending}
               />
             ))}
@@ -278,9 +278,7 @@ function EcoCard({
   const handleInstall = async (frameworkId: string) => {
     try {
       await installMutation.mutateAsync({ ecoId: eco.id, frameworkId });
-      toast.success(
-        t("ecosystem.frameworkInstalled", { name: frameworkId }),
-      );
+      toast.success(t("ecosystem.frameworkInstalled", { name: frameworkId }));
     } catch (e: any) {
       toast.error(e?.toString() || t("ecosystem.frameworkInstallFailed"));
     }
@@ -289,9 +287,7 @@ function EcoCard({
   const handleUninstall = async (frameworkId: string) => {
     try {
       await uninstallMutation.mutateAsync({ ecoId: eco.id, frameworkId });
-      toast.success(
-        t("ecosystem.frameworkUninstalled", { name: frameworkId }),
-      );
+      toast.success(t("ecosystem.frameworkUninstalled", { name: frameworkId }));
     } catch (e: any) {
       toast.error(e?.toString() || t("ecosystem.frameworkUninstallFailed"));
     }
@@ -404,7 +400,10 @@ function EcoCard({
                     className="flex items-center justify-between p-2 rounded-lg bg-muted/50"
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <Package size={14} className="text-muted-foreground flex-shrink-0" />
+                      <Package
+                        size={14}
+                        className="text-muted-foreground flex-shrink-0"
+                      />
                       <div className="min-w-0">
                         <div className="text-sm font-medium truncate">
                           {fw?.name ?? fwId}
@@ -478,8 +477,9 @@ function EcoCard({
                     </Button>
                   </div>
                 ))}
-              {allFrameworks.filter((fw) => !installedFrameworks.includes(fw.id))
-                .length === 0 && (
+              {allFrameworks.filter(
+                (fw) => !installedFrameworks.includes(fw.id),
+              ).length === 0 && (
                 <div className="text-sm text-muted-foreground py-2">
                   {t("ecosystem.allFrameworksInstalled")}
                 </div>

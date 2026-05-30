@@ -22,8 +22,11 @@ export function useCreateEcosystem() {
       name,
       description,
       frameworks,
-    }: { name: string; description: string; frameworks?: string[] }) =>
-      ecosystemApi.create(name, description, frameworks ?? []),
+    }: {
+      name: string;
+      description: string;
+      frameworks?: string[];
+    }) => ecosystemApi.create(name, description, frameworks ?? []),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["ecosystems", "all"] });
     },
@@ -70,10 +73,17 @@ export function useEcosystemFrameworks(ecoId: string | undefined) {
 export function useInstallFramework() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ ecoId, frameworkId }: { ecoId: string; frameworkId: string }) =>
-      ecosystemApi.installFramework(ecoId, frameworkId),
+    mutationFn: ({
+      ecoId,
+      frameworkId,
+    }: {
+      ecoId: string;
+      frameworkId: string;
+    }) => ecosystemApi.installFramework(ecoId, frameworkId),
     onSuccess: (_, { ecoId }) => {
-      queryClient.invalidateQueries({ queryKey: ["ecosystems", "frameworks", ecoId] });
+      queryClient.invalidateQueries({
+        queryKey: ["ecosystems", "frameworks", ecoId],
+      });
       queryClient.invalidateQueries({ queryKey: ["ecosystems", "all"] });
     },
   });
@@ -82,10 +92,17 @@ export function useInstallFramework() {
 export function useUninstallFramework() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ ecoId, frameworkId }: { ecoId: string; frameworkId: string }) =>
-      ecosystemApi.uninstallFramework(ecoId, frameworkId),
+    mutationFn: ({
+      ecoId,
+      frameworkId,
+    }: {
+      ecoId: string;
+      frameworkId: string;
+    }) => ecosystemApi.uninstallFramework(ecoId, frameworkId),
     onSuccess: (_, { ecoId }) => {
-      queryClient.invalidateQueries({ queryKey: ["ecosystems", "frameworks", ecoId] });
+      queryClient.invalidateQueries({
+        queryKey: ["ecosystems", "frameworks", ecoId],
+      });
       queryClient.invalidateQueries({ queryKey: ["ecosystems", "all"] });
     },
   });
@@ -94,10 +111,17 @@ export function useUninstallFramework() {
 export function useUpdateFramework() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ ecoId, frameworkId }: { ecoId: string; frameworkId: string }) =>
-      ecosystemApi.updateFramework(ecoId, frameworkId),
+    mutationFn: ({
+      ecoId,
+      frameworkId,
+    }: {
+      ecoId: string;
+      frameworkId: string;
+    }) => ecosystemApi.updateFramework(ecoId, frameworkId),
     onSuccess: (_, { ecoId }) => {
-      queryClient.invalidateQueries({ queryKey: ["ecosystems", "frameworks", ecoId] });
+      queryClient.invalidateQueries({
+        queryKey: ["ecosystems", "frameworks", ecoId],
+      });
     },
   });
 }

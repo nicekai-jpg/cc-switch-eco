@@ -24,12 +24,16 @@ pub async fn delete_ecosystem(state: State<'_, AppState>, id: String) -> Result<
 }
 
 #[tauri::command]
-pub async fn list_ecosystems(state: State<'_, AppState>) -> Result<Vec<crate::database::Ecosystem>, String> {
+pub async fn list_ecosystems(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::database::Ecosystem>, String> {
     EcosystemService::list(&state).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn get_current_ecosystem(state: State<'_, AppState>) -> Result<Option<crate::database::Ecosystem>, String> {
+pub async fn get_current_ecosystem(
+    state: State<'_, AppState>,
+) -> Result<Option<crate::database::Ecosystem>, String> {
     EcosystemService::get_current(&state).map_err(|e| e.to_string())
 }
 
