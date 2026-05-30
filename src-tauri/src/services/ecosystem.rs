@@ -15,7 +15,7 @@ use std::fs;
 use std::os::unix::fs as unix_fs;
 #[cfg(target_family = "windows")]
 use std::os::windows::fs as windows_fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::config::get_app_config_dir;
@@ -263,7 +263,7 @@ impl EcosystemService {
 
     /// 清理不再需要的旧 symlink
     fn cleanup_stale_symlinks(
-        claude_dir: &PathBuf,
+        claude_dir: &Path,
         current_isolation: &EcoIsolation,
     ) -> Result<(), AppError> {
         let current_dirs: std::collections::HashSet<&str> =
@@ -311,8 +311,8 @@ impl EcosystemService {
 
     /// 备份真实目录内容到生态目录，然后删除真实目录
     fn backup_and_replace_dir(
-        claude_path: &PathBuf,
-        eco_path: &PathBuf,
+        claude_path: &Path,
+        eco_path: &Path,
         dir_name: &str,
     ) -> Result<(), AppError> {
         // 将真实目录的内容复制到生态目录
@@ -328,10 +328,8 @@ impl EcosystemService {
                         continue;
                     }
                     Self::copy_dir_recursive(&src, &dst)?;
-                } else if src.is_file() {
-                    if !dst.exists() {
-                        fs::copy(&src, &dst).map_err(|e| AppError::io(&dst, e))?;
-                    }
+                } else if src.is_file() && !dst.exists() {
+                    fs::copy(&src, &dst).map_err(|e| AppError::io(&dst, e))?;
                 }
                 // 跳过 symlink（避免递归）
             }
@@ -345,7 +343,7 @@ impl EcosystemService {
     }
 
     /// 递归复制目录
-    fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), AppError> {
+    fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), AppError> {
         fs::create_dir_all(dst).map_err(|e| AppError::io(dst, e))?;
         for entry in fs::read_dir(src).map_err(|e| AppError::io(src, e))? {
             let entry = entry.map_err(|e| AppError::io(src, e))?;
@@ -362,7 +360,7 @@ impl EcosystemService {
     }
 
     /// 创建符号链接
-    fn create_symlink(target: &PathBuf, link: &PathBuf) -> Result<(), AppError> {
+    fn create_symlink(target: &Path, link: &Path) -> Result<(), AppError> {
         #[cfg(target_family = "unix")]
         {
             unix_fs::symlink(target, link).map_err(|e| {
@@ -387,14 +385,14 @@ impl EcosystemService {
     }
 
     /// 检查路径是否是符号链接
-    fn is_symlink(path: &PathBuf) -> bool {
+    fn is_symlink(path: &Path) -> bool {
         fs::symlink_metadata(path)
             .map(|m| m.is_symlink())
             .unwrap_or(false)
     }
 
     /// 收集 Eco 的隔离信息（从已安装框架收集 isolated_dirs 和 isolated_files）
-    fn collect_eco_isolation(eco_dir: &PathBuf) -> EcoIsolation {
+    fn collect_eco_isolation(eco_dir: &Path) -> EcoIsolation {
         let mut dirs: std::collections::HashSet<String> =
             BASE_ISOLATED_DIRS.iter().map(|s| s.to_string()).collect();
         let mut files: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -666,20 +664,20 @@ impl EcosystemService {
     /// 3. 将 .claude/ 中的文件移动到 Eco 的 skills/agents/commands/hooks/ 目录，加前缀
     /// 4. 清理 Eco 的 .claude/ 目录
     fn install_via_official_command(
-        eco_dir: &PathBuf,
+        eco_dir: &Path,
         framework: &ecosystem_framework::FrameworkRegistry,
-        fw_dir: &PathBuf,
+        fw_dir: &Path,
     ) -> Result<(), AppError> {
         // Step 1: 在 Eco 目录下创建 .claude/ 目录结构，供 HOME 重定向使用
         let eco_claude_dir = eco_dir.join(".claude");
         for sub_dir in &["skills", "agents", "commands", "hooks", "plugins"] {
             fs::create_dir_all(eco_claude_dir.join(sub_dir))
-                .map_err(|e| AppError::io(&eco_claude_dir.join(sub_dir), e))?;
+                .map_err(|e| AppError::io(eco_claude_dir.join(sub_dir), e))?;
         }
         // 创建框架声明的扩展隔离目录
         for isolated_dir in &framework.isolated_dirs {
             fs::create_dir_all(eco_claude_dir.join(isolated_dir))
-                .map_err(|e| AppError::io(&eco_claude_dir.join(isolated_dir), e))?;
+                .map_err(|e| AppError::io(eco_claude_dir.join(isolated_dir), e))?;
         }
 
         // Step 2: 运行官方安装命令
@@ -714,8 +712,8 @@ impl EcosystemService {
     /// 例如：.claude/skills/brainstorming/ → skills/superpowers-brainstorming/
     /// 根文件（如 CLAUDE.md、settings.json）移动到 rootfiles/ 目录
     fn move_claude_files_to_eco(
-        eco_claude_dir: &PathBuf,
-        eco_dir: &PathBuf,
+        eco_claude_dir: &Path,
+        eco_dir: &Path,
         prefix: &str,
     ) -> Result<(), AppError> {
         // 收集所有需要处理的目录（基础 + 框架扩展）
@@ -753,7 +751,7 @@ impl EcosystemService {
                         } else {
                             fs::remove_file(entry.path())
                         }
-                        .map_err(|e| AppError::io(&entry.path(), e))
+                        .map_err(|e| AppError::io(entry.path(), e))
                     })?;
                 }
             }
@@ -807,7 +805,7 @@ impl EcosystemService {
     }
 
     /// 合并根文件（CLAUDE.md 追加，settings.json/mcp.json JSON merge）
-    fn merge_root_file(src: &PathBuf, dst: &PathBuf, prefix: &str) -> Result<(), AppError> {
+    fn merge_root_file(src: &Path, dst: &Path, prefix: &str) -> Result<(), AppError> {
         let file_name = dst
             .file_name()
             .unwrap_or_default()
@@ -857,10 +855,10 @@ impl EcosystemService {
 
     /// 运行 npx 安装命令
     fn run_npx_command(
-        eco_dir: &PathBuf,
+        eco_dir: &Path,
         framework: &ecosystem_framework::FrameworkRegistry,
-        _fw_dir: &PathBuf,
-        _real_home: &PathBuf,
+        _fw_dir: &Path,
+        _real_home: &Path,
     ) -> Result<(), AppError> {
         let command = framework
             .install_command
@@ -894,10 +892,10 @@ impl EcosystemService {
 
     /// 运行脚本安装命令
     fn run_script_command(
-        eco_dir: &PathBuf,
+        eco_dir: &Path,
         framework: &ecosystem_framework::FrameworkRegistry,
-        fw_dir: &PathBuf,
-        _real_home: &PathBuf,
+        fw_dir: &Path,
+        _real_home: &Path,
     ) -> Result<(), AppError> {
         let script_relative = framework
             .install_command
@@ -947,12 +945,7 @@ impl EcosystemService {
     }
 
     /// 解析模板变量
-    fn resolve_template(
-        template: &str,
-        eco_dir: &PathBuf,
-        fw_dir: &PathBuf,
-        real_home: &PathBuf,
-    ) -> String {
+    fn resolve_template(template: &str, eco_dir: &Path, fw_dir: &Path, real_home: &Path) -> String {
         template
             .replace("{eco_dir}", eco_dir.to_str().unwrap_or(""))
             .replace("{fw_dir}", fw_dir.to_str().unwrap_or(""))
@@ -967,9 +960,9 @@ impl EcosystemService {
     ///
     /// 将仓库的 provided_dirs 中的文件复制到 Eco 对应目录，加前缀。
     fn install_manual_copy(
-        eco_dir: &PathBuf,
+        eco_dir: &Path,
         framework: &ecosystem_framework::FrameworkRegistry,
-        fw_dir: &PathBuf,
+        fw_dir: &Path,
     ) -> Result<(), AppError> {
         for dir_name in &framework.provided_dirs {
             let src = fw_dir.join(dir_name);
@@ -1018,8 +1011,8 @@ impl EcosystemService {
 
     /// agency-agents-zh 回退方案：递归扫描分类目录，将含 YAML front matter 的 .md 文件扁平复制
     fn copy_agency_agents_fallback(
-        fw_dir: &PathBuf,
-        eco_dir: &PathBuf,
+        fw_dir: &Path,
+        eco_dir: &Path,
         prefix: &str,
     ) -> Result<(), AppError> {
         let agents_dst = eco_dir.join("agents");
@@ -1042,11 +1035,7 @@ impl EcosystemService {
     }
 
     /// 递归扫描目录，将含 YAML front matter 的 .md 文件扁平复制到目标目录
-    fn copy_agent_md_files(
-        src_dir: &PathBuf,
-        dst_dir: &PathBuf,
-        prefix: &str,
-    ) -> Result<(), AppError> {
+    fn copy_agent_md_files(src_dir: &Path, dst_dir: &Path, prefix: &str) -> Result<(), AppError> {
         for entry in fs::read_dir(src_dir).map_err(|e| AppError::io(src_dir, e))? {
             let entry = entry.map_err(|e| AppError::io(src_dir, e))?;
             let path = entry.path();
@@ -1080,7 +1069,7 @@ impl EcosystemService {
 
     /// 按前缀卸载框架文件
     fn uninstall_by_prefix(
-        eco_dir: &PathBuf,
+        eco_dir: &Path,
         prefix: &str,
         framework_id: &str,
     ) -> Result<(), AppError> {
@@ -1145,7 +1134,7 @@ impl EcosystemService {
     }
 
     /// 从根文件中移除框架的内容
-    fn remove_framework_from_rootfile(file_path: &PathBuf, prefix: &str) -> Result<(), AppError> {
+    fn remove_framework_from_rootfile(file_path: &Path, prefix: &str) -> Result<(), AppError> {
         let file_name = file_path
             .file_name()
             .unwrap_or_default()
@@ -1178,7 +1167,7 @@ impl EcosystemService {
     }
 
     /// 更新 eco.json 的隔离列表
-    fn update_eco_json_isolation(eco_dir: &PathBuf) -> Result<(), AppError> {
+    fn update_eco_json_isolation(eco_dir: &Path) -> Result<(), AppError> {
         let isolation = Self::collect_eco_isolation(eco_dir);
         let eco_json_path = eco_dir.join("eco.json");
 
@@ -1209,7 +1198,7 @@ impl EcosystemService {
     }
 
     /// 获取 git 仓库的当前 commit hash
-    fn get_git_commit_hash(repo_dir: &PathBuf) -> Option<String> {
+    fn get_git_commit_hash(repo_dir: &Path) -> Option<String> {
         let output = Command::new("git")
             .args(["rev-parse", "--short", "HEAD"])
             .current_dir(repo_dir)
@@ -1225,7 +1214,7 @@ impl EcosystemService {
 
     /// 更新 eco.json 中的框架信息
     fn update_eco_json_frameworks(
-        eco_dir: &PathBuf,
+        eco_dir: &Path,
         framework_id: &str,
         commit_hash: &str,
     ) -> Result<(), AppError> {
@@ -1282,7 +1271,7 @@ impl EcosystemService {
     }
 
     /// 从 eco.json 中移除框架信息
-    fn remove_eco_json_framework(eco_dir: &PathBuf, framework_id: &str) -> Result<(), AppError> {
+    fn remove_eco_json_framework(eco_dir: &Path, framework_id: &str) -> Result<(), AppError> {
         let eco_json_path = eco_dir.join("eco.json");
 
         if !eco_json_path.exists() {
@@ -1314,7 +1303,7 @@ impl EcosystemService {
     }
 
     /// 复制文件或目录到目标路径
-    fn copy_path_to(src: &PathBuf, dst: &PathBuf) -> Result<(), AppError> {
+    fn copy_path_to(src: &Path, dst: &Path) -> Result<(), AppError> {
         if src.is_dir() {
             Self::copy_dir_recursive(src, dst)
         } else {
