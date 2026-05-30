@@ -35,6 +35,10 @@ pub struct FrameworkRegistry {
     pub install_args: Vec<String>,
     /// 额外环境变量（key=变量名, value=模版值，支持同上模版变量）
     pub install_env: Vec<(String, String)>,
+    /// 框架需要隔离的子目录（相对于 ~/.claude/，如 "helpers"、"hud"）
+    pub isolated_dirs: Vec<String>,
+    /// 框架需要隔离的根文件（相对于 ~/.claude/，如 "CLAUDE.md"、"settings.json"）
+    pub isolated_files: Vec<String>,
     /// 安装文件前缀（用于移动到 Eco 目录时加前缀，如 "superpowers-"）
     pub file_prefix: String,
 }
@@ -53,6 +57,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             install_command: Some("npx".to_string()),
             install_args: vec!["superpowers-zh".to_string(), "--tool".to_string(), "claude-code".to_string()],
             install_env: vec![],
+            isolated_dirs: vec![],
+            isolated_files: vec!["CLAUDE.md".to_string()],
             file_prefix: "superpowers-".to_string(),
         },
         FrameworkRegistry {
@@ -66,6 +72,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             install_command: Some("scripts/install.sh".to_string()),
             install_args: vec!["--tool".to_string(), "claude-code".to_string()],
             install_env: vec![("CLAUDE_AGENTS_DIR".to_string(), "{eco_dir}/agents".to_string())],
+            isolated_dirs: vec![],
+            isolated_files: vec![],
             file_prefix: "agency-".to_string(),
         },
         FrameworkRegistry {
@@ -85,6 +93,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             install_command: Some("npx".to_string()),
             install_args: vec!["oh-my-claude-sisyphus@latest".to_string(), "setup".to_string()],
             install_env: vec![],
+            isolated_dirs: vec!["hud".to_string()],
+            isolated_files: vec!["CLAUDE.md".to_string(), "settings.json".to_string()],
             file_prefix: "omc-".to_string(),
         },
         FrameworkRegistry {
@@ -98,6 +108,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             install_command: Some("npx".to_string()),
             install_args: vec!["ruflo@latest".to_string(), "install".to_string()],
             install_env: vec![],
+            isolated_dirs: vec!["helpers".to_string()],
+            isolated_files: vec!["CLAUDE.md".to_string(), "settings.json".to_string(), "mcp.json".to_string()],
             file_prefix: "ruflo-".to_string(),
         },
         FrameworkRegistry {
@@ -111,6 +123,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             install_command: Some("npx".to_string()),
             install_args: vec!["@anthropic-ai/spec-kit@latest".to_string(), "install".to_string()],
             install_env: vec![],
+            isolated_dirs: vec![],
+            isolated_files: vec!["CLAUDE.md".to_string()],
             file_prefix: "speckit-".to_string(),
         },
         FrameworkRegistry {
@@ -124,6 +138,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             install_command: None,
             install_args: vec![],
             install_env: vec![],
+            isolated_dirs: vec![],
+            isolated_files: vec![],
             file_prefix: "mp-".to_string(),
         },
         FrameworkRegistry {
@@ -137,6 +153,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             install_command: Some("npx".to_string()),
             install_args: vec!["gstack@latest".to_string(), "install".to_string()],
             install_env: vec![],
+            isolated_dirs: vec![],
+            isolated_files: vec!["settings.json".to_string()],
             file_prefix: "gstack-".to_string(),
         },
         FrameworkRegistry {
@@ -150,6 +168,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             install_command: Some("npx".to_string()),
             install_args: vec!["openspec@latest".to_string(), "install".to_string()],
             install_env: vec![],
+            isolated_dirs: vec![],
+            isolated_files: vec![],
             file_prefix: "openspec-".to_string(),
         },
         FrameworkRegistry {
@@ -163,6 +183,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             install_command: Some("npx".to_string()),
             install_args: vec!["bmad-method@latest".to_string(), "install".to_string()],
             install_env: vec![],
+            isolated_dirs: vec![],
+            isolated_files: vec![],
             file_prefix: "bmad-".to_string(),
         },
         FrameworkRegistry {
@@ -176,6 +198,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             install_command: Some("npx".to_string()),
             install_args: vec!["get-shit-done@latest".to_string(), "install".to_string()],
             install_env: vec![],
+            isolated_dirs: vec!["get-shit-done".to_string()],
+            isolated_files: vec!["settings.json".to_string()],
             file_prefix: "gsd-".to_string(),
         },
     ]

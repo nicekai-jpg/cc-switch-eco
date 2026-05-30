@@ -24,8 +24,16 @@ use crate::error::AppError;
 use crate::services::ecosystem_framework;
 use crate::store::AppState;
 
-/// 需要隔离的目录列表
-const ISOLATED_DIRS: &[&str] = &["skills", "commands", "hooks", "agents", "plugins"];
+/// 基础隔离目录列表（始终隔离）
+const BASE_ISOLATED_DIRS: &[&str] = &["skills", "commands", "hooks", "agents", "plugins"];
+
+/// Eco 隔离信息（从已安装框架收集）
+struct EcoIsolation {
+    /// 需要隔离的目录列表（基础 + 扩展）
+    dirs: Vec<String>,
+    /// 需要隔离的根文件列表
+    files: Vec<String>,
+}
 
 pub struct EcosystemService;
 
@@ -57,16 +65,35 @@ impl EcosystemService {
         let eco_dir = Self::ecosystem_dir(&id);
         fs::create_dir_all(&eco_dir).map_err(|e| AppError::io(&eco_dir, e))?;
 
-        for dir_name in ISOLATED_DIRS {
+        for dir_name in BASE_ISOLATED_DIRS {
             let sub_dir = eco_dir.join(dir_name);
             fs::create_dir_all(&sub_dir).map_err(|e| AppError::io(&sub_dir, e))?;
+        }
+
+        // 创建 rootfiles 目录（用于隔离根文件如 CLAUDE.md、settings.json）
+        let rootfiles_dir = eco_dir.join("rootfiles");
+        fs::create_dir_all(&rootfiles_dir).map_err(|e| AppError::io(&rootfiles_dir, e))?;
+
+        // 收集初始隔离信息（基于预选框架）
+        let mut isolated_dirs: std::collections::HashSet<String> = BASE_ISOLATED_DIRS.iter().map(|s| s.to_string()).collect();
+        let mut isolated_files: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for fw_id in &frameworks {
+            if let Some(fw) = ecosystem_framework::find_framework(fw_id) {
+                for dir in &fw.isolated_dirs {
+                    isolated_dirs.insert(dir.clone());
+                }
+                for file in &fw.isolated_files {
+                    isolated_files.insert(file.clone());
+                }
+            }
         }
 
         // 创建 eco.json 元数据文件
         let eco_json = serde_json::json!({
             "name": name,
             "description": description,
-            "isolatedDirs": ISOLATED_DIRS,
+            "isolatedDirs": isolated_dirs.into_iter().collect::<Vec<_>>(),
+            "isolatedFiles": isolated_files.into_iter().collect::<Vec<_>>(),
             "frameworks": frameworks,
             "frameworkDetails": {},
         });
@@ -160,8 +187,10 @@ impl EcosystemService {
     fn switch_symlinks(id: &str) -> Result<(), AppError> {
         let claude_dir = Self::claude_dir();
         let eco_dir = Self::ecosystem_dir(id);
+        let isolation = Self::collect_eco_isolation(&eco_dir);
 
-        for dir_name in ISOLATED_DIRS {
+        // 切换目录 symlink（基础 + 扩展）
+        for dir_name in &isolation.dirs {
             let claude_path = claude_dir.join(dir_name);
             let eco_path = eco_dir.join(dir_name);
 
@@ -182,6 +211,83 @@ impl EcosystemService {
 
             // 创建 symlink
             Self::create_symlink(&eco_path, &claude_path)?;
+        }
+
+        // 切换根文件 symlink（如 CLAUDE.md、settings.json、mcp.json）
+        let rootfiles_dir = eco_dir.join("rootfiles");
+        fs::create_dir_all(&rootfiles_dir).map_err(|e| AppError::io(&rootfiles_dir, e))?;
+
+        for file_name in &isolation.files {
+            let claude_path = claude_dir.join(file_name);
+            let eco_path = rootfiles_dir.join(file_name);
+
+            // 如果 Eco 的 rootfiles 中没有该文件，创建空文件
+            if !eco_path.exists() {
+                fs::write(&eco_path, "").map_err(|e| AppError::io(&eco_path, e))?;
+            }
+
+            // 如果 claude_path 已存在
+            if claude_path.exists() || Self::is_symlink(&claude_path) {
+                if Self::is_symlink(&claude_path) {
+                    fs::remove_file(&claude_path)
+                        .map_err(|e| AppError::io(&claude_path, e))?;
+                } else if claude_path.is_file() {
+                    // 备份真实文件到 Eco 的 rootfiles（仅当 Eco 中还没有时）
+                    if fs::read_to_string(&eco_path).map(|s| s.is_empty()).unwrap_or(true) {
+                        let _ = fs::copy(&claude_path, &eco_path);
+                    }
+                    fs::remove_file(&claude_path)
+                        .map_err(|e| AppError::io(&claude_path, e))?;
+                }
+            }
+
+            // 创建 symlink
+            Self::create_symlink(&eco_path, &claude_path)?;
+        }
+
+        // 清理不再需要的旧 symlink（之前 Eco 隔离但当前 Eco 不需要的）
+        Self::cleanup_stale_symlinks(&claude_dir, &isolation)?;
+
+        Ok(())
+    }
+
+    /// 清理不再需要的旧 symlink
+    fn cleanup_stale_symlinks(claude_dir: &PathBuf, current_isolation: &EcoIsolation) -> Result<(), AppError> {
+        let current_dirs: std::collections::HashSet<&str> = current_isolation.dirs.iter().map(|s| s.as_str()).collect();
+        let current_files: std::collections::HashSet<&str> = current_isolation.files.iter().map(|s| s.as_str()).collect();
+
+        // 检查基础+扩展目录中不再需要的 symlink
+        let all_possible_dirs: Vec<&str> = BASE_ISOLATED_DIRS.iter()
+            .chain(std::iter::once(&"helpers"))
+            .chain(std::iter::once(&"hud"))
+            .chain(std::iter::once(&"get-shit-done"))
+            .copied()
+            .collect();
+
+        for dir_name in all_possible_dirs {
+            if current_dirs.contains(dir_name) {
+                continue;
+            }
+            let claude_path = claude_dir.join(dir_name);
+            if Self::is_symlink(&claude_path) {
+                // 指向 Eco 目录的 symlink，当前不需要了，删除并恢复为真实目录
+                let _ = fs::remove_file(&claude_path);
+                let _ = fs::create_dir_all(&claude_path);
+            }
+        }
+
+        // 检查根文件中不再需要的 symlink
+        let all_possible_files = ["CLAUDE.md", "settings.json", "mcp.json"];
+        for file_name in all_possible_files {
+            if current_files.contains(file_name) {
+                continue;
+            }
+            let claude_path = claude_dir.join(file_name);
+            if Self::is_symlink(&claude_path) {
+                // 指向 Eco rootfiles 的 symlink，当前不需要了，删除并恢复为空文件
+                let _ = fs::remove_file(&claude_path);
+                let _ = fs::write(&claude_path, "");
+            }
         }
 
         Ok(())
@@ -267,6 +373,38 @@ impl EcosystemService {
         fs::symlink_metadata(path)
             .map(|m| m.is_symlink())
             .unwrap_or(false)
+    }
+
+    /// 收集 Eco 的隔离信息（从已安装框架收集 isolated_dirs 和 isolated_files）
+    fn collect_eco_isolation(eco_dir: &PathBuf) -> EcoIsolation {
+        let mut dirs: std::collections::HashSet<String> = BASE_ISOLATED_DIRS.iter().map(|s| s.to_string()).collect();
+        let mut files: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        // 读取 eco.json 获取已安装框架
+        let eco_json_path = eco_dir.join("eco.json");
+        if eco_json_path.exists() {
+            if let Ok(content) = fs::read_to_string(&eco_json_path) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(fw_arr) = json.get("frameworks").and_then(|v| v.as_array()) {
+                        for fw_id in fw_arr.iter().filter_map(|v| v.as_str()) {
+                            if let Some(fw) = ecosystem_framework::find_framework(fw_id) {
+                                for dir in &fw.isolated_dirs {
+                                    dirs.insert(dir.clone());
+                                }
+                                for file in &fw.isolated_files {
+                                    files.insert(file.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        EcoIsolation {
+            dirs: dirs.into_iter().collect(),
+            files: files.into_iter().collect(),
+        }
     }
 
     /// 清理生态 ID（只保留字母、数字、连字符、下划线）
@@ -473,6 +611,11 @@ impl EcosystemService {
             fs::create_dir_all(eco_claude_dir.join(sub_dir))
                 .map_err(|e| AppError::io(&eco_claude_dir.join(sub_dir), e))?;
         }
+        // 创建框架声明的扩展隔离目录
+        for isolated_dir in &framework.isolated_dirs {
+            fs::create_dir_all(eco_claude_dir.join(isolated_dir))
+                .map_err(|e| AppError::io(&eco_claude_dir.join(isolated_dir), e))?;
+        }
 
         // Step 2: 运行官方安装命令
         let real_home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
@@ -501,12 +644,16 @@ impl EcosystemService {
     /// 将 Eco 的 .claude/ 目录下的文件移动到 Eco 对应的 skills/agents/ 等目录
     ///
     /// 例如：.claude/skills/brainstorming/ → skills/superpowers-brainstorming/
+    /// 根文件（如 CLAUDE.md、settings.json）移动到 rootfiles/ 目录
     fn move_claude_files_to_eco(
         eco_claude_dir: &PathBuf,
         eco_dir: &PathBuf,
         prefix: &str,
     ) -> Result<(), AppError> {
-        for dir_name in ISOLATED_DIRS {
+        // 收集所有需要处理的目录（基础 + 框架扩展）
+        let isolation = Self::collect_eco_isolation(eco_dir);
+
+        for dir_name in &isolation.dirs {
             let src_dir = eco_claude_dir.join(dir_name);
             if !src_dir.exists() || !src_dir.is_dir() {
                 continue;
@@ -544,21 +691,89 @@ impl EcosystemService {
             }
         }
 
-        // 处理 .claude/ 根目录的文件（如 CLAUDE.md）
+        // 处理根文件（如 CLAUDE.md、settings.json、mcp.json）
+        let rootfiles_dir = eco_dir.join("rootfiles");
+        fs::create_dir_all(&rootfiles_dir).map_err(|e| AppError::io(&rootfiles_dir, e))?;
+
+        for file_name in &isolation.files {
+            let src_path = eco_claude_dir.join(file_name);
+            if !src_path.exists() || !src_path.is_file() {
+                continue;
+            }
+            let dst_path = rootfiles_dir.join(file_name);
+            if dst_path.exists() {
+                // 合并根文件（追加或 JSON merge）
+                Self::merge_root_file(&src_path, &dst_path, prefix)?;
+            } else {
+                fs::copy(&src_path, &dst_path).map_err(|e| AppError::io(&dst_path, e))?;
+            }
+        }
+
+        // 处理 .claude/ 根目录的其他文件（非隔离文件，加前缀保存到 Eco 根目录）
         if let Ok(entries) = fs::read_dir(eco_claude_dir) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with('.') || name == "skills" || name == "agents"
-                    || name == "commands" || name == "hooks" || name == "plugins" {
+                // 跳过目录、隐藏文件、已处理的隔离文件
+                if name.starts_with('.') || entry.path().is_dir()
+                    || isolation.files.contains(&name) {
                     continue;
                 }
-                // 将 CLAUDE.md 等文件移动到 Eco 根目录，加前缀
+                // 跳过基础隔离目录
+                if BASE_ISOLATED_DIRS.contains(&name.as_str()) {
+                    continue;
+                }
+                // 跳过扩展隔离目录
+                if isolation.dirs.contains(&name) {
+                    continue;
+                }
+                // 其他根文件加前缀保存到 Eco 根目录
                 let dst_name = format!("{prefix}{name}");
                 let dst_path = eco_dir.join(&dst_name);
-                if entry.path().is_file() {
-                    fs::copy(entry.path(), &dst_path).map_err(|e| AppError::io(&dst_path, e))?;
+                if entry.path().is_file() && !dst_path.exists() {
+                    let _ = fs::copy(entry.path(), &dst_path);
                 }
             }
+        }
+
+        Ok(())
+    }
+
+    /// 合并根文件（CLAUDE.md 追加，settings.json/mcp.json JSON merge）
+    fn merge_root_file(src: &PathBuf, dst: &PathBuf, prefix: &str) -> Result<(), AppError> {
+        let file_name = dst.file_name().unwrap_or_default().to_string_lossy().to_string();
+
+        if file_name == "CLAUDE.md" {
+            // CLAUDE.md: 追加内容，用分隔标记
+            let src_content = fs::read_to_string(src).unwrap_or_default();
+            let dst_content = fs::read_to_string(dst).unwrap_or_default();
+            let merged = if dst_content.is_empty() {
+                src_content
+            } else {
+                format!("{dst_content}\n\n---\n<!-- {prefix} -->\n{src_content}")
+            };
+            fs::write(dst, merged).map_err(|e| AppError::io(dst, e))?;
+        } else if file_name.ends_with(".json") {
+            // JSON 文件: merge
+            let src_content = fs::read_to_string(src).unwrap_or_default();
+            let dst_content = fs::read_to_string(dst).unwrap_or_default();
+
+            let mut src_json: serde_json::Value = serde_json::from_str(&src_content).unwrap_or(serde_json::json!({}));
+            let mut dst_json: serde_json::Value = serde_json::from_str(&dst_content).unwrap_or(serde_json::json!({}));
+
+            if let (Some(src_obj), Some(dst_obj)) = (src_json.as_object_mut(), dst_json.as_object_mut()) {
+                for (key, value) in src_obj {
+                    // 只合并不存在的 key，避免覆盖其他框架的配置
+                    if !dst_obj.contains_key(key) {
+                        dst_obj.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+
+            let merged = serde_json::to_string_pretty(&dst_json).unwrap_or_default();
+            fs::write(dst, merged).map_err(|e| AppError::io(dst, e))?;
+        } else {
+            // 其他文件：直接覆盖
+            fs::copy(src, dst).map_err(|e| AppError::io(dst, e))?;
         }
 
         Ok(())
@@ -765,9 +980,12 @@ impl EcosystemService {
     // ================================================================
 
     /// 按前缀卸载框架文件
-    fn uninstall_by_prefix(eco_dir: &PathBuf, prefix: &str, _framework_id: &str) -> Result<(), AppError> {
+    fn uninstall_by_prefix(eco_dir: &PathBuf, prefix: &str, framework_id: &str) -> Result<(), AppError> {
+        // 收集当前 Eco 的隔离信息
+        let isolation = Self::collect_eco_isolation(eco_dir);
+
         // 从各隔离目录移除带前缀的文件
-        for dir_name in ISOLATED_DIRS {
+        for dir_name in &isolation.dirs {
             let dir = eco_dir.join(dir_name);
             if !dir.exists() {
                 continue;
@@ -782,6 +1000,20 @@ impl EcosystemService {
                         } else {
                             fs::remove_file(&path).map_err(|e| AppError::io(&path, e))?;
                         }
+                    }
+                }
+            }
+        }
+
+        // 从 rootfiles 中移除框架写入的根文件内容
+        let rootfiles_dir = eco_dir.join("rootfiles");
+        if rootfiles_dir.exists() {
+            let framework = ecosystem_framework::find_framework(framework_id);
+            if let Some(fw) = framework {
+                for file_name in &fw.isolated_files {
+                    let file_path = rootfiles_dir.join(file_name);
+                    if file_path.exists() {
+                        Self::remove_framework_from_rootfile(&file_path, prefix)?;
                     }
                 }
             }
@@ -802,6 +1034,62 @@ impl EcosystemService {
         if eco_claude_dir.exists() {
             let _ = fs::remove_dir_all(&eco_claude_dir);
         }
+
+        // 更新 eco.json 的隔离列表（移除该框架的隔离项，如果其他框架不需要）
+        Self::update_eco_json_isolation(eco_dir)?;
+
+        Ok(())
+    }
+
+    /// 从根文件中移除框架的内容
+    fn remove_framework_from_rootfile(file_path: &PathBuf, prefix: &str) -> Result<(), AppError> {
+        let file_name = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+
+        if file_name == "CLAUDE.md" {
+            // CLAUDE.md: 移除该框架的分隔段
+            let content = fs::read_to_string(file_path).unwrap_or_default();
+            let marker = format!("<!-- {prefix} -->");
+            let new_content = if let Some(pos) = content.find(&marker) {
+                // 找到标记，移除从 --- 到该段结束
+                let before_marker = content[..pos].trim_end();
+                // 找到 --- 之前的内容
+                if let Some(dash_pos) = before_marker.rfind("---") {
+                    content[..dash_pos].trim_end().to_string()
+                } else {
+                    before_marker.to_string()
+                }
+            } else {
+                content
+            };
+            fs::write(file_path, new_content).map_err(|e| AppError::io(file_path, e))?;
+        } else if file_name.ends_with(".json") {
+            // JSON 文件: 目前无法精确移除特定框架的配置，保留原样
+            // 未来可以通过在配置中添加框架标记来实现精确移除
+        }
+
+        Ok(())
+    }
+
+    /// 更新 eco.json 的隔离列表
+    fn update_eco_json_isolation(eco_dir: &PathBuf) -> Result<(), AppError> {
+        let isolation = Self::collect_eco_isolation(eco_dir);
+        let eco_json_path = eco_dir.join("eco.json");
+
+        if !eco_json_path.exists() {
+            return Ok(());
+        }
+
+        let content = fs::read_to_string(&eco_json_path)
+            .map_err(|e| AppError::io(&eco_json_path, e))?;
+        let mut json: serde_json::Value = serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
+
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("isolatedDirs".to_string(), serde_json::json!(isolation.dirs));
+            obj.insert("isolatedFiles".to_string(), serde_json::json!(isolation.files));
+        }
+
+        let content = serde_json::to_string_pretty(&json).unwrap_or_default();
+        fs::write(&eco_json_path, content).map_err(|e| AppError::io(&eco_json_path, e))?;
 
         Ok(())
     }
@@ -862,6 +1150,9 @@ impl EcosystemService {
 
         let content = serde_json::to_string_pretty(&json).unwrap_or_default();
         fs::write(&eco_json_path, content).map_err(|e| AppError::io(&eco_json_path, e))?;
+
+        // 更新隔离列表
+        Self::update_eco_json_isolation(eco_dir)?;
 
         Ok(())
     }
