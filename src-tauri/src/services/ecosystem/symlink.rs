@@ -83,8 +83,7 @@ pub fn switch_symlinks(id: &str) -> Result<(), AppError> {
             if is_symlink(&claude_path) {
                 fs::remove_file(&claude_path).map_err(|e| AppError::io(&claude_path, e))?;
             } else if claude_path.is_file() {
-                if fs::read_to_string(&eco_path).is_ok_and(|s| s.is_empty())
-                {
+                if fs::read_to_string(&eco_path).is_ok_and(|s| s.is_empty()) {
                     if let Err(e) = fs::copy(&claude_path, &eco_path) {
                         log::warn!(
                             "备份文件失败: {} → {}: {e}",

@@ -95,7 +95,9 @@ pub fn rebuild_root_file(
     // 按 framework 安装顺序读取 fragment 并合并
     for fw_id in framework_order {
         let fw = ecosystem_framework::find_framework(fw_id);
-        let prefix: &str = fw.as_ref().map_or(fw_id.as_str(), |f| f.file_prefix.as_str());
+        let prefix: &str = fw
+            .as_ref()
+            .map_or(fw_id.as_str(), |f| f.file_prefix.as_str());
         let frag_path = fragment_path(rootfiles_dir, file_name, prefix);
 
         if !frag_path.exists() {
@@ -423,9 +425,9 @@ pub fn merge_root_file(src: &Path, dst: &Path, prefix: &str) -> Result<(), AppEr
         fs::write(dst, merged).map_err(|e| AppError::io(dst, e))?;
     } else if file_name.ends_with(".json") {
         // JSON 文件：保存为 fragment
-        let rootfiles_dir = dst.parent().ok_or_else(|| {
-            AppError::Message(format!("路径无父目录: {}", dst.display()))
-        })?;
+        let rootfiles_dir = dst
+            .parent()
+            .ok_or_else(|| AppError::Message(format!("路径无父目录: {}", dst.display())))?;
         let frag_path = fragment_path(rootfiles_dir, &file_name, prefix);
         fs::copy(src, &frag_path).map_err(|e| AppError::io(&frag_path, e))?;
     } else {
@@ -475,9 +477,9 @@ pub fn remove_framework_from_rootfile(file_path: &Path, prefix: &str) -> Result<
         fs::write(file_path, result).map_err(|e| AppError::io(file_path, e))?;
     } else if file_name.ends_with(".json") {
         // JSON 文件：删除 fragment
-        let rootfiles_dir = file_path.parent().ok_or_else(|| {
-            AppError::Message(format!("路径无父目录: {}", file_path.display()))
-        })?;
+        let rootfiles_dir = file_path
+            .parent()
+            .ok_or_else(|| AppError::Message(format!("路径无父目录: {}", file_path.display())))?;
         let frag_path = fragment_path(rootfiles_dir, &file_name, prefix);
         if frag_path.exists() {
             fs::remove_file(&frag_path).map_err(|e| AppError::io(&frag_path, e))?;
@@ -491,7 +493,6 @@ pub fn remove_framework_from_rootfile(file_path: &Path, prefix: &str) -> Result<
 
     Ok(())
 }
-
 
 /// Eco 隔离信息（目录 + 文件）
 pub struct EcoIsolation {
@@ -712,7 +713,8 @@ mod tests {
         fs::write(
             fragment_path(&rootfiles_dir, "settings.json", "omc-"),
             serde_json::to_string_pretty(&omc_frag).unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
 
         // ruflo fragment (prefix = "ruflo-")
         let ruflo_frag = json!({
@@ -724,7 +726,8 @@ mod tests {
         fs::write(
             fragment_path(&rootfiles_dir, "settings.json", "ruflo-"),
             serde_json::to_string_pretty(&ruflo_frag).unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
 
         // user-fragment
         let user_frag = json!({
@@ -734,25 +737,36 @@ mod tests {
         fs::write(
             fragment_path(&rootfiles_dir, "settings.json", "user-"),
             serde_json::to_string_pretty(&user_frag).unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
 
         // 创建 eco.json（需要 parent 目录）
         let eco_dir = tmp.path();
-        let eco_json = json!({"frameworks": ["ohmyclaudecode", "ruflo"], "isolatedFiles": ["settings.json"]});
+        let eco_json =
+            json!({"frameworks": ["ohmyclaudecode", "ruflo"], "isolatedFiles": ["settings.json"]});
         fs::write(
             eco_dir.join("eco.json"),
             serde_json::to_string_pretty(&eco_json).unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
 
         // 重建 — 使用正确的框架 ID
-        rebuild_root_file(&rootfiles_dir, "settings.json", &["ohmyclaudecode".to_string(), "ruflo".to_string()]).unwrap();
+        rebuild_root_file(
+            &rootfiles_dir,
+            "settings.json",
+            &["ohmyclaudecode".to_string(), "ruflo".to_string()],
+        )
+        .unwrap();
 
         // 验证结果
-        let result: serde_json::Value = serde_json::from_str(
-            &fs::read_to_string(rootfiles_dir.join("settings.json")).unwrap(),
-        ).unwrap();
+        let result: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(rootfiles_dir.join("settings.json")).unwrap())
+                .unwrap();
 
-        println!("合并结果: {}", serde_json::to_string_pretty(&result).unwrap());
+        println!(
+            "合并结果: {}",
+            serde_json::to_string_pretty(&result).unwrap()
+        );
 
         // 用户偏好优先
         assert_eq!(result["defaultMode"], "bypassPermissions");
@@ -780,7 +794,8 @@ mod tests {
         fs::write(rootfiles_dir.join("other.json"), "{}").unwrap();
 
         let frags = list_fragments(rootfiles_dir, "settings.json");
-        let names: Vec<String> = frags.iter()
+        let names: Vec<String> = frags
+            .iter()
             .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
             .collect();
         assert!(names.contains(&"settings.omc-fragment.json".to_string()));

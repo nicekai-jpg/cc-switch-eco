@@ -2,10 +2,10 @@
 //
 // 运行方式: cargo test --test eco_e2e_test -- --nocapture
 
-use std::fs;
-use serde_json::json;
 use cc_switch_eco_lib::services::ecosystem::fragment;
 use cc_switch_eco_lib::services::ecosystem::migration;
+use serde_json::json;
+use std::fs;
 
 /// 模拟完整的 Eco 切换流程
 #[test]
@@ -31,8 +31,10 @@ fn test_full_switch_workflow() {
             "frameworks": ["ohmyclaudecode"],
             "isolatedDirs": [],
             "isolatedFiles": ["settings.json"]
-        })).unwrap(),
-    ).unwrap();
+        }))
+        .unwrap(),
+    )
+    .unwrap();
 
     // omc fragment
     let omc_frag = json!({
@@ -44,19 +46,21 @@ fn test_full_switch_workflow() {
     fs::write(
         eco_a_rootfiles.join("settings.omc-fragment.json"),
         serde_json::to_string_pretty(&omc_frag).unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
 
     // 初始 settings.json（从 omc fragment 重建）
     fragment::rebuild_root_file(
         &eco_a_rootfiles,
         "settings.json",
         &["ohmyclaudecode".to_string()],
-    ).unwrap();
+    )
+    .unwrap();
 
     println!("=== 步骤1: Eco A 初始 settings.json ===");
-    let settings_a: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(eco_a_rootfiles.join("settings.json")).unwrap()
-    ).unwrap();
+    let settings_a: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(eco_a_rootfiles.join("settings.json")).unwrap())
+            .unwrap();
     println!("{}", serde_json::to_string_pretty(&settings_a).unwrap());
 
     // 验证初始状态
@@ -70,7 +74,8 @@ fn test_full_switch_workflow() {
     fs::write(
         eco_a_rootfiles.join("settings.json"),
         serde_json::to_string_pretty(&user_modified).unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
 
     println!("\n=== 步骤2: 用户修改 language 为中文 ===");
 
@@ -80,13 +85,14 @@ fn test_full_switch_workflow() {
         files: vec!["settings.json".to_string()],
     };
     // 模拟 snapshot: 保存当前 settings.json 到 user-fragment
-    let current_settings: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(eco_a_rootfiles.join("settings.json")).unwrap()
-    ).unwrap();
+    let current_settings: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(eco_a_rootfiles.join("settings.json")).unwrap())
+            .unwrap();
     fs::write(
         eco_a_rootfiles.join("settings.user-fragment.json"),
         serde_json::to_string_pretty(&current_settings).unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
 
     println!("=== 步骤3: snapshot user-fragment 已创建 ===");
 
@@ -103,8 +109,10 @@ fn test_full_switch_workflow() {
             "frameworks": ["ruflo"],
             "isolatedDirs": [],
             "isolatedFiles": ["settings.json"]
-        })).unwrap(),
-    ).unwrap();
+        }))
+        .unwrap(),
+    )
+    .unwrap();
 
     // ruflo fragment
     let ruflo_frag = json!({
@@ -116,19 +124,16 @@ fn test_full_switch_workflow() {
     fs::write(
         eco_b_rootfiles.join("settings.ruflo-fragment.json"),
         serde_json::to_string_pretty(&ruflo_frag).unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
 
     // 重建 Eco B 的 settings.json
-    fragment::rebuild_root_file(
-        &eco_b_rootfiles,
-        "settings.json",
-        &["ruflo".to_string()],
-    ).unwrap();
+    fragment::rebuild_root_file(&eco_b_rootfiles, "settings.json", &["ruflo".to_string()]).unwrap();
 
     println!("\n=== 步骤4: Eco B 初始 settings.json ===");
-    let settings_b: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(eco_b_rootfiles.join("settings.json")).unwrap()
-    ).unwrap();
+    let settings_b: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(eco_b_rootfiles.join("settings.json")).unwrap())
+            .unwrap();
     println!("{}", serde_json::to_string_pretty(&settings_b).unwrap());
 
     assert_eq!(settings_b["defaultMode"], "plan");
@@ -141,13 +146,15 @@ fn test_full_switch_workflow() {
     fs::write(
         eco_b_rootfiles.join("settings.json"),
         serde_json::to_string_pretty(&user_modified_b).unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
 
     // 保存 Eco B 的 user-fragment
     fs::write(
         eco_b_rootfiles.join("settings.user-fragment.json"),
         serde_json::to_string_pretty(&user_modified_b).unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
 
     println!("\n=== 步骤5: Eco B 用户修改 defaultMode 为 bypassPermissions ===");
 
@@ -156,34 +163,40 @@ fn test_full_switch_workflow() {
         &eco_a_rootfiles,
         "settings.json",
         &["ohmyclaudecode".to_string()],
-    ).unwrap();
+    )
+    .unwrap();
 
-    let rebuilt_a: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(eco_a_rootfiles.join("settings.json")).unwrap()
-    ).unwrap();
+    let rebuilt_a: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(eco_a_rootfiles.join("settings.json")).unwrap())
+            .unwrap();
     println!("\n=== 步骤6: 切换回 Eco A，重建后 ===");
     println!("{}", serde_json::to_string_pretty(&rebuilt_a).unwrap());
 
     // 验证：用户偏好 language=中文 应该保留
-    assert_eq!(rebuilt_a["language"], "中文", "切换回 Eco A 后，用户偏好 language=中文 应保留");
-    assert_eq!(rebuilt_a["defaultMode"], "bypassPermissions", "defaultMode 应保留");
+    assert_eq!(
+        rebuilt_a["language"], "中文",
+        "切换回 Eco A 后，用户偏好 language=中文 应保留"
+    );
+    assert_eq!(
+        rebuilt_a["defaultMode"], "bypassPermissions",
+        "defaultMode 应保留"
+    );
     assert_eq!(rebuilt_a["effort"], "high", "effort 应保留");
 
     // === 步骤7: 切换到 Eco B，重建 settings.json ===
-    fragment::rebuild_root_file(
-        &eco_b_rootfiles,
-        "settings.json",
-        &["ruflo".to_string()],
-    ).unwrap();
+    fragment::rebuild_root_file(&eco_b_rootfiles, "settings.json", &["ruflo".to_string()]).unwrap();
 
-    let rebuilt_b: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(eco_b_rootfiles.join("settings.json")).unwrap()
-    ).unwrap();
+    let rebuilt_b: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(eco_b_rootfiles.join("settings.json")).unwrap())
+            .unwrap();
     println!("\n=== 步骤7: 切换到 Eco B，重建后 ===");
     println!("{}", serde_json::to_string_pretty(&rebuilt_b).unwrap());
 
     // 验证：用户偏好 defaultMode=bypassPermissions 应该保留
-    assert_eq!(rebuilt_b["defaultMode"], "bypassPermissions", "切换到 Eco B 后，用户偏好 defaultMode 应保留");
+    assert_eq!(
+        rebuilt_b["defaultMode"], "bypassPermissions",
+        "切换到 Eco B 后，用户偏好 defaultMode 应保留"
+    );
     assert_eq!(rebuilt_b["effort"], "max", "effort 应为 ruflo 的 max");
     assert_eq!(rebuilt_b["language"], "中文", "language 应保留");
 
@@ -211,8 +224,10 @@ fn test_legacy_eco_migration_then_switch() {
             "frameworks": ["ohmyclaudecode"],
             "isolatedDirs": [],
             "isolatedFiles": ["settings.json"]
-        })).unwrap(),
-    ).unwrap();
+        }))
+        .unwrap(),
+    )
+    .unwrap();
 
     // 旧版 settings.json（直接写入，没有 fragment）
     let legacy_settings = json!({
@@ -224,10 +239,14 @@ fn test_legacy_eco_migration_then_switch() {
     fs::write(
         rootfiles_dir.join("settings.json"),
         serde_json::to_string_pretty(&legacy_settings).unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
 
     println!("=== 旧版 Eco settings.json ===");
-    println!("{}", serde_json::to_string_pretty(&legacy_settings).unwrap());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&legacy_settings).unwrap()
+    );
 
     // === 运行迁移 ===
     let isolation = fragment::EcoIsolation {
@@ -250,11 +269,12 @@ fn test_legacy_eco_migration_then_switch() {
         &rootfiles_dir,
         "settings.json",
         &["ohmyclaudecode".to_string()],
-    ).unwrap();
+    )
+    .unwrap();
 
-    let rebuilt: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(rootfiles_dir.join("settings.json")).unwrap()
-    ).unwrap();
+    let rebuilt: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(rootfiles_dir.join("settings.json")).unwrap())
+            .unwrap();
     println!("\n=== 重建后 settings.json ===");
     println!("{}", serde_json::to_string_pretty(&rebuilt).unwrap());
 
@@ -286,8 +306,10 @@ fn test_multi_framework_conflict_detection() {
             "frameworks": ["ohmyclaudecode", "ruflo"],
             "isolatedDirs": [],
             "isolatedFiles": ["settings.json"]
-        })).unwrap(),
-    ).unwrap();
+        }))
+        .unwrap(),
+    )
+    .unwrap();
 
     // omc fragment
     fs::write(
@@ -297,8 +319,10 @@ fn test_multi_framework_conflict_detection() {
             "effort": "high",
             "language": "English",
             "permissions": {"allow": ["Bash", "Read"], "deny": []}
-        })).unwrap(),
-    ).unwrap();
+        }))
+        .unwrap(),
+    )
+    .unwrap();
 
     // ruflo fragment
     fs::write(
@@ -308,8 +332,10 @@ fn test_multi_framework_conflict_detection() {
             "effort": "max",
             "language": "中文",
             "permissions": {"allow": ["Bash", "Write", "Edit"], "deny": ["WebFetch"]}
-        })).unwrap(),
-    ).unwrap();
+        }))
+        .unwrap(),
+    )
+    .unwrap();
 
     // user-fragment
     fs::write(
@@ -317,23 +343,32 @@ fn test_multi_framework_conflict_detection() {
         serde_json::to_string_pretty(&json!({
             "defaultMode": "bypassPermissions",
             "language": "中文"
-        })).unwrap(),
-    ).unwrap();
+        }))
+        .unwrap(),
+    )
+    .unwrap();
 
     // 重建
     fragment::rebuild_root_file(
         &rootfiles_dir,
         "settings.json",
         &["ohmyclaudecode".to_string(), "ruflo".to_string()],
-    ).unwrap();
+    )
+    .unwrap();
 
-    let result: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(rootfiles_dir.join("settings.json")).unwrap()
-    ).unwrap();
-    println!("多框架合并结果: {}", serde_json::to_string_pretty(&result).unwrap());
+    let result: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(rootfiles_dir.join("settings.json")).unwrap())
+            .unwrap();
+    println!(
+        "多框架合并结果: {}",
+        serde_json::to_string_pretty(&result).unwrap()
+    );
 
     // 用户偏好优先
-    assert_eq!(result["defaultMode"], "bypassPermissions", "用户偏好 defaultMode 应优先");
+    assert_eq!(
+        result["defaultMode"], "bypassPermissions",
+        "用户偏好 defaultMode 应优先"
+    );
     assert_eq!(result["language"], "中文", "用户偏好 language 应优先");
     // ruflo 最后覆盖框架值
     assert_eq!(result["effort"], "max", "effort 应为 ruflo 的 max");
@@ -346,24 +381,34 @@ fn test_multi_framework_conflict_detection() {
     assert!(allow_strs.contains(&"Edit"));
 
     // 检查冲突记录
-    let eco_json: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(eco_dir.join("eco.json")).unwrap()
-    ).unwrap();
-    let conflicts = eco_json.get("mergeConflicts")
+    let eco_json: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(eco_dir.join("eco.json")).unwrap()).unwrap();
+    let conflicts = eco_json
+        .get("mergeConflicts")
         .and_then(|v| v.get("settings.json"))
         .and_then(|v| v.as_array());
     if let Some(conflicts) = conflicts {
         println!("框架间冲突: {:?}", conflicts);
         // 应该有 defaultMode 和 language 的冲突（框架间）
         // 但不应包含用户覆盖的冲突
-        let conflict_strs: Vec<String> = conflicts.iter()
+        let conflict_strs: Vec<String> = conflicts
+            .iter()
             .filter_map(|v| v.as_str().map(String::from))
             .collect();
         // 框架间冲突应包含 defaultMode 和 language
-        assert!(conflict_strs.iter().any(|c| c.contains("defaultMode")), "应有 defaultMode 冲突");
-        assert!(conflict_strs.iter().any(|c| c.contains("language")), "应有 language 冲突");
+        assert!(
+            conflict_strs.iter().any(|c| c.contains("defaultMode")),
+            "应有 defaultMode 冲突"
+        );
+        assert!(
+            conflict_strs.iter().any(|c| c.contains("language")),
+            "应有 language 冲突"
+        );
         // 不应包含用户覆盖的冲突
-        assert!(!conflict_strs.iter().any(|c| c.contains("user-")), "不应有用户覆盖冲突");
+        assert!(
+            !conflict_strs.iter().any(|c| c.contains("user-")),
+            "不应有用户覆盖冲突"
+        );
     }
 
     println!("\n✅ 多框架冲突检测测试通过！");
