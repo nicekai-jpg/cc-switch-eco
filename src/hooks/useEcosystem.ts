@@ -137,13 +137,8 @@ export function useUpdateFramework() {
 export function useSaveUserPreferences() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      ecoId,
-      fileName,
-    }: {
-      ecoId: string;
-      fileName: string;
-    }) => ecosystemApi.saveUserPreferences(ecoId, fileName),
+    mutationFn: ({ ecoId, fileName }: { ecoId: string; fileName: string }) =>
+      ecosystemApi.saveUserPreferences(ecoId, fileName),
     onSuccess: (_, { ecoId }) => {
       queryClient.invalidateQueries({
         queryKey: ["ecosystems", "frameworks", ecoId],

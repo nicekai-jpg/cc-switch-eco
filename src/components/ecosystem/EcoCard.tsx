@@ -60,16 +60,16 @@ export function EcoCard({
       await installMutation.mutateAsync({ ecoId: eco.id, frameworkId });
       toast.success(t("ecosystem.frameworkInstalled", { name: frameworkId }));
     } catch (e: unknown) {
-      toast.error(extractErrorMessage(e) || t("ecosystem.frameworkInstallFailed"));
+      toast.error(
+        extractErrorMessage(e) || t("ecosystem.frameworkInstallFailed"),
+      );
     }
   };
 
   const handleUninstall = async (frameworkId: string) => {
     try {
       await uninstallMutation.mutateAsync({ ecoId: eco.id, frameworkId });
-      toast.success(
-        t("ecosystem.frameworkUninstalled", { name: frameworkId }),
-      );
+      toast.success(t("ecosystem.frameworkUninstalled", { name: frameworkId }));
     } catch (e: unknown) {
       toast.error(
         extractErrorMessage(e) || t("ecosystem.frameworkUninstallFailed"),

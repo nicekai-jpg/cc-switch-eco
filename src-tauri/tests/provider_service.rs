@@ -185,8 +185,8 @@ command = "say"
         "Codex provider switching should preserve the existing live auth.json"
     );
 
-    let config_text =
-        std::fs::read_to_string(cc_switch_eco_lib::get_codex_config_path()).expect("read config.toml");
+    let config_text = std::fs::read_to_string(cc_switch_eco_lib::get_codex_config_path())
+        .expect("read config.toml");
     assert!(
         config_text.contains("mcp_servers.echo-server"),
         "config.toml should contain synced MCP servers"
@@ -307,8 +307,8 @@ requires_openai_auth = true
     ProviderService::switch(&state, AppType::Codex, "new-provider")
         .expect("switch provider should succeed");
 
-    let config_text =
-        std::fs::read_to_string(cc_switch_eco_lib::get_codex_config_path()).expect("read config.toml");
+    let config_text = std::fs::read_to_string(cc_switch_eco_lib::get_codex_config_path())
+        .expect("read config.toml");
     let parsed: toml::Value = toml::from_str(&config_text).expect("parse config.toml");
 
     assert_eq!(
@@ -463,8 +463,8 @@ requires_openai_auth = true
         "existing ChatGPT OAuth token should be preserved"
     );
 
-    let live_config =
-        std::fs::read_to_string(cc_switch_eco_lib::get_codex_config_path()).expect("read config.toml");
+    let live_config = std::fs::read_to_string(cc_switch_eco_lib::get_codex_config_path())
+        .expect("read config.toml");
     let parsed_live: toml::Value = toml::from_str(&live_config).expect("parse live config");
     assert_eq!(
         parsed_live
@@ -600,8 +600,8 @@ requires_openai_auth = true
         "official provider should preserve the existing ChatGPT OAuth token"
     );
 
-    let live_config =
-        std::fs::read_to_string(cc_switch_eco_lib::get_codex_config_path()).expect("read config.toml");
+    let live_config = std::fs::read_to_string(cc_switch_eco_lib::get_codex_config_path())
+        .expect("read config.toml");
     assert!(
         !live_config.contains("experimental_bearer_token"),
         "official login provider has no API key to inject"
