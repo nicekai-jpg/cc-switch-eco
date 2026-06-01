@@ -26,6 +26,11 @@ pub fn get_app_config_dir_override() -> Option<PathBuf> {
     override_cache().read().ok()?.clone()
 }
 
+/// 清除 app_config_dir 覆盖缓存（仅用于测试）
+pub fn clear_override_cache() {
+    update_cached_override(None);
+}
+
 fn read_override_from_store(app: &tauri::AppHandle) -> Option<PathBuf> {
     let store = match app.store_builder("app_paths.json").build() {
         Ok(store) => store,

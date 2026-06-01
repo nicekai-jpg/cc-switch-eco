@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use cc_switch_eco_lib::{update_settings, AppSettings, AppState, Database, MultiAppConfig};
+use cc_switch_eco_lib::{
+    clear_override_cache, update_settings, AppSettings, AppState, Database, MultiAppConfig,
+};
 
 /// 为测试设置隔离的 HOME 目录，避免污染真实用户数据。
 pub fn ensure_test_home() -> &'static Path {
@@ -48,6 +50,9 @@ pub fn reset_test_fs() {
 
     // 重置内存中的设置缓存，确保测试环境不受上一次调用影响
     let _ = update_settings(AppSettings::default());
+
+    // 清除 app_config_dir 覆盖缓存，确保测试使用 CC_SWITCH_TEST_HOME 路径
+    clear_override_cache();
 }
 
 /// 全局互斥锁，避免多测试并发写入相同的 HOME 目录。
