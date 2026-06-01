@@ -27,7 +27,7 @@ mod prompt_files;
 mod provider;
 mod provider_defaults;
 mod proxy;
-mod services;
+pub mod services;
 mod session_manager;
 mod settings;
 mod store;
@@ -1385,6 +1385,8 @@ pub fn run() {
             commands::uninstall_framework_from_ecosystem,
             commands::update_framework_in_ecosystem,
             commands::get_ecosystem_frameworks,
+            commands::save_user_preferences,
+            commands::remove_user_preference,
         ]);
 
     let app = builder

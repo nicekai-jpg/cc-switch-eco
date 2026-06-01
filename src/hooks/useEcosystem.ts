@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ecosystemApi } from "@/lib/api/ecosystem";
 
+// === 查询 Hooks ===
+
 export function useAllEcosystems() {
   return useQuery({
     queryKey: ["ecosystems", "all"],
@@ -14,6 +16,23 @@ export function useCurrentEcosystem() {
     queryFn: () => ecosystemApi.getCurrent(),
   });
 }
+
+export function useAllFrameworks() {
+  return useQuery({
+    queryKey: ["ecosystems", "frameworks"],
+    queryFn: () => ecosystemApi.listFrameworks(),
+  });
+}
+
+export function useEcosystemFrameworks(ecoId: string | undefined) {
+  return useQuery({
+    queryKey: ["ecosystems", "frameworks", ecoId],
+    queryFn: () => ecosystemApi.getEcosystemFrameworks(ecoId!),
+    enabled: !!ecoId,
+  });
+}
+
+// === 变更 Hooks ===
 
 export function useCreateEcosystem() {
   const queryClient = useQueryClient();
@@ -55,20 +74,7 @@ export function useDeleteEcosystem() {
   });
 }
 
-export function useAllFrameworks() {
-  return useQuery({
-    queryKey: ["ecosystems", "frameworks"],
-    queryFn: () => ecosystemApi.listFrameworks(),
-  });
-}
-
-export function useEcosystemFrameworks(ecoId: string | undefined) {
-  return useQuery({
-    queryKey: ["ecosystems", "frameworks", ecoId],
-    queryFn: () => ecosystemApi.getEcosystemFrameworks(ecoId!),
-    enabled: !!ecoId,
-  });
-}
+// === 框架管理 Hooks ===
 
 export function useInstallFramework() {
   const queryClient = useQueryClient();
@@ -122,6 +128,47 @@ export function useUpdateFramework() {
       queryClient.invalidateQueries({
         queryKey: ["ecosystems", "frameworks", ecoId],
       });
+    },
+  });
+}
+
+// === 用户偏好 Hooks ===
+
+export function useSaveUserPreferences() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      ecoId,
+      fileName,
+    }: {
+      ecoId: string;
+      fileName: string;
+    }) => ecosystemApi.saveUserPreferences(ecoId, fileName),
+    onSuccess: (_, { ecoId }) => {
+      queryClient.invalidateQueries({
+        queryKey: ["ecosystems", "frameworks", ecoId],
+      });
+    },
+  });
+}
+
+export function useRemoveUserPreference() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      ecoId,
+      fileName,
+      keyPath,
+    }: {
+      ecoId: string;
+      fileName: string;
+      keyPath: string;
+    }) => ecosystemApi.removeUserPreference(ecoId, fileName, keyPath),
+    onSuccess: (_, { ecoId }) => {
+      queryClient.invalidateQueries({
+        queryKey: ["ecosystems", "frameworks", ecoId],
+      });
+      queryClient.invalidateQueries({ queryKey: ["ecosystems", "all"] });
     },
   });
 }

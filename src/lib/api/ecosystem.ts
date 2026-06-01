@@ -15,6 +15,7 @@ export interface FrameworkRegistry {
   repoUrl: string;
   repoBranch: string;
   providedDirs: string[];
+  isolatedFiles: string[];
 }
 
 export const ecosystemApi = {
@@ -69,5 +70,17 @@ export const ecosystemApi = {
 
   async getEcosystemFrameworks(ecoId: string): Promise<string[]> {
     return await invoke("get_ecosystem_frameworks", { ecoId });
+  },
+
+  async saveUserPreferences(ecoId: string, fileName: string): Promise<void> {
+    return await invoke("save_user_preferences", { ecoId, fileName });
+  },
+
+  async removeUserPreference(
+    ecoId: string,
+    fileName: string,
+    keyPath: string,
+  ): Promise<void> {
+    return await invoke("remove_user_preference", { ecoId, fileName, keyPath });
   },
 };

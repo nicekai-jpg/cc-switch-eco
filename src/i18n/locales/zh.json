@@ -2720,6 +2720,15 @@
     "frameworkUninstalled": "框架「{{name}}」已卸载",
     "frameworkUninstallFailed": "卸载框架失败",
     "frameworkUpdated": "框架「{{name}}」已更新",
-    "frameworkUpdateFailed": "更新框架失败"
+    "frameworkUpdateFailed": "更新框架失败",
+    "conflictWarning": "检测到根文件冲突",
+    "conflictMergeHint": "数组配置会跨框架去重拼接。",
+    "conflictScalarHint": "标量冲突（如 defaultMode、effort）：用户偏好始终优先于框架配置，框架间冲突后安装的优先。详情见 eco.json 的 mergeConflicts 字段。",
+    "userPrefSaved": "用户偏好已保存",
+    "userPrefSaveFailed": "保存用户偏好失败",
+    "userPrefRemoved": "已恢复为框架默认值",
+    "userPrefRemoveFailed": "恢复框架默认值失败",
+    "saveUserPref": "保存偏好",
+    "resetToDefault": "恢复默认"
   }
 }

@@ -2720,6 +2720,15 @@
     "frameworkUninstalled": "Framework \"{{name}}\" uninstalled",
     "frameworkUninstallFailed": "Failed to uninstall framework",
     "frameworkUpdated": "Framework \"{{name}}\" updated",
-    "frameworkUpdateFailed": "Failed to update framework"
+    "frameworkUpdateFailed": "Failed to update framework",
+    "conflictWarning": "Root file conflicts detected",
+    "conflictMergeHint": "Arrays are deduplicated and concatenated across frameworks.",
+    "conflictScalarHint": "Scalar conflicts (e.g. defaultMode, effort): user preferences always take priority over framework defaults; among frameworks, later-installed wins. Check mergeConflicts in eco.json for details.",
+    "userPrefSaved": "User preferences saved",
+    "userPrefSaveFailed": "Failed to save user preferences",
+    "userPrefRemoved": "Reset to framework default",
+    "userPrefRemoveFailed": "Failed to reset to framework default",
+    "saveUserPref": "Save Preferences",
+    "resetToDefault": "Reset to Default"
   }
 }

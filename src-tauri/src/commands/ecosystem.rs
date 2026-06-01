@@ -73,3 +73,18 @@ pub async fn update_framework_in_ecosystem(
 pub async fn get_ecosystem_frameworks(eco_id: String) -> Result<Vec<String>, String> {
     EcosystemService::get_ecosystem_frameworks(&eco_id).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn save_user_preferences(eco_id: String, file_name: String) -> Result<(), String> {
+    EcosystemService::save_user_preferences(&eco_id, &file_name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn remove_user_preference(
+    eco_id: String,
+    file_name: String,
+    key_path: String,
+) -> Result<(), String> {
+    EcosystemService::remove_user_preference(&eco_id, &file_name, &key_path)
+        .map_err(|e| e.to_string())
+}
