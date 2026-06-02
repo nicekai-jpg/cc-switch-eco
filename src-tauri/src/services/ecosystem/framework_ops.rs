@@ -402,14 +402,22 @@ fn merge_hooks_json_to_fragment(
     // .claude-plugin/hooks/hooks.json（ruflo）
     let hooks_json_path = if fw_dir.join("hooks").join("hooks.json").exists() {
         fw_dir.join("hooks").join("hooks.json")
-    } else if fw_dir.join(".claude-plugin").join("hooks").join("hooks.json").exists() {
-        fw_dir.join(".claude-plugin").join("hooks").join("hooks.json")
+    } else if fw_dir
+        .join(".claude-plugin")
+        .join("hooks")
+        .join("hooks.json")
+        .exists()
+    {
+        fw_dir
+            .join(".claude-plugin")
+            .join("hooks")
+            .join("hooks.json")
     } else {
         return Ok(());
     };
 
-    let content = fs::read_to_string(&hooks_json_path)
-        .map_err(|e| AppError::io(&hooks_json_path, e))?;
+    let content =
+        fs::read_to_string(&hooks_json_path).map_err(|e| AppError::io(&hooks_json_path, e))?;
     let hooks_json: serde_json::Value = fragment::parse_json(&content, "解析 hooks.json 失败")?;
 
     let hooks_field = match hooks_json.get("hooks") {
@@ -431,22 +439,15 @@ fn merge_hooks_json_to_fragment(
             dirs: isolation.dirs,
             files: updated_files,
         };
-        fragment::update_eco_json_isolation(
-            eco_dir,
-            &updated_isolation,
-        )?;
+        fragment::update_eco_json_isolation(eco_dir, &updated_isolation)?;
     }
 
-    let frag_path = fragment::fragment_path(
-        &rootfiles_dir,
-        "settings.json",
-        prefix,
-    );
+    let frag_path = fragment::fragment_path(&rootfiles_dir, "settings.json", prefix);
 
     if frag_path.exists() {
-        let existing = fs::read_to_string(&frag_path)
-            .map_err(|e| AppError::io(&frag_path, e))?;
-        let mut existing_json: serde_json::Value = fragment::parse_json(&existing, "解析 fragment 失败")?;
+        let existing = fs::read_to_string(&frag_path).map_err(|e| AppError::io(&frag_path, e))?;
+        let mut existing_json: serde_json::Value =
+            fragment::parse_json(&existing, "解析 fragment 失败")?;
 
         let mut conflicts = Vec::new();
         fragment::json_deep_merge_with_array_dedup(
@@ -705,9 +706,7 @@ fn uninstall_by_prefix(eco_dir: &Path, prefix: &str, framework_id: &str) -> Resu
             for file_name in &fw.isolated_files {
                 let file_path = rootfiles_dir.join(file_name);
                 if file_path.exists() {
-                    fragment::remove_framework_from_rootfile(
-                        &file_path, prefix,
-                    )?;
+                    fragment::remove_framework_from_rootfile(&file_path, prefix)?;
                 }
             }
         }

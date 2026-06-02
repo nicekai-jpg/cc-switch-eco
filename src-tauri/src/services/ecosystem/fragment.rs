@@ -5,8 +5,7 @@ use crate::error::AppError;
 
 /// 解析 JSON 字符串，失败时返回带上下文的错误
 pub fn parse_json(content: &str, context: &str) -> Result<serde_json::Value, AppError> {
-    serde_json::from_str(content)
-        .map_err(|e| AppError::Message(format!("{context}: {e}")))
+    serde_json::from_str(content).map_err(|e| AppError::Message(format!("{context}: {e}")))
 }
 
 /// 序列化 JSON 值为格式化字符串

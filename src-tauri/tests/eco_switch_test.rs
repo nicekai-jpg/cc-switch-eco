@@ -445,11 +445,7 @@ fn test_hooks_json_merged_to_settings_fragment() {
     });
 
     // 执行合并
-    simulate_merge_hooks_to_fragment(
-        &base.join("eco-omc/rootfiles"),
-        "omc-",
-        &hooks_json,
-    );
+    simulate_merge_hooks_to_fragment(&base.join("eco-omc/rootfiles"), "omc-", &hooks_json);
 
     // 重建 settings.json
     fragment::rebuild_root_file(
@@ -466,7 +462,10 @@ fn test_hooks_json_merged_to_settings_fragment() {
     );
 
     // 验证：settings.json 包含 hooks 字段
-    assert!(result.get("hooks").is_some(), "settings.json 应包含 hooks 字段");
+    assert!(
+        result.get("hooks").is_some(),
+        "settings.json 应包含 hooks 字段"
+    );
     assert!(
         result["hooks"].get("SessionStart").is_some(),
         "hooks 应包含 SessionStart"
@@ -610,12 +609,7 @@ fn test_hooks_merge_with_existing_fragment() {
 
     // 场景：框架安装命令已经写入了部分 settings.json（如 permissions），
     // 然后 hooks.json 合并进来，两者应深合并
-    create_test_eco(
-        &base,
-        "eco-partial",
-        &["ohmyclaudecode"],
-        &json!({}),
-    );
+    create_test_eco(&base, "eco-partial", &["ohmyclaudecode"], &json!({}));
 
     // 框架安装命令写入的 fragment（不含 hooks）
     create_fragment(
@@ -641,18 +635,11 @@ fn test_hooks_merge_with_existing_fragment() {
         }
     });
 
-    simulate_merge_hooks_to_fragment(
-        &base.join("eco-partial/rootfiles"),
-        "omc-",
-        &hooks_json,
-    );
+    simulate_merge_hooks_to_fragment(&base.join("eco-partial/rootfiles"), "omc-", &hooks_json);
 
     // 验证 fragment 文件同时包含 permissions 和 hooks
-    let frag_path = fragment::fragment_path(
-        &base.join("eco-partial/rootfiles"),
-        "settings.json",
-        "omc-",
-    );
+    let frag_path =
+        fragment::fragment_path(&base.join("eco-partial/rootfiles"), "settings.json", "omc-");
     let frag_content: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&frag_path).unwrap()).unwrap();
 
@@ -665,10 +652,7 @@ fn test_hooks_merge_with_existing_fragment() {
         frag_content.get("permissions").is_some(),
         "fragment 应保留 permissions"
     );
-    assert!(
-        frag_content.get("hooks").is_some(),
-        "fragment 应包含 hooks"
-    );
+    assert!(frag_content.get("hooks").is_some(), "fragment 应包含 hooks");
     assert_eq!(frag_content["defaultMode"], "bypassPermissions");
 
     // 重建 settings.json 验证最终结果
@@ -746,11 +730,7 @@ fn test_ruflo_claude_plugin_hooks_path() {
     });
 
     // 使用 simulate_merge_hooks_to_fragment 模拟合并
-    simulate_merge_hooks_to_fragment(
-        &base.join("eco-ruflo/rootfiles"),
-        "ruflo-",
-        &ruflo_hooks,
-    );
+    simulate_merge_hooks_to_fragment(&base.join("eco-ruflo/rootfiles"), "ruflo-", &ruflo_hooks);
 
     // 重建 settings.json
     fragment::rebuild_root_file(
@@ -767,15 +747,15 @@ fn test_ruflo_claude_plugin_hooks_path() {
     );
 
     // 验证 hooks 字段存在
-    assert!(result.get("hooks").is_some(), "settings.json 应包含 hooks 字段");
+    assert!(
+        result.get("hooks").is_some(),
+        "settings.json 应包含 hooks 字段"
+    );
     assert!(
         result["hooks"].get("PostToolUse").is_some(),
         "hooks 应包含 PostToolUse"
     );
-    assert!(
-        result["hooks"].get("Stop").is_some(),
-        "hooks 应包含 Stop"
-    );
+    assert!(result["hooks"].get("Stop").is_some(), "hooks 应包含 Stop");
     // 非 hooks 配置也保留
     assert_eq!(result["defaultMode"], "plan");
     assert_eq!(result["effort"], "max");
@@ -887,16 +867,36 @@ fn test_multi_framework_eco_switch_back_and_forth() {
 
     let settings_a_initial = read_settings(&base, "eco-a");
     println!("=== Eco A 初始 settings ===");
-    println!("{}", serde_json::to_string_pretty(&settings_a_initial).unwrap());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&settings_a_initial).unwrap()
+    );
 
     // 验证 Eco A 初始状态
-    assert!(settings_a_initial["hooks"].get("SessionStart").is_some(), "Eco A 应有 SessionStart");
-    assert!(settings_a_initial["hooks"].get("PreToolUse").is_some(), "Eco A 应有 PreToolUse");
-    assert!(settings_a_initial["hooks"].get("PostToolUse").is_some(), "Eco A 应有 PostToolUse");
-    assert!(settings_a_initial["hooks"].get("Stop").is_some(), "Eco A 应有 Stop");
+    assert!(
+        settings_a_initial["hooks"].get("SessionStart").is_some(),
+        "Eco A 应有 SessionStart"
+    );
+    assert!(
+        settings_a_initial["hooks"].get("PreToolUse").is_some(),
+        "Eco A 应有 PreToolUse"
+    );
+    assert!(
+        settings_a_initial["hooks"].get("PostToolUse").is_some(),
+        "Eco A 应有 PostToolUse"
+    );
+    assert!(
+        settings_a_initial["hooks"].get("Stop").is_some(),
+        "Eco A 应有 Stop"
+    );
 
     // === Eco B: superpowers + mattpocock-skills ===
-    create_test_eco(&base, "eco-b", &["superpowers", "mattpocock-skills"], &json!({}));
+    create_test_eco(
+        &base,
+        "eco-b",
+        &["superpowers", "mattpocock-skills"],
+        &json!({}),
+    );
 
     // superpowers fragment（含 hooks）
     create_fragment(
@@ -959,15 +959,35 @@ fn test_multi_framework_eco_switch_back_and_forth() {
 
     let settings_b_initial = read_settings(&base, "eco-b");
     println!("\n=== Eco B 初始 settings ===");
-    println!("{}", serde_json::to_string_pretty(&settings_b_initial).unwrap());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&settings_b_initial).unwrap()
+    );
 
     // 验证 Eco B 初始状态
-    assert!(settings_b_initial["hooks"].get("UserPromptSubmit").is_some(), "Eco B 应有 UserPromptSubmit");
-    assert!(settings_b_initial["hooks"].get("SessionStart").is_some(), "Eco B 应有 SessionStart");
+    assert!(
+        settings_b_initial["hooks"]
+            .get("UserPromptSubmit")
+            .is_some(),
+        "Eco B 应有 UserPromptSubmit"
+    );
+    assert!(
+        settings_b_initial["hooks"].get("SessionStart").is_some(),
+        "Eco B 应有 SessionStart"
+    );
     // Eco B 不应有 Eco A 的 hooks
-    assert!(settings_b_initial["hooks"].get("PreToolUse").is_none(), "Eco B 不应有 PreToolUse（来自 Eco A 的 omc）");
-    assert!(settings_b_initial["hooks"].get("PostToolUse").is_none(), "Eco B 不应有 PostToolUse（来自 Eco A 的 ruflo）");
-    assert!(settings_b_initial["hooks"].get("Stop").is_none(), "Eco B 不应有 Stop（来自 Eco A 的 ruflo）");
+    assert!(
+        settings_b_initial["hooks"].get("PreToolUse").is_none(),
+        "Eco B 不应有 PreToolUse（来自 Eco A 的 omc）"
+    );
+    assert!(
+        settings_b_initial["hooks"].get("PostToolUse").is_none(),
+        "Eco B 不应有 PostToolUse（来自 Eco A 的 ruflo）"
+    );
+    assert!(
+        settings_b_initial["hooks"].get("Stop").is_none(),
+        "Eco B 不应有 Stop（来自 Eco A 的 ruflo）"
+    );
 
     // === 模拟切换 A → B：先 snapshot Eco A 的用户偏好 ===
     let snapshot_a = read_settings(&base, "eco-a");
@@ -983,13 +1003,28 @@ fn test_multi_framework_eco_switch_back_and_forth() {
 
     let settings_b_after_switch = read_settings(&base, "eco-b");
     println!("\n=== 切换到 Eco B 后 ===");
-    println!("{}", serde_json::to_string_pretty(&settings_b_after_switch).unwrap());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&settings_b_after_switch).unwrap()
+    );
 
     // Eco B 应该只有自己的 hooks
-    assert!(settings_b_after_switch["hooks"].get("UserPromptSubmit").is_some());
-    assert!(settings_b_after_switch["hooks"].get("SessionStart").is_some());
-    assert!(settings_b_after_switch["hooks"].get("PreToolUse").is_none(), "Eco B 不应串入 Eco A 的 PreToolUse");
-    assert!(settings_b_after_switch["hooks"].get("PostToolUse").is_none(), "Eco B 不应串入 Eco A 的 PostToolUse");
+    assert!(settings_b_after_switch["hooks"]
+        .get("UserPromptSubmit")
+        .is_some());
+    assert!(settings_b_after_switch["hooks"]
+        .get("SessionStart")
+        .is_some());
+    assert!(
+        settings_b_after_switch["hooks"].get("PreToolUse").is_none(),
+        "Eco B 不应串入 Eco A 的 PreToolUse"
+    );
+    assert!(
+        settings_b_after_switch["hooks"]
+            .get("PostToolUse")
+            .is_none(),
+        "Eco B 不应串入 Eco A 的 PostToolUse"
+    );
 
     // === 模拟切换 B → A：先 snapshot Eco B 的用户偏好 ===
     let snapshot_b = read_settings(&base, "eco-b");
@@ -1005,32 +1040,75 @@ fn test_multi_framework_eco_switch_back_and_forth() {
 
     let settings_a_after_switch_back = read_settings(&base, "eco-a");
     println!("\n=== 切换回 Eco A 后 ===");
-    println!("{}", serde_json::to_string_pretty(&settings_a_after_switch_back).unwrap());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&settings_a_after_switch_back).unwrap()
+    );
 
     // Eco A 应该只有自己的 hooks
-    assert!(settings_a_after_switch_back["hooks"].get("SessionStart").is_some(), "Eco A 应有 SessionStart");
-    assert!(settings_a_after_switch_back["hooks"].get("PreToolUse").is_some(), "Eco A 应有 PreToolUse");
-    assert!(settings_a_after_switch_back["hooks"].get("PostToolUse").is_some(), "Eco A 应有 PostToolUse");
-    assert!(settings_a_after_switch_back["hooks"].get("Stop").is_some(), "Eco A 应有 Stop");
+    assert!(
+        settings_a_after_switch_back["hooks"]
+            .get("SessionStart")
+            .is_some(),
+        "Eco A 应有 SessionStart"
+    );
+    assert!(
+        settings_a_after_switch_back["hooks"]
+            .get("PreToolUse")
+            .is_some(),
+        "Eco A 应有 PreToolUse"
+    );
+    assert!(
+        settings_a_after_switch_back["hooks"]
+            .get("PostToolUse")
+            .is_some(),
+        "Eco A 应有 PostToolUse"
+    );
+    assert!(
+        settings_a_after_switch_back["hooks"].get("Stop").is_some(),
+        "Eco A 应有 Stop"
+    );
     // Eco A 不应有 Eco B 的 hooks
-    assert!(settings_a_after_switch_back["hooks"].get("UserPromptSubmit").is_none(),
-        "Eco A 不应串入 Eco B 的 UserPromptSubmit");
+    assert!(
+        settings_a_after_switch_back["hooks"]
+            .get("UserPromptSubmit")
+            .is_none(),
+        "Eco A 不应串入 Eco B 的 UserPromptSubmit"
+    );
 
     // === 关键验证：hooks 数组不应重复 ===
     // user-fragment 包含了之前合并后的完整 hooks，重建时框架 fragment + user-fragment 再次合并
     // 数组去重应该防止重复条目
-    let session_start_hooks = settings_a_after_switch_back["hooks"]["SessionStart"].as_array().unwrap();
+    let session_start_hooks = settings_a_after_switch_back["hooks"]["SessionStart"]
+        .as_array()
+        .unwrap();
     // SessionStart 应该只有 omc 的条目（1个 matcher 组）
-    assert_eq!(session_start_hooks.len(), 1,
-        "SessionStart 不应重复，实际有 {} 个条目", session_start_hooks.len());
+    assert_eq!(
+        session_start_hooks.len(),
+        1,
+        "SessionStart 不应重复，实际有 {} 个条目",
+        session_start_hooks.len()
+    );
 
-    let pre_tool_hooks = settings_a_after_switch_back["hooks"]["PreToolUse"].as_array().unwrap();
-    assert_eq!(pre_tool_hooks.len(), 1,
-        "PreToolUse 不应重复，实际有 {} 个条目", pre_tool_hooks.len());
+    let pre_tool_hooks = settings_a_after_switch_back["hooks"]["PreToolUse"]
+        .as_array()
+        .unwrap();
+    assert_eq!(
+        pre_tool_hooks.len(),
+        1,
+        "PreToolUse 不应重复，实际有 {} 个条目",
+        pre_tool_hooks.len()
+    );
 
-    let post_tool_hooks = settings_a_after_switch_back["hooks"]["PostToolUse"].as_array().unwrap();
-    assert_eq!(post_tool_hooks.len(), 1,
-        "PostToolUse 不应重复，实际有 {} 个条目", post_tool_hooks.len());
+    let post_tool_hooks = settings_a_after_switch_back["hooks"]["PostToolUse"]
+        .as_array()
+        .unwrap();
+    assert_eq!(
+        post_tool_hooks.len(),
+        1,
+        "PostToolUse 不应重复，实际有 {} 个条目",
+        post_tool_hooks.len()
+    );
 
     // === 再切换一次 B → A → B，验证稳定性 ===
     // snapshot Eco A
@@ -1047,18 +1125,41 @@ fn test_multi_framework_eco_switch_back_and_forth() {
 
     let settings_b_second_switch = read_settings(&base, "eco-b");
     println!("\n=== 第二次切换到 Eco B 后 ===");
-    println!("{}", serde_json::to_string_pretty(&settings_b_second_switch).unwrap());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&settings_b_second_switch).unwrap()
+    );
 
     // Eco B 仍然只有自己的 hooks
-    assert!(settings_b_second_switch["hooks"].get("UserPromptSubmit").is_some());
-    assert!(settings_b_second_switch["hooks"].get("SessionStart").is_some());
-    assert!(settings_b_second_switch["hooks"].get("PreToolUse").is_none(), "Eco B 不应串入 Eco A 的 hooks");
-    assert!(settings_b_second_switch["hooks"].get("PostToolUse").is_none(), "Eco B 不应串入 Eco A 的 hooks");
+    assert!(settings_b_second_switch["hooks"]
+        .get("UserPromptSubmit")
+        .is_some());
+    assert!(settings_b_second_switch["hooks"]
+        .get("SessionStart")
+        .is_some());
+    assert!(
+        settings_b_second_switch["hooks"]
+            .get("PreToolUse")
+            .is_none(),
+        "Eco B 不应串入 Eco A 的 hooks"
+    );
+    assert!(
+        settings_b_second_switch["hooks"]
+            .get("PostToolUse")
+            .is_none(),
+        "Eco B 不应串入 Eco A 的 hooks"
+    );
 
     // Eco B 的 hooks 不应重复
-    let sp_session_start = settings_b_second_switch["hooks"]["SessionStart"].as_array().unwrap();
-    assert_eq!(sp_session_start.len(), 1,
-        "Eco B SessionStart 不应重复，实际有 {} 个条目", sp_session_start.len());
+    let sp_session_start = settings_b_second_switch["hooks"]["SessionStart"]
+        .as_array()
+        .unwrap();
+    assert_eq!(
+        sp_session_start.len(),
+        1,
+        "Eco B SessionStart 不应重复，实际有 {} 个条目",
+        sp_session_start.len()
+    );
 
     println!("\n✅ 多框架 Eco 互相切换测试通过！");
 }
@@ -1074,7 +1175,12 @@ fn test_shared_hook_event_different_commands() {
     let base = tmp.path().to_path_buf();
 
     // === Eco: omc + superpowers（都有 SessionStart）===
-    create_test_eco(&base, "eco-shared", &["ohmyclaudecode", "superpowers"], &json!({}));
+    create_test_eco(
+        &base,
+        "eco-shared",
+        &["ohmyclaudecode", "superpowers"],
+        &json!({}),
+    );
 
     // omc fragment（含 SessionStart）
     create_fragment(
@@ -1136,20 +1242,40 @@ fn test_shared_hook_event_different_commands() {
 
     let settings = read_settings(&base, "eco-shared");
     println!("=== 两个框架都有 SessionStart，合并后 ===");
-    println!("{}", serde_json::to_string_pretty(&settings["hooks"]).unwrap());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&settings["hooks"]).unwrap()
+    );
 
     // 验证：SessionStart 应该有 2 个条目（omc 的 + superpowers 的）
     let session_start = settings["hooks"]["SessionStart"].as_array().unwrap();
-    assert_eq!(session_start.len(), 2,
-        "SessionStart 应有 2 个条目（来自两个框架），实际有 {}", session_start.len());
+    assert_eq!(
+        session_start.len(),
+        2,
+        "SessionStart 应有 2 个条目（来自两个框架），实际有 {}",
+        session_start.len()
+    );
 
     // 验证两个条目的命令不同
     let commands: Vec<&str> = session_start
         .iter()
-        .filter_map(|entry| entry.get("hooks")?.as_array()?.first()?.get("command")?.as_str())
+        .filter_map(|entry| {
+            entry
+                .get("hooks")?
+                .as_array()?
+                .first()?
+                .get("command")?
+                .as_str()
+        })
         .collect();
-    assert!(commands.iter().any(|c| c.contains("omc-session-start")), "应有 omc 的 SessionStart 命令");
-    assert!(commands.iter().any(|c| c.contains("sp-session-start")), "应有 superpowers 的 SessionStart 命令");
+    assert!(
+        commands.iter().any(|c| c.contains("omc-session-start")),
+        "应有 omc 的 SessionStart 命令"
+    );
+    assert!(
+        commands.iter().any(|c| c.contains("sp-session-start")),
+        "应有 superpowers 的 SessionStart 命令"
+    );
 
     // === 模拟切换：snapshot 用户偏好 ===
     let snapshot = read_settings(&base, "eco-shared");
@@ -1165,12 +1291,21 @@ fn test_shared_hook_event_different_commands() {
 
     let settings_after_switch = read_settings(&base, "eco-shared");
     println!("\n=== 切换回来后，SessionStart ===");
-    println!("{}", serde_json::to_string_pretty(&settings_after_switch["hooks"]).unwrap());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&settings_after_switch["hooks"]).unwrap()
+    );
 
     // 关键验证：SessionStart 仍然只有 2 个条目，不会变成 4 个
-    let session_start_after = settings_after_switch["hooks"]["SessionStart"].as_array().unwrap();
-    assert_eq!(session_start_after.len(), 2,
-        "切换后 SessionStart 仍应有 2 个条目，实际有 {}（可能重复了）", session_start_after.len());
+    let session_start_after = settings_after_switch["hooks"]["SessionStart"]
+        .as_array()
+        .unwrap();
+    assert_eq!(
+        session_start_after.len(),
+        2,
+        "切换后 SessionStart 仍应有 2 个条目，实际有 {}（可能重复了）",
+        session_start_after.len()
+    );
 
     println!("\n✅ 共享 hook 事件名测试通过！");
 }
