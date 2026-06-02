@@ -3,8 +3,18 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::error::AppError;
+use crate::services::ecosystem::fragment;
+use crate::services::ecosystem::fs_utils;
+use crate::services::ecosystem::symlink;
 use crate::services::ecosystem_framework;
 use crate::store::AppState;
+
+fn ensure_eco_exists(state: &AppState, eco_id: &str) -> Result<(), AppError> {
+    if !state.db.ecosystem_exists(eco_id)? {
+        return Err(AppError::Message(format!("生态 '{eco_id}' 不存在")));
+    }
+    Ok(())
+}
 
 /// 安装框架到指定生态
 pub fn install_framework(
@@ -15,9 +25,7 @@ pub fn install_framework(
     let framework = ecosystem_framework::find_framework(framework_id)
         .ok_or_else(|| AppError::Message(format!("框架 '{framework_id}' 不存在")))?;
 
-    if !state.db.ecosystem_exists(eco_id)? {
-        return Err(AppError::Message(format!("生态 '{eco_id}' 不存在")));
-    }
+    ensure_eco_exists(state, eco_id)?;
 
     let eco_dir = super::ecosystem_dir(eco_id);
     let fw_dir = eco_dir.join("frameworks").join(framework_id);
@@ -46,7 +54,9 @@ pub fn install_framework(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let _ = fs::remove_dir_all(&fw_dir);
+        if let Err(e) = fs::remove_dir_all(&fw_dir) {
+            log::warn!("清理失败的 clone 目录 {}: {e}", fw_dir.display());
+        }
         return Err(AppError::Message(format!("git clone 失败: {stderr}")));
     }
 
@@ -56,6 +66,10 @@ pub fn install_framework(
     // 更新 eco.json
     let commit_hash = get_git_commit_hash(&fw_dir).unwrap_or_default();
     add_framework_to_eco_json(&eco_dir, framework_id, &commit_hash)?;
+
+    // 更新隔离列表
+    let isolation = fragment::collect_eco_isolation(&eco_dir);
+    fragment::update_eco_json_isolation(&eco_dir, &isolation)?;
 
     log::info!("框架 '{framework_id}' 已安装到生态 '{eco_id}'");
     Ok(())
@@ -67,9 +81,7 @@ pub fn uninstall_framework(
     eco_id: &str,
     framework_id: &str,
 ) -> Result<(), AppError> {
-    if !state.db.ecosystem_exists(eco_id)? {
-        return Err(AppError::Message(format!("生态 '{eco_id}' 不存在")));
-    }
+    ensure_eco_exists(state, eco_id)?;
 
     let eco_dir = super::ecosystem_dir(eco_id);
     let fw_dir = eco_dir.join("frameworks").join(framework_id);
@@ -104,9 +116,7 @@ pub fn update_framework(
     eco_id: &str,
     framework_id: &str,
 ) -> Result<(), AppError> {
-    if !state.db.ecosystem_exists(eco_id)? {
-        return Err(AppError::Message(format!("生态 '{eco_id}' 不存在")));
-    }
+    ensure_eco_exists(state, eco_id)?;
 
     let eco_dir = super::ecosystem_dir(eco_id);
     let fw_dir = eco_dir.join("frameworks").join(framework_id);
@@ -143,8 +153,12 @@ pub fn update_framework(
     let commit_hash = get_git_commit_hash(&fw_dir).unwrap_or_default();
     add_framework_to_eco_json(&eco_dir, framework_id, &commit_hash)?;
 
+    // 更新隔离列表
+    let isolation = fragment::collect_eco_isolation(&eco_dir);
+    fragment::update_eco_json_isolation(&eco_dir, &isolation)?;
+
     // 从 fragment 重建所有 JSON 根文件
-    crate::services::ecosystem::fragment::rebuild_all_root_files(&eco_dir)?;
+    fragment::rebuild_all_root_files(&eco_dir)?;
 
     log::info!("框架 '{framework_id}' 在生态 '{eco_id}' 中已更新");
     Ok(())
@@ -161,8 +175,7 @@ pub fn get_ecosystem_frameworks(eco_id: &str) -> Result<Vec<String>, AppError> {
 
     let content =
         fs::read_to_string(&eco_json_path).map_err(|e| AppError::io(&eco_json_path, e))?;
-    let json: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| AppError::Message(format!("解析 eco.json 失败: {e}")))?;
+    let json: serde_json::Value = fragment::parse_json(&content, "解析 eco.json 失败")?;
 
     let frameworks = json
         .get("frameworks")
@@ -197,13 +210,20 @@ fn do_install(
     };
 
     // 官方命令失败时回退到手动复制
-    match install_result {
+    let result = match install_result {
         Ok(()) => Ok(()),
         Err(e) => {
             log::warn!("官方安装命令失败: {e}，回退到手动复制");
             install_manual_copy(eco_dir, framework, fw_dir)
         }
+    };
+
+    // 安装完成后，将框架的 hooks/hooks.json 合并到 settings fragment
+    if result.is_ok() {
+        merge_hooks_json_to_fragment(eco_dir, fw_dir, &framework.file_prefix)?;
     }
+
+    result
 }
 
 /// 使用官方命令安装框架（npx / script 方式）
@@ -235,7 +255,9 @@ fn install_via_official_command(
     };
 
     if let Err(e) = result {
-        let _ = fs::remove_dir_all(&eco_claude_dir);
+        if let Err(e) = fs::remove_dir_all(&eco_claude_dir) {
+            log::warn!("清理临时目录失败 {}: {e}", eco_claude_dir.display());
+        }
         return Err(AppError::Message(format!("官方安装命令失败: {e}")));
     }
 
@@ -243,7 +265,9 @@ fn install_via_official_command(
     move_claude_files_to_eco(&eco_claude_dir, eco_dir, &framework.file_prefix)?;
 
     // 清理 Eco 的 .claude/ 目录
-    let _ = fs::remove_dir_all(&eco_claude_dir);
+    if let Err(e) = fs::remove_dir_all(&eco_claude_dir) {
+        log::warn!("清理临时目录失败 {}: {e}", eco_claude_dir.display());
+    }
 
     Ok(())
 }
@@ -254,8 +278,23 @@ fn move_claude_files_to_eco(
     eco_dir: &Path,
     prefix: &str,
 ) -> Result<(), AppError> {
-    let isolation = crate::services::ecosystem::fragment::collect_eco_isolation(eco_dir);
+    let isolation = fragment::collect_eco_isolation(eco_dir);
 
+    move_isolated_dirs(eco_claude_dir, eco_dir, prefix, &isolation)?;
+    move_isolated_rootfiles(eco_claude_dir, eco_dir, prefix, &isolation)?;
+    copy_non_isolated_files(eco_claude_dir, eco_dir, prefix, &isolation)?;
+
+    fragment::rebuild_all_root_files(eco_dir)?;
+    Ok(())
+}
+
+/// 移动隔离目录中的文件（skills/commands/hooks/agents/plugins 等）
+fn move_isolated_dirs(
+    eco_claude_dir: &Path,
+    eco_dir: &Path,
+    prefix: &str,
+    isolation: &fragment::EcoIsolation,
+) -> Result<(), AppError> {
     for dir_name in &isolation.dirs {
         let src_dir = eco_claude_dir.join(dir_name);
         if !src_dir.exists() || !src_dir.is_dir() {
@@ -280,7 +319,7 @@ fn move_claude_files_to_eco(
                     }
                 }
                 fs::rename(entry.path(), &dst_path).or_else(|_| {
-                    crate::services::ecosystem::fs_utils::copy_path_to(&entry.path(), &dst_path)?;
+                    fs_utils::copy_path_to(&entry.path(), &dst_path)?;
                     if entry.path().is_dir() {
                         fs::remove_dir_all(entry.path())
                     } else {
@@ -291,8 +330,16 @@ fn move_claude_files_to_eco(
             }
         }
     }
+    Ok(())
+}
 
-    // 处理根文件
+/// 移动隔离根文件（settings.json/CLAUDE.md 等）到 rootfiles 目录
+fn move_isolated_rootfiles(
+    eco_claude_dir: &Path,
+    eco_dir: &Path,
+    prefix: &str,
+    isolation: &fragment::EcoIsolation,
+) -> Result<(), AppError> {
     let rootfiles_dir = eco_dir.join("rootfiles");
     fs::create_dir_all(&rootfiles_dir).map_err(|e| AppError::io(&rootfiles_dir, e))?;
 
@@ -303,20 +350,28 @@ fn move_claude_files_to_eco(
         }
         let dst_path = rootfiles_dir.join(file_name);
         if dst_path.exists() {
-            crate::services::ecosystem::fragment::merge_root_file(&src_path, &dst_path, prefix)?;
+            fragment::merge_root_file(&src_path, &dst_path, prefix)?;
         } else {
             fs::copy(&src_path, &dst_path).map_err(|e| AppError::io(&dst_path, e))?;
         }
     }
+    Ok(())
+}
 
-    // 处理其他非隔离根文件
+/// 复制非隔离根文件到 Eco 根目录（带前缀）
+fn copy_non_isolated_files(
+    eco_claude_dir: &Path,
+    eco_dir: &Path,
+    prefix: &str,
+    isolation: &fragment::EcoIsolation,
+) -> Result<(), AppError> {
     if let Ok(entries) = fs::read_dir(eco_claude_dir) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.starts_with('.')
                 || entry.path().is_dir()
                 || isolation.files.contains(&name)
-                || crate::services::ecosystem::symlink::BASE_ISOLATED_DIRS.contains(&name.as_str())
+                || symlink::BASE_ISOLATED_DIRS.contains(&name.as_str())
                 || isolation.dirs.contains(&name)
             {
                 continue;
@@ -330,10 +385,89 @@ fn move_claude_files_to_eco(
             }
         }
     }
+    Ok(())
+}
+
+/// 将框架的 hooks/hooks.json 合并到 settings fragment
+///
+/// 框架（如 OMC）的 hooks 配置定义在源码的 hooks/hooks.json 中，
+/// 但安装命令不负责将其写入 settings.json。
+/// 此函数在安装完成后，将 hooks 配置合并到 settings fragment 的 hooks 字段。
+fn merge_hooks_json_to_fragment(
+    eco_dir: &Path,
+    fw_dir: &Path,
+    prefix: &str,
+) -> Result<(), AppError> {
+    // 按优先级查找 hooks.json：hooks/hooks.json（OMC、superpowers），
+    // .claude-plugin/hooks/hooks.json（ruflo）
+    let hooks_json_path = if fw_dir.join("hooks").join("hooks.json").exists() {
+        fw_dir.join("hooks").join("hooks.json")
+    } else if fw_dir.join(".claude-plugin").join("hooks").join("hooks.json").exists() {
+        fw_dir.join(".claude-plugin").join("hooks").join("hooks.json")
+    } else {
+        return Ok(());
+    };
+
+    let content = fs::read_to_string(&hooks_json_path)
+        .map_err(|e| AppError::io(&hooks_json_path, e))?;
+    let hooks_json: serde_json::Value = fragment::parse_json(&content, "解析 hooks.json 失败")?;
+
+    let hooks_field = match hooks_json.get("hooks") {
+        Some(h) => h.clone(),
+        None => return Ok(()),
+    };
+
+    let fragment_content = serde_json::json!({ "hooks": hooks_field });
+
+    let rootfiles_dir = eco_dir.join("rootfiles");
+    fs::create_dir_all(&rootfiles_dir).map_err(|e| AppError::io(&rootfiles_dir, e))?;
+
+    // 如果 settings.json 不在隔离列表中，需要添加（hooks 配置需要写入 settings fragment）
+    let isolation = fragment::collect_eco_isolation(eco_dir);
+    if !isolation.files.contains(&"settings.json".to_string()) {
+        let mut updated_files = isolation.files.clone();
+        updated_files.push("settings.json".to_string());
+        let updated_isolation = fragment::EcoIsolation {
+            dirs: isolation.dirs,
+            files: updated_files,
+        };
+        fragment::update_eco_json_isolation(
+            eco_dir,
+            &updated_isolation,
+        )?;
+    }
+
+    let frag_path = fragment::fragment_path(
+        &rootfiles_dir,
+        "settings.json",
+        prefix,
+    );
+
+    if frag_path.exists() {
+        let existing = fs::read_to_string(&frag_path)
+            .map_err(|e| AppError::io(&frag_path, e))?;
+        let mut existing_json: serde_json::Value = fragment::parse_json(&existing, "解析 fragment 失败")?;
+
+        let mut conflicts = Vec::new();
+        fragment::json_deep_merge_with_array_dedup(
+            &mut existing_json,
+            &fragment_content,
+            "",
+            prefix,
+            &mut conflicts,
+        );
+
+        fs::write(&frag_path, fragment::write_json(&existing_json)?)
+            .map_err(|e| AppError::io(&frag_path, e))?;
+    } else {
+        fs::write(&frag_path, fragment::write_json(&fragment_content)?)
+            .map_err(|e| AppError::io(&frag_path, e))?;
+    }
 
     // 从 fragment 重建所有 JSON 根文件
-    crate::services::ecosystem::fragment::rebuild_all_root_files(eco_dir)?;
+    fragment::rebuild_all_root_files(eco_dir)?;
 
+    log::info!("已将 hooks.json 合并到 {}", frag_path.display());
     Ok(())
 }
 
@@ -449,7 +583,7 @@ fn install_manual_copy(
         if dir_name == ".claude-plugin" {
             let plugin_dst = eco_dir.join("plugins").join(&framework.id);
             if !plugin_dst.exists() {
-                crate::services::ecosystem::fs_utils::copy_dir_recursive(&src, &plugin_dst)?;
+                fs_utils::copy_dir_recursive(&src, &plugin_dst)?;
             }
             continue;
         }
@@ -470,7 +604,7 @@ fn install_manual_copy(
                 let dst_name = format!("{}{}", framework.file_prefix, name);
                 let dst_path = dst.join(&dst_name);
                 if !dst_path.exists() {
-                    crate::services::ecosystem::fs_utils::copy_path_to(&entry.path(), &dst_path)?;
+                    fs_utils::copy_path_to(&entry.path(), &dst_path)?;
                 }
             }
         }
@@ -520,7 +654,7 @@ fn copy_agent_md_files(src_dir: &Path, dst_dir: &Path, prefix: &str) -> Result<(
             continue;
         }
 
-        if path.is_dir() && !crate::services::ecosystem::symlink::is_symlink(&path) {
+        if path.is_dir() && !symlink::is_symlink(&path) {
             copy_agent_md_files(&path, dst_dir, prefix)?;
         } else if path.is_file() && name.ends_with(".md") {
             if let Ok(content) = fs::read_to_string(&path) {
@@ -540,7 +674,7 @@ fn copy_agent_md_files(src_dir: &Path, dst_dir: &Path, prefix: &str) -> Result<(
 
 /// 按前缀卸载框架文件
 fn uninstall_by_prefix(eco_dir: &Path, prefix: &str, framework_id: &str) -> Result<(), AppError> {
-    let isolation = crate::services::ecosystem::fragment::collect_eco_isolation(eco_dir);
+    let isolation = fragment::collect_eco_isolation(eco_dir);
 
     // 从各隔离目录移除带前缀的文件
     for dir_name in &isolation.dirs {
@@ -571,7 +705,7 @@ fn uninstall_by_prefix(eco_dir: &Path, prefix: &str, framework_id: &str) -> Resu
             for file_name in &fw.isolated_files {
                 let file_path = rootfiles_dir.join(file_name);
                 if file_path.exists() {
-                    crate::services::ecosystem::fragment::remove_framework_from_rootfile(
+                    fragment::remove_framework_from_rootfile(
                         &file_path, prefix,
                     )?;
                 }
@@ -594,15 +728,17 @@ fn uninstall_by_prefix(eco_dir: &Path, prefix: &str, framework_id: &str) -> Resu
     // 清理可能残留的 .claude/ 目录
     let eco_claude_dir = eco_dir.join(".claude");
     if eco_claude_dir.exists() {
-        let _ = fs::remove_dir_all(&eco_claude_dir);
+        if let Err(e) = fs::remove_dir_all(&eco_claude_dir) {
+            log::warn!("清理残留目录失败 {}: {e}", eco_claude_dir.display());
+        }
     }
 
     // 更新 eco.json 的隔离列表
-    let new_isolation = crate::services::ecosystem::fragment::collect_eco_isolation(eco_dir);
-    crate::services::ecosystem::fragment::update_eco_json_isolation(eco_dir, &new_isolation)?;
+    let new_isolation = fragment::collect_eco_isolation(eco_dir);
+    fragment::update_eco_json_isolation(eco_dir, &new_isolation)?;
 
     // 从 fragment 重建所有 JSON 根文件
-    crate::services::ecosystem::fragment::rebuild_all_root_files(eco_dir)?;
+    fragment::rebuild_all_root_files(eco_dir)?;
 
     Ok(())
 }
@@ -633,8 +769,7 @@ fn add_framework_to_eco_json(
     let mut json: serde_json::Value = if eco_json_path.exists() {
         let content =
             fs::read_to_string(&eco_json_path).map_err(|e| AppError::io(&eco_json_path, e))?;
-        serde_json::from_str(&content)
-            .map_err(|e| AppError::Message(format!("解析 eco.json 失败: {e}")))?
+        fragment::parse_json(&content, "解析 eco.json 失败")?
     } else {
         serde_json::json!({})
     };
@@ -672,12 +807,8 @@ fn add_framework_to_eco_json(
         );
     }
 
-    let content = serde_json::to_string_pretty(&json).unwrap_or_default();
+    let content = fragment::write_json(&json)?;
     fs::write(&eco_json_path, content).map_err(|e| AppError::io(&eco_json_path, e))?;
-
-    // 更新隔离列表
-    let isolation = crate::services::ecosystem::fragment::collect_eco_isolation(eco_dir);
-    crate::services::ecosystem::fragment::update_eco_json_isolation(eco_dir, &isolation)?;
 
     Ok(())
 }
@@ -692,8 +823,7 @@ fn remove_framework_from_eco_json(eco_dir: &Path, framework_id: &str) -> Result<
 
     let content =
         fs::read_to_string(&eco_json_path).map_err(|e| AppError::io(&eco_json_path, e))?;
-    let mut json: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| AppError::Message(format!("解析 eco.json 失败: {e}")))?;
+    let mut json: serde_json::Value = fragment::parse_json(&content, "解析 eco.json 失败")?;
 
     // 从 frameworks 数组中移除
     if let Some(arr) = json.get_mut("frameworks").and_then(|v| v.as_array_mut()) {
@@ -708,7 +838,7 @@ fn remove_framework_from_eco_json(eco_dir: &Path, framework_id: &str) -> Result<
         obj.remove(framework_id);
     }
 
-    let content = serde_json::to_string_pretty(&json).unwrap_or_default();
+    let content = fragment::write_json(&json)?;
     fs::write(&eco_json_path, content).map_err(|e| AppError::io(&eco_json_path, e))?;
 
     Ok(())

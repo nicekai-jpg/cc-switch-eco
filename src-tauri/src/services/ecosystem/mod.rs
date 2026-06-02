@@ -57,13 +57,10 @@ impl EcosystemService {
 
         // 收集初始隔离信息
         let isolation = fragment::collect_framework_isolation(&frameworks);
-        let all_dirs: Vec<String> = symlink::BASE_ISOLATED_DIRS
-            .iter()
-            .map(|s| s.to_string())
-            .chain(isolation.dirs)
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect();
+        let all_dirs = fs_utils::merge_and_dedup(
+            symlink::BASE_ISOLATED_DIRS.iter().map(|s| s.to_string()),
+            isolation.dirs.into_iter(),
+        );
 
         // 创建 eco.json
         let eco_json = serde_json::json!({
@@ -75,11 +72,8 @@ impl EcosystemService {
             "frameworkDetails": {},
         });
         let eco_json_path = eco_dir.join("eco.json");
-        fs::write(
-            &eco_json_path,
-            serde_json::to_string_pretty(&eco_json).unwrap_or_default(),
-        )
-        .map_err(|e| AppError::io(&eco_json_path, e))?;
+        let content = fragment::write_json(&eco_json)?;
+        fs::write(&eco_json_path, content).map_err(|e| AppError::io(&eco_json_path, e))?;
 
         // 保存到 DB
         let now = chrono::Utc::now().timestamp_millis();
@@ -126,7 +120,15 @@ impl EcosystemService {
         }
 
         state.db.set_current_ecosystem(id)?;
-        symlink::switch_symlinks(id)?;
+        let eco_dir = symlink::switch_symlinks(id)?;
+
+        // 旧版 Eco 兼容迁移
+        let isolation = fragment::collect_eco_isolation(&eco_dir);
+        migration::migrate_legacy_rootfiles(&eco_dir, &isolation)?;
+
+        // 从 fragment 重建所有 JSON 根文件
+        fragment::rebuild_all_root_files(&eco_dir)?;
+
         crate::services::provider::ProviderService::sync_current_to_live(state)?;
 
         log::info!("已切换到生态 '{id}'");

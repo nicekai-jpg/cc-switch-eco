@@ -6,6 +6,8 @@ use std::os::windows::fs as windows_fs;
 use std::path::Path;
 
 use crate::error::AppError;
+use crate::services::ecosystem::fragment;
+use crate::services::ecosystem::fs_utils;
 use crate::services::ecosystem_framework;
 
 /// 基础隔离目录列表（始终隔离）
@@ -44,10 +46,12 @@ pub fn is_symlink(path: &Path) -> bool {
 }
 
 /// 切换 ~/.claude/ 下的 symlink 指向指定生态
-pub fn switch_symlinks(id: &str) -> Result<(), AppError> {
+///
+/// 返回生态目录路径，供调用方执行迁移和重建。
+pub fn switch_symlinks(id: &str) -> Result<std::path::PathBuf, AppError> {
     let claude_dir = crate::config::get_claude_config_dir();
     let eco_dir = super::ecosystem_dir(id);
-    let isolation = crate::services::ecosystem::fragment::collect_eco_isolation(&eco_dir);
+    let isolation = fragment::collect_eco_isolation(&eco_dir);
 
     // 切换目录 symlink
     for dir_name in &isolation.dirs {
@@ -60,7 +64,7 @@ pub fn switch_symlinks(id: &str) -> Result<(), AppError> {
             if is_symlink(&claude_path) {
                 fs::remove_file(&claude_path).map_err(|e| AppError::io(&claude_path, e))?;
             } else if claude_path.is_dir() {
-                backup_and_replace_dir(&claude_path, &eco_path, dir_name)?;
+                fs_utils::backup_and_replace_dir(&claude_path, &eco_path, dir_name)?;
             }
         }
 
@@ -102,19 +106,13 @@ pub fn switch_symlinks(id: &str) -> Result<(), AppError> {
     // 清理不再需要的旧 symlink
     cleanup_stale_symlinks(&claude_dir, &isolation)?;
 
-    // 旧版 Eco 兼容迁移
-    crate::services::ecosystem::migration::migrate_legacy_rootfiles(&eco_dir, &isolation)?;
-
-    // 从 fragment 重建所有 JSON 根文件
-    crate::services::ecosystem::fragment::rebuild_all_root_files(&eco_dir)?;
-
-    Ok(())
+    Ok(eco_dir)
 }
 
 /// 清理不再需要的旧 symlink
 fn cleanup_stale_symlinks(
     claude_dir: &Path,
-    current_isolation: &crate::services::ecosystem::fragment::EcoIsolation,
+    current_isolation: &fragment::EcoIsolation,
 ) -> Result<(), AppError> {
     let current_dirs: std::collections::HashSet<String> =
         current_isolation.dirs.iter().cloned().collect();
@@ -127,13 +125,10 @@ fn cleanup_stale_symlinks(
         .flat_map(|f| f.isolated_dirs.iter().cloned())
         .collect();
 
-    let all_dirs: Vec<String> = BASE_ISOLATED_DIRS
-        .iter()
-        .map(|s| s.to_string())
-        .chain(all_framework_dirs)
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .collect();
+    let all_dirs = fs_utils::merge_and_dedup(
+        BASE_ISOLATED_DIRS.iter().map(|s| s.to_string()),
+        all_framework_dirs.into_iter(),
+    );
 
     for dir_name in &all_dirs {
         if current_dirs.contains(dir_name) {
@@ -141,8 +136,12 @@ fn cleanup_stale_symlinks(
         }
         let claude_path = claude_dir.join(dir_name);
         if is_symlink(&claude_path) {
-            let _ = fs::remove_file(&claude_path);
-            let _ = fs::create_dir_all(&claude_path);
+            if let Err(e) = fs::remove_file(&claude_path) {
+                log::warn!("清理旧 symlink 失败 {}: {e}", claude_path.display());
+            }
+            if let Err(e) = fs::create_dir_all(&claude_path) {
+                log::warn!("创建目录失败 {}: {e}", claude_path.display());
+            }
         }
     }
 
@@ -160,40 +159,14 @@ fn cleanup_stale_symlinks(
         }
         let claude_path = claude_dir.join(file_name);
         if is_symlink(&claude_path) {
-            let _ = fs::remove_file(&claude_path);
-            let _ = fs::write(&claude_path, "");
-        }
-    }
-
-    Ok(())
-}
-
-/// 备份真实目录内容到生态目录，然后删除真实目录
-fn backup_and_replace_dir(
-    claude_path: &Path,
-    eco_path: &Path,
-    dir_name: &str,
-) -> Result<(), AppError> {
-    if !claude_path.is_dir() {
-        return Ok(());
-    }
-
-    for entry in fs::read_dir(claude_path).map_err(|e| AppError::io(claude_path, e))? {
-        let entry = entry.map_err(|e| AppError::io(claude_path, e))?;
-        let src = entry.path();
-        let dst = eco_path.join(entry.file_name());
-
-        if src.is_dir() {
-            if dst.exists() {
-                continue;
+            if let Err(e) = fs::remove_file(&claude_path) {
+                log::warn!("清理旧 symlink 失败 {}: {e}", claude_path.display());
             }
-            crate::services::ecosystem::fs_utils::copy_dir_recursive(&src, &dst)?;
-        } else if src.is_file() && !dst.exists() {
-            fs::copy(&src, &dst).map_err(|e| AppError::io(&dst, e))?;
+            if let Err(e) = fs::write(&claude_path, "") {
+                log::warn!("创建空文件失败 {}: {e}", claude_path.display());
+            }
         }
     }
 
-    fs::remove_dir_all(claude_path).map_err(|e| AppError::io(claude_path, e))?;
-    log::info!("已备份 ~/.claude/{dir_name} 内容到生态目录");
     Ok(())
 }

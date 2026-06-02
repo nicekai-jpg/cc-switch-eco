@@ -2,6 +2,18 @@ use std::fs;
 use std::path::Path;
 
 use crate::error::AppError;
+
+/// 解析 JSON 字符串，失败时返回带上下文的错误
+pub fn parse_json(content: &str, context: &str) -> Result<serde_json::Value, AppError> {
+    serde_json::from_str(content)
+        .map_err(|e| AppError::Message(format!("{context}: {e}")))
+}
+
+/// 序列化 JSON 值为格式化字符串
+pub fn write_json(value: &serde_json::Value) -> Result<String, AppError> {
+    serde_json::to_string_pretty(value)
+        .map_err(|e| AppError::Message(format!("JSON 序列化失败: {e}")))
+}
 use crate::services::ecosystem_framework;
 
 /// 计算 fragment 文件路径
@@ -136,8 +148,7 @@ pub fn rebuild_root_file(
 
     // 写入合并后的根文件
     let dst_path = rootfiles_dir.join(file_name);
-    let content = serde_json::to_string_pretty(&merged)
-        .map_err(|e| AppError::Message(format!("JSON 序列化失败: {e}")))?;
+    let content = write_json(&merged)?;
     fs::write(&dst_path, content).map_err(|e| AppError::io(&dst_path, e))?;
 
     // 将框架间冲突信息写入 eco.json 的 mergeConflicts 字段
@@ -174,28 +185,10 @@ pub fn rebuild_all_root_files(eco_dir: &Path) -> Result<(), AppError> {
 
     let content =
         fs::read_to_string(&eco_json_path).map_err(|e| AppError::io(&eco_json_path, e))?;
-    let json: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| AppError::Message(format!("解析 eco.json 失败: {e}")))?;
+    let json: serde_json::Value = parse_json(&content, "解析 eco.json 失败")?;
 
-    let framework_order: Vec<String> = json
-        .get("frameworks")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let isolated_files: Vec<String> = json
-        .get("isolatedFiles")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
+    let framework_order = extract_string_array(&json, "frameworks");
+    let isolated_files = extract_string_array(&json, "isolatedFiles");
 
     let rootfiles_dir = eco_dir.join("rootfiles");
     if !rootfiles_dir.exists() {
@@ -227,8 +220,7 @@ pub fn save_user_preferences(eco_id: &str, file_name: &str) -> Result<(), AppErr
     let content = fs::read_to_string(&root_file).map_err(|e| AppError::io(&root_file, e))?;
 
     // 验证 JSON 格式
-    let _: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| AppError::Message(format!("JSON 解析失败: {e}")))?;
+    let _: serde_json::Value = parse_json(&content, "JSON 解析失败")?;
 
     // 保存到 user-fragment
     let user_fragment = fragment_path(&rootfiles_dir, file_name, "user-");
@@ -256,8 +248,7 @@ pub fn remove_user_preference(
 
     let content =
         fs::read_to_string(&user_fragment).map_err(|e| AppError::io(&user_fragment, e))?;
-    let mut json: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| AppError::Message(format!("JSON 解析失败: {e}")))?;
+    let mut json: serde_json::Value = parse_json(&content, "JSON 解析失败")?;
 
     if let Some(obj) = json.as_object_mut() {
         remove_key_by_path(obj, key_path);
@@ -268,7 +259,7 @@ pub fn remove_user_preference(
         fs::remove_file(&user_fragment).map_err(|e| AppError::io(&user_fragment, e))?;
         log::info!("user-fragment 已清空并删除: {}", user_fragment.display());
     } else {
-        let content = serde_json::to_string_pretty(&json).unwrap_or_default();
+        let content = write_json(&json)?;
         fs::write(&user_fragment, content).map_err(|e| AppError::io(&user_fragment, e))?;
         log::info!("已从 user-fragment 移除 key: {key_path}");
     }
@@ -313,8 +304,7 @@ pub fn save_merge_conflicts(
 
     let content =
         fs::read_to_string(&eco_json_path).map_err(|e| AppError::io(&eco_json_path, e))?;
-    let mut json: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| AppError::Message(format!("解析 eco.json 失败: {e}")))?;
+    let mut json: serde_json::Value = parse_json(&content, "解析 eco.json 失败")?;
 
     // 更新 mergeConflicts 字段
     if let Some(obj) = json.as_object_mut() {
@@ -346,7 +336,7 @@ pub fn save_merge_conflicts(
         }
     }
 
-    let content = serde_json::to_string_pretty(&json).unwrap_or_default();
+    let content = write_json(&json)?;
     fs::write(&eco_json_path, content).map_err(|e| AppError::io(&eco_json_path, e))?;
 
     Ok(())
@@ -500,6 +490,18 @@ pub struct EcoIsolation {
     pub files: Vec<String>,
 }
 
+/// 从 JSON 值中提取字符串数组
+fn extract_string_array(json: &serde_json::Value, key: &str) -> Vec<String> {
+    json.get(key)
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// 从 eco.json 收集隔离配置
 pub fn collect_eco_isolation(eco_dir: &Path) -> EcoIsolation {
     let eco_json_path = eco_dir.join("eco.json");
@@ -513,25 +515,8 @@ pub fn collect_eco_isolation(eco_dir: &Path) -> EcoIsolation {
     let content = fs::read_to_string(&eco_json_path).unwrap_or_default();
     let json: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
 
-    let dirs = json
-        .get("isolatedDirs")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let files = json
-        .get("isolatedFiles")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
+    let dirs = extract_string_array(&json, "isolatedDirs");
+    let files = extract_string_array(&json, "isolatedFiles");
 
     EcoIsolation { dirs, files }
 }
@@ -568,8 +553,7 @@ pub fn update_eco_json_isolation(eco_dir: &Path, isolation: &EcoIsolation) -> Re
 
     let content =
         fs::read_to_string(&eco_json_path).map_err(|e| AppError::io(&eco_json_path, e))?;
-    let mut json: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| AppError::Message(format!("解析 eco.json 失败: {e}")))?;
+    let mut json: serde_json::Value = parse_json(&content, "解析 eco.json 失败")?;
 
     if let Some(obj) = json.as_object_mut() {
         obj.insert(
@@ -594,7 +578,7 @@ pub fn update_eco_json_isolation(eco_dir: &Path, isolation: &EcoIsolation) -> Re
         );
     }
 
-    let content = serde_json::to_string_pretty(&json).unwrap_or_default();
+    let content = write_json(&json)?;
     fs::write(&eco_json_path, content).map_err(|e| AppError::io(&eco_json_path, e))?;
 
     Ok(())

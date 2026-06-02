@@ -46,3 +46,44 @@ pub fn sanitize_id(name: &str) -> String {
         .collect::<String>()
         .to_lowercase()
 }
+
+/// 合并两个字符串迭代器并去重
+pub fn merge_and_dedup(
+    a: impl Iterator<Item = String>,
+    b: impl Iterator<Item = String>,
+) -> Vec<String> {
+    a.chain(b)
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+/// 备份真实目录内容到生态目录，然后删除真实目录
+pub(crate) fn backup_and_replace_dir(
+    claude_path: &Path,
+    eco_path: &Path,
+    dir_name: &str,
+) -> Result<(), AppError> {
+    if !claude_path.is_dir() {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(claude_path).map_err(|e| AppError::io(claude_path, e))? {
+        let entry = entry.map_err(|e| AppError::io(claude_path, e))?;
+        let src = entry.path();
+        let dst = eco_path.join(entry.file_name());
+
+        if src.is_dir() {
+            if dst.exists() {
+                continue;
+            }
+            copy_dir_recursive(&src, &dst)?;
+        } else if src.is_file() && !dst.exists() {
+            fs::copy(&src, &dst).map_err(|e| AppError::io(&dst, e))?;
+        }
+    }
+
+    fs::remove_dir_all(claude_path).map_err(|e| AppError::io(claude_path, e))?;
+    log::info!("已备份 ~/.claude/{dir_name} 内容到生态目录");
+    Ok(())
+}
