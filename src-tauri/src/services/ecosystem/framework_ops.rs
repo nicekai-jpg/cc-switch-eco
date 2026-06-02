@@ -262,7 +262,7 @@ fn install_via_official_command(
     }
 
     // 将 .claude/ 中的文件移动到 Eco 对应目录
-    move_claude_files_to_eco(&eco_claude_dir, eco_dir, &framework.file_prefix)?;
+    move_claude_files_to_eco(&eco_claude_dir, eco_dir, framework)?;
 
     // 清理 Eco 的 .claude/ 目录
     if let Err(e) = fs::remove_dir_all(&eco_claude_dir) {
@@ -276,25 +276,32 @@ fn install_via_official_command(
 fn move_claude_files_to_eco(
     eco_claude_dir: &Path,
     eco_dir: &Path,
-    prefix: &str,
+    framework: &ecosystem_framework::FrameworkRegistry,
 ) -> Result<(), AppError> {
     let isolation = fragment::collect_eco_isolation(eco_dir);
 
-    move_isolated_dirs(eco_claude_dir, eco_dir, prefix, &isolation)?;
-    move_isolated_rootfiles(eco_claude_dir, eco_dir, prefix, &isolation)?;
-    copy_non_isolated_files(eco_claude_dir, eco_dir, prefix, &isolation)?;
+    move_isolated_dirs(eco_claude_dir, eco_dir, framework, &isolation)?;
+    move_isolated_rootfiles(eco_claude_dir, eco_dir, &framework.file_prefix, &isolation)?;
+    copy_non_isolated_files(eco_claude_dir, eco_dir, &framework.file_prefix, &isolation)?;
 
     fragment::rebuild_all_root_files(eco_dir)?;
     Ok(())
 }
 
 /// 移动隔离目录中的文件（skills/commands/hooks/agents/plugins 等）
+///
+/// 根据 framework 的 dir_layout 和 files_prefixed 字段通用处理：
+/// - 前缀子目录展开（如 commands/gsd/ → commands/）
+/// - 文件名前缀去重（files_prefixed 时跳过重复添加）
 fn move_isolated_dirs(
     eco_claude_dir: &Path,
     eco_dir: &Path,
-    prefix: &str,
+    framework: &ecosystem_framework::FrameworkRegistry,
     isolation: &fragment::EcoIsolation,
 ) -> Result<(), AppError> {
+    let prefix = &framework.file_prefix;
+    let files_prefixed = framework.files_prefixed;
+
     for dir_name in &isolation.dirs {
         let src_dir = eco_claude_dir.join(dir_name);
         if !src_dir.exists() || !src_dir.is_dir() {
@@ -309,7 +316,55 @@ fn move_isolated_dirs(
                 if name.starts_with('.') {
                     continue;
                 }
-                let dst_name = format!("{prefix}{name}");
+
+                // 处理子目录：如果子目录名以框架前缀开头，
+                // 展开其内容到目标目录（如 commands/gsd/ → commands/）
+                if entry.path().is_dir() && name.starts_with(prefix) {
+                    if let Ok(sub_entries) = fs::read_dir(&entry.path()) {
+                        for sub_entry in sub_entries.flatten() {
+                            let sub_name = sub_entry.file_name().to_string_lossy().to_string();
+                            if sub_name.starts_with('.') {
+                                continue;
+                            }
+                            let dst_name = if files_prefixed && sub_name.starts_with(prefix) {
+                                sub_name.clone()
+                            } else {
+                                format!("{prefix}{sub_name}")
+                            };
+                            let dst_path = dst_dir.join(&dst_name);
+                            if dst_path.exists() {
+                                if dst_path.is_dir() {
+                                    fs::remove_dir_all(&dst_path)
+                                        .map_err(|e| AppError::io(&dst_path, e))?;
+                                } else {
+                                    fs::remove_file(&dst_path)
+                                        .map_err(|e| AppError::io(&dst_path, e))?;
+                                }
+                            }
+                            fs::rename(sub_entry.path(), &dst_path).or_else(|_| {
+                                fs_utils::copy_path_to(&sub_entry.path(), &dst_path)?;
+                                if sub_entry.path().is_dir() {
+                                    fs::remove_dir_all(sub_entry.path())
+                                } else {
+                                    fs::remove_file(sub_entry.path())
+                                }
+                                .map_err(|e| AppError::io(sub_entry.path(), e))
+                            })?;
+                        }
+                    }
+                    // 清理已展开的子目录
+                    if let Err(e) = fs::remove_dir_all(&entry.path()) {
+                        log::warn!("清理子目录失败 {}: {e}", entry.path().display());
+                    }
+                    continue;
+                }
+
+                // 普通文件/目录：根据 files_prefixed 决定前缀
+                let dst_name = if files_prefixed && name.starts_with(prefix) {
+                    name.clone()
+                } else {
+                    format!("{prefix}{name}")
+                };
                 let dst_path = dst_dir.join(&dst_name);
                 if dst_path.exists() {
                     if dst_path.is_dir() {
@@ -569,22 +624,34 @@ fn resolve_template(template: &str, eco_dir: &Path, real_home: &Path) -> String 
 }
 
 /// 手动复制框架文件到 Eco 目录
+///
+/// 根据 FrameworkRegistry 的 dir_layout、files_prefixed、dir_mappings 字段通用处理：
+/// - "flat": 直接复制文件，按 files_prefixed 决定是否添加前缀
+/// - "nested": 展开前缀子目录（如 commands/gsd/ → commands/），按 files_prefixed 决定前缀
+/// - "recursive": 递归扫描子目录，扁平化复制所有文件
+/// - dir_mappings: 非标准目录映射到 eco 目标路径
 fn install_manual_copy(
     eco_dir: &Path,
     framework: &ecosystem_framework::FrameworkRegistry,
     fw_dir: &Path,
 ) -> Result<(), AppError> {
+    let prefix = &framework.file_prefix;
+
     for dir_name in &framework.provided_dirs {
         let src = fw_dir.join(dir_name);
         if !src.exists() {
             continue;
         }
 
-        // .claude-plugin 特殊处理
-        if dir_name == ".claude-plugin" {
-            let plugin_dst = eco_dir.join("plugins").join(&framework.id);
-            if !plugin_dst.exists() {
-                fs_utils::copy_dir_recursive(&src, &plugin_dst)?;
+        // 检查 dir_mappings：非标准目录映射
+        if let Some(mapping) = framework
+            .dir_mappings
+            .iter()
+            .find(|(src_name, _)| src_name == dir_name)
+        {
+            let dst = eco_dir.join(mapping.1.replace("{id}", &framework.id));
+            if !dst.exists() {
+                fs_utils::copy_dir_recursive(&src, &dst)?;
             }
             continue;
         }
@@ -596,80 +663,87 @@ fn install_manual_copy(
         let dst = eco_dir.join(dir_name);
         fs::create_dir_all(&dst).map_err(|e| AppError::io(&dst, e))?;
 
-        if let Ok(entries) = fs::read_dir(&src) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with('.') {
-                    continue;
+        match framework.dir_layout.as_str() {
+            "nested" => {
+                // 展开前缀子目录（如 commands/gsd/ → commands/）
+                let prefix_ns = prefix.strip_suffix('-').unwrap_or(prefix);
+                let prefix_subdir = src.join(prefix_ns);
+                if prefix_subdir.exists() && prefix_subdir.is_dir() {
+                    copy_entries(&prefix_subdir, &dst, prefix, framework.files_prefixed)?;
                 }
-                let dst_name = format!("{}{}", framework.file_prefix, name);
-                let dst_path = dst.join(&dst_name);
-                if !dst_path.exists() {
-                    fs_utils::copy_path_to(&entry.path(), &dst_path)?;
-                }
+                // 复制源目录下的直接文件
+                copy_entries(&src, &dst, prefix, framework.files_prefixed)?;
+            }
+            "recursive" => {
+                // 递归扫描子目录，扁平化复制
+                copy_recursive_flat(&src, &dst, prefix, framework.files_prefixed)?;
+            }
+            _ => {
+                // flat: 直接复制
+                copy_entries(&src, &dst, prefix, framework.files_prefixed)?;
             }
         }
     }
 
-    // agency-agents-zh 特殊处理
-    if framework.id == "agency-agents-zh" {
-        copy_agency_agents_fallback(fw_dir, eco_dir, &framework.file_prefix)?;
-    }
-
     Ok(())
 }
 
-/// agency-agents-zh 回退方案：递归扫描分类目录中的 .md 文件
-fn copy_agency_agents_fallback(
-    fw_dir: &Path,
-    eco_dir: &Path,
+/// 复制目录内容到目标目录，根据 files_prefixed 决定是否添加前缀
+fn copy_entries(
+    src_dir: &Path,
+    dst_dir: &Path,
     prefix: &str,
+    files_prefixed: bool,
 ) -> Result<(), AppError> {
-    let agents_dst = eco_dir.join("agents");
-    fs::create_dir_all(&agents_dst).map_err(|e| AppError::io(&agents_dst, e))?;
-
-    for entry in fs::read_dir(fw_dir).map_err(|e| AppError::io(fw_dir, e))? {
-        let entry = entry.map_err(|e| AppError::io(fw_dir, e))?;
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
+    if let Ok(entries) = fs::read_dir(src_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                continue;
+            }
+            let dst_name = if files_prefixed && name.starts_with(prefix) {
+                name.clone()
+            } else {
+                format!("{prefix}{name}")
+            };
+            let dst_path = dst_dir.join(&dst_name);
+            if !dst_path.exists() {
+                fs_utils::copy_path_to(&entry.path(), &dst_path)?;
+            }
         }
-        let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') || name == "scripts" || name == "frameworks" {
-            continue;
-        }
-        copy_agent_md_files(&path, &agents_dst, prefix)?;
     }
-
     Ok(())
 }
 
-/// 递归扫描目录，将含 YAML front matter 的 .md 文件扁平复制到目标目录
-fn copy_agent_md_files(src_dir: &Path, dst_dir: &Path, prefix: &str) -> Result<(), AppError> {
-    for entry in fs::read_dir(src_dir).map_err(|e| AppError::io(src_dir, e))? {
-        let entry = entry.map_err(|e| AppError::io(src_dir, e))?;
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().to_string();
-
-        if name.starts_with('.') {
-            continue;
-        }
-
-        if path.is_dir() && !symlink::is_symlink(&path) {
-            copy_agent_md_files(&path, dst_dir, prefix)?;
-        } else if path.is_file() && name.ends_with(".md") {
-            if let Ok(content) = fs::read_to_string(&path) {
-                if !content.starts_with("---") {
+/// 递归扫描子目录，扁平化复制所有文件到目标目录
+fn copy_recursive_flat(
+    src_dir: &Path,
+    dst_dir: &Path,
+    prefix: &str,
+    files_prefixed: bool,
+) -> Result<(), AppError> {
+    if let Ok(entries) = fs::read_dir(src_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                copy_recursive_flat(&path, dst_dir, prefix, files_prefixed)?;
+            } else {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if !name.ends_with(".md") || name.starts_with('.') {
                     continue;
                 }
-                let dst_path = dst_dir.join(format!("{prefix}{name}"));
+                let dst_name = if files_prefixed && name.starts_with(prefix) {
+                    name.clone()
+                } else {
+                    format!("{prefix}{name}")
+                };
+                let dst_path = dst_dir.join(&dst_name);
                 if !dst_path.exists() {
                     fs::copy(&path, &dst_path).map_err(|e| AppError::io(&dst_path, e))?;
                 }
             }
         }
     }
-
     Ok(())
 }
 

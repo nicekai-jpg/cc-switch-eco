@@ -41,6 +41,16 @@ pub struct FrameworkRegistry {
     pub isolated_files: Vec<String>,
     /// 安装文件前缀（用于移动到 Eco 目录时加前缀，如 "superpowers-"）
     pub file_prefix: String,
+    /// 源目录内容组织方式
+    /// - "flat": 直接文件，安装时添加前缀（默认）
+    /// - "nested": 有命名空间子目录，需展开（如 commands/gsd/ → commands/）
+    /// - "recursive": 递归扫描子目录，扁平化复制（如 agency-agents 的分类目录）
+    pub dir_layout: String,
+    /// 源文件名是否已含 file_prefix（如 GSD 的 gsd-advisor-researcher.md）
+    pub files_prefixed: bool,
+    /// 非标准目录映射（源目录名 → eco 目标路径模板，支持 {id} 变量）
+    /// 如 (".claude-plugin", "plugins/{id}")
+    pub dir_mappings: Vec<(String, String)>,
 }
 
 /// 获取所有注册的框架
@@ -66,6 +76,12 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec![],
             isolated_files: vec!["CLAUDE.md".to_string()],
             file_prefix: "superpowers-".to_string(),
+            dir_layout: "flat".to_string(),
+            files_prefixed: false,
+            dir_mappings: vec![(
+                ".claude-plugin".to_string(),
+                "plugins/{id}".to_string(),
+            )],
         },
         FrameworkRegistry {
             id: "agency-agents-zh".to_string(),
@@ -84,6 +100,9 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec![],
             isolated_files: vec![],
             file_prefix: "agency-".to_string(),
+            dir_layout: "recursive".to_string(),
+            files_prefixed: false,
+            dir_mappings: vec![],
         },
         FrameworkRegistry {
             id: "ohmyclaudecode".to_string(),
@@ -109,6 +128,12 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec!["hud".to_string()],
             isolated_files: vec!["CLAUDE.md".to_string(), "settings.json".to_string()],
             file_prefix: "omc-".to_string(),
+            dir_layout: "flat".to_string(),
+            files_prefixed: false,
+            dir_mappings: vec![(
+                ".claude-plugin".to_string(),
+                "plugins/{id}".to_string(),
+            )],
         },
         FrameworkRegistry {
             id: "ruflo".to_string(),
@@ -133,6 +158,9 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
                 "mcp.json".to_string(),
             ],
             file_prefix: "ruflo-".to_string(),
+            dir_layout: "flat".to_string(),
+            files_prefixed: false,
+            dir_mappings: vec![],
         },
         FrameworkRegistry {
             id: "speckit".to_string(),
@@ -152,6 +180,9 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec![],
             isolated_files: vec!["CLAUDE.md".to_string()],
             file_prefix: "speckit-".to_string(),
+            dir_layout: "flat".to_string(),
+            files_prefixed: false,
+            dir_mappings: vec![],
         },
         FrameworkRegistry {
             id: "mattpocock-skills".to_string(),
@@ -167,6 +198,9 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec![],
             isolated_files: vec![],
             file_prefix: "mp-".to_string(),
+            dir_layout: "flat".to_string(),
+            files_prefixed: false,
+            dir_mappings: vec![],
         },
         FrameworkRegistry {
             id: "gstack".to_string(),
@@ -182,6 +216,9 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec![],
             isolated_files: vec!["settings.json".to_string()],
             file_prefix: "gstack-".to_string(),
+            dir_layout: "flat".to_string(),
+            files_prefixed: false,
+            dir_mappings: vec![],
         },
         FrameworkRegistry {
             id: "openspec".to_string(),
@@ -197,6 +234,9 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec![],
             isolated_files: vec![],
             file_prefix: "openspec-".to_string(),
+            dir_layout: "flat".to_string(),
+            files_prefixed: false,
+            dir_mappings: vec![],
         },
         FrameworkRegistry {
             id: "bmad-method".to_string(),
@@ -214,6 +254,9 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec![],
             isolated_files: vec![],
             file_prefix: "bmad-".to_string(),
+            dir_layout: "flat".to_string(),
+            files_prefixed: false,
+            dir_mappings: vec![],
         },
         FrameworkRegistry {
             id: "get-shit-done".to_string(),
@@ -221,7 +264,12 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             description: "高效执行技能集，专注快速完成任务，减少 AI 犹豫和过度思考".to_string(),
             repo_url: "https://github.com/gsd-build/get-shit-done.git".to_string(),
             repo_branch: "main".to_string(),
-            provided_dirs: vec!["skills".to_string()],
+            provided_dirs: vec![
+                "commands".to_string(),
+                "agents".to_string(),
+                "hooks".to_string(),
+                "get-shit-done".to_string(),
+            ],
             install_method: "npx".to_string(),
             install_command: Some("npx".to_string()),
             install_args: vec!["get-shit-done@latest".to_string(), "install".to_string()],
@@ -229,6 +277,9 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec!["get-shit-done".to_string()],
             isolated_files: vec!["settings.json".to_string()],
             file_prefix: "gsd-".to_string(),
+            dir_layout: "nested".to_string(),
+            files_prefixed: true,
+            dir_mappings: vec![],
         },
     ]
 }
