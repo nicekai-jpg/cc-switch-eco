@@ -7,13 +7,13 @@
 //! - Superpowers 中文版: npx superpowers-zh --tool claude-code
 //! - Agency Agents 中文版: ./scripts/install.sh --tool claude-code
 //! - Oh My ClaudeCode: npx oh-my-claude-sisyphus@latest setup
-//! - Ruflo: npx ruflo@latest install
-//! - Spec Kit: npx @anthropic-ai/spec-kit@latest install
-//! - Matt Pocock Skills: 手动复制（无 CLI）
-//! - GStack: npx gstack@latest install
-//! - OpenSpec: npx openspec@latest install
-//! - BMAD-METHOD: npx bmad-method@latest install
-//! - Get Shit Done: npx get-shit-done@latest install
+//! - Ruflo: npx ruflo@latest init --force
+//! - Spec Kit: uv tool install specify-cli --from git+... && specify init . --integration claude
+//! - Matt Pocock Skills: npx skills@latest add mattpocock/skills -y -a claude-code --copy
+//! - GStack: git clone + ./setup（官方推荐方式）
+//! - OpenSpec: npx @fission-ai/openspec@latest init --tools claude --force
+//! - BMAD-METHOD: npx bmad-method install --yes --modules bmm --tools claude-code
+//! - Get Shit Done: npx @opengsd/gsd-core@latest --yes
 
 use crate::services::ecosystem::dir_strategy::DirLayout;
 use serde::{Deserialize, Serialize};
@@ -28,7 +28,7 @@ pub struct FrameworkRegistry {
     pub repo_url: String,
     pub repo_branch: String,
     pub provided_dirs: Vec<String>,
-    /// 安装方式: "npx" | "script" | "copy" | "plugin"
+    /// 安装方式: "npx" | "script" | "copy" | "plugin" | "uv"
     pub install_method: String,
     /// 官方安装命令（npx 方式为可执行文件名，script 方式为脚本相对路径）
     pub install_command: Option<String>,
@@ -147,7 +147,11 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             ],
             install_method: "npx".to_string(),
             install_command: Some("npx".to_string()),
-            install_args: vec!["ruflo@latest".to_string(), "install".to_string()],
+            install_args: vec![
+                "ruflo@latest".to_string(),
+                "init".to_string(),
+                "--force".to_string(),
+            ],
             install_env: vec![],
             isolated_dirs: vec!["helpers".to_string()],
             isolated_files: vec![
@@ -168,11 +172,14 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             repo_url: "https://github.com/github/spec-kit.git".to_string(),
             repo_branch: "main".to_string(),
             provided_dirs: vec!["skills".to_string(), "commands".to_string()],
-            install_method: "npx".to_string(),
-            install_command: Some("npx".to_string()),
+            install_method: "uv".to_string(),
+            install_command: Some("uv".to_string()),
             install_args: vec![
-                "@anthropic-ai/spec-kit@latest".to_string(),
+                "tool".to_string(),
                 "install".to_string(),
+                "specify-cli".to_string(),
+                "--from".to_string(),
+                "git+https://github.com/github/spec-kit.git".to_string(),
             ],
             install_env: vec![],
             isolated_dirs: vec![],
@@ -189,9 +196,17 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             repo_url: "https://github.com/mattpocock/skills.git".to_string(),
             repo_branch: "main".to_string(),
             provided_dirs: vec!["skills".to_string()],
-            install_method: "copy".to_string(),
-            install_command: None,
-            install_args: vec![],
+            install_method: "npx".to_string(),
+            install_command: Some("npx".to_string()),
+            install_args: vec![
+                "skills@latest".to_string(),
+                "add".to_string(),
+                "mattpocock/skills".to_string(),
+                "-y".to_string(),
+                "-a".to_string(),
+                "claude-code".to_string(),
+                "--copy".to_string(),
+            ],
             install_env: vec![],
             isolated_dirs: vec![],
             isolated_files: vec![],
@@ -207,9 +222,9 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             repo_url: "https://github.com/garrytan/gstack.git".to_string(),
             repo_branch: "main".to_string(),
             provided_dirs: vec!["skills".to_string()],
-            install_method: "npx".to_string(),
-            install_command: Some("npx".to_string()),
-            install_args: vec!["gstack@latest".to_string(), "install".to_string()],
+            install_method: "script".to_string(),
+            install_command: Some("setup".to_string()),
+            install_args: vec![],
             install_env: vec![],
             isolated_dirs: vec![],
             isolated_files: vec!["settings.json".to_string()],
@@ -227,7 +242,13 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             provided_dirs: vec!["skills".to_string(), "commands".to_string()],
             install_method: "npx".to_string(),
             install_command: Some("npx".to_string()),
-            install_args: vec!["openspec@latest".to_string(), "install".to_string()],
+            install_args: vec![
+                "@fission-ai/openspec@latest".to_string(),
+                "init".to_string(),
+                "--tools".to_string(),
+                "claude".to_string(),
+                "--force".to_string(),
+            ],
             install_env: vec![],
             isolated_dirs: vec![],
             isolated_files: vec![],
@@ -247,7 +268,15 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             provided_dirs: vec!["skills".to_string(), "agents".to_string()],
             install_method: "npx".to_string(),
             install_command: Some("npx".to_string()),
-            install_args: vec!["bmad-method@latest".to_string(), "install".to_string()],
+            install_args: vec![
+                "bmad-method".to_string(),
+                "install".to_string(),
+                "--yes".to_string(),
+                "--modules".to_string(),
+                "bmm".to_string(),
+                "--tools".to_string(),
+                "claude-code".to_string(),
+            ],
             install_env: vec![],
             isolated_dirs: vec![],
             isolated_files: vec![],
@@ -260,7 +289,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             id: "get-shit-done".to_string(),
             name: "Get Shit Done".to_string(),
             description: "高效执行技能集，专注快速完成任务，减少 AI 犹豫和过度思考".to_string(),
-            repo_url: "https://github.com/gsd-build/get-shit-done.git".to_string(),
+            repo_url: "https://github.com/open-gsd/gsd-core.git".to_string(),
             repo_branch: "main".to_string(),
             provided_dirs: vec![
                 "commands".to_string(),
@@ -270,7 +299,10 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             ],
             install_method: "npx".to_string(),
             install_command: Some("npx".to_string()),
-            install_args: vec!["get-shit-done@latest".to_string(), "install".to_string()],
+            install_args: vec![
+                "@opengsd/gsd-core@latest".to_string(),
+                "--yes".to_string(),
+            ],
             install_env: vec![],
             isolated_dirs: vec!["get-shit-done".to_string()],
             isolated_files: vec!["settings.json".to_string()],

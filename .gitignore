@@ -30,3 +30,7 @@ copilot-api
 CODEBUDDY.md
 .github
 mainWindow.js
+
+# Test home directories
+/test_home/
+/src-tauri/test_home/

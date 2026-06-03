@@ -16,6 +16,125 @@ fn ensure_eco_exists(state: &AppState, eco_id: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// 检查框架安装所需的依赖是否满足
+pub fn check_framework_deps(framework: &ecosystem_framework::FrameworkRegistry) -> Result<(), AppError> {
+    let mut missing: Vec<String> = Vec::new();
+
+    // 所有框架都需要 git
+    if !command_exists("git") {
+        missing.push("git".to_string());
+    }
+
+    match framework.install_method.as_str() {
+        "npx" => {
+            // npx 需要 Node.js 20+
+            if !command_exists("node") {
+                missing.push("node (Node.js 20+)".to_string());
+            } else if let Some(ver) = get_node_major_version() {
+                if ver < 20 {
+                    missing.push(format!("node 版本过低 (当前 v{}, 需要 20+)", ver));
+                }
+            }
+            if !command_exists("npx") {
+                missing.push("npx (随 npm 安装)".to_string());
+            }
+        }
+        "script" => {
+            // script 方式需要 bash
+            if !command_exists("bash") {
+                missing.push("bash".to_string());
+            }
+            // gstack 的 setup 脚本额外需要 bun
+            if framework.id == "gstack" && !command_exists("bun") {
+                missing.push("bun (https://bun.sh)".to_string());
+            }
+        }
+        "uv" => {
+            // uv 方式需要 uv 和 Python 3.11+
+            if !command_exists("uv") {
+                missing.push("uv (https://docs.astral.sh/uv/)".to_string());
+            }
+            // uv tool install 会自动管理 Python，但需要确认 uv 可用
+            // uv python list 检查是否有 3.11+ 可用
+            if command_exists("uv") {
+                if !uv_has_python_311() {
+                    missing.push("Python 3.11+ (可通过 uv python install 3.11 安装)".to_string());
+                }
+            }
+        }
+        "copy" | "plugin" => {
+            // copy/plugin 方式只需要 git（已在上面检查）
+        }
+        _ => {}
+    }
+
+    if !missing.is_empty() {
+        let tips = missing
+            .iter()
+            .map(|dep| format!("  - {dep}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Err(AppError::Message(format!(
+            "框架 '{}' 安装缺少以下依赖：\n{tips}",
+            framework.id
+        )));
+    }
+
+    Ok(())
+}
+
+/// 检查命令是否存在于 PATH
+fn command_exists(name: &str) -> bool {
+    Command::new("which")
+        .arg(name)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// 获取 Node.js 主版本号
+fn get_node_major_version() -> Option<u32> {
+    let output = Command::new("node").arg("--version").output().ok()?;
+    let ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    // 格式: v26.0.0
+    let ver = ver.strip_prefix('v')?;
+    let major = ver.split('.').next()?;
+    major.parse().ok()
+}
+
+/// 检查 uv 是否有 Python 3.11+ 可用
+fn uv_has_python_311() -> bool {
+    let output = Command::new("uv")
+        .args(["python", "list", "--only-installed"])
+        .output();
+
+    if let Ok(output) = output {
+        if !output.status.success() {
+            return false;
+        }
+        let list = String::from_utf8_lossy(&output.stdout);
+        for line in list.lines() {
+            // 格式: cpython-3.13.12-macos-aarch64-none    /path/to/python3.13
+            if line.starts_with("cpython-3.") {
+                let ver_part = match line.strip_prefix("cpython-3.") {
+                    Some(v) => v,
+                    None => continue,
+                };
+                let minor_str = match ver_part.split('.').next() {
+                    Some(v) => v,
+                    None => continue,
+                };
+                if let Ok(minor) = minor_str.parse::<u32>() {
+                    if minor >= 11 {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 /// 安装框架到指定生态
 pub fn install_framework(
     state: &AppState,
@@ -26,6 +145,9 @@ pub fn install_framework(
         .ok_or_else(|| AppError::Message(format!("框架 '{framework_id}' 不存在")))?;
 
     ensure_eco_exists(state, eco_id)?;
+
+    // 检查框架安装依赖
+    check_framework_deps(&framework)?;
 
     let eco_dir = super::ecosystem_dir(eco_id);
     let fw_dir = eco_dir.join("frameworks").join(framework_id);
@@ -118,6 +240,12 @@ pub fn update_framework(
 ) -> Result<(), AppError> {
     ensure_eco_exists(state, eco_id)?;
 
+    let framework = ecosystem_framework::find_framework(framework_id)
+        .ok_or_else(|| AppError::Message(format!("框架 '{framework_id}' 不存在")))?;
+
+    // 检查框架安装依赖
+    check_framework_deps(&framework)?;
+
     let eco_dir = super::ecosystem_dir(eco_id);
     let fw_dir = eco_dir.join("frameworks").join(framework_id);
 
@@ -202,6 +330,7 @@ fn do_install(
 ) -> Result<(), AppError> {
     let install_result = match framework.install_method.as_str() {
         "npx" | "script" => install_via_official_command(eco_dir, framework, fw_dir),
+        "uv" => install_via_uv_command(eco_dir, framework, fw_dir),
         "plugin" | "copy" => install_manual_copy(eco_dir, framework, fw_dir),
         _ => Err(AppError::Message(format!(
             "未知的安装方式: {}",
@@ -538,6 +667,92 @@ fn run_script_command(
     }
 
     log::info!("脚本执行成功: {}", script_path.display());
+    Ok(())
+}
+
+/// 使用 uv 工具安装框架（如 Spec Kit 的 specify-cli）
+///
+/// 流程：1) uv tool install 安装 CLI 工具  2) 运行 CLI init 命令  3) 移动文件到 Eco 目录
+fn install_via_uv_command(
+    eco_dir: &Path,
+    framework: &ecosystem_framework::FrameworkRegistry,
+    _fw_dir: &Path,
+) -> Result<(), AppError> {
+    let real_home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
+
+    // 在 Eco 目录下创建 .claude/ 目录结构，供 HOME 重定向使用
+    let eco_claude_dir = eco_dir.join(".claude");
+    for sub_dir in &["skills", "agents", "commands", "hooks", "plugins"] {
+        fs::create_dir_all(eco_claude_dir.join(sub_dir))
+            .map_err(|e| AppError::io(eco_claude_dir.join(sub_dir), e))?;
+    }
+    for isolated_dir in &framework.isolated_dirs {
+        fs::create_dir_all(eco_claude_dir.join(isolated_dir))
+            .map_err(|e| AppError::io(eco_claude_dir.join(isolated_dir), e))?;
+    }
+
+    // Step 1: uv tool install 安装 CLI
+    let command = framework
+        .install_command
+        .as_deref()
+        .ok_or_else(|| AppError::Message(format!("框架 '{}' 未配置 uv 安装命令", framework.id)))?;
+
+    let args: Vec<String> = framework
+        .install_args
+        .iter()
+        .map(|arg| resolve_template(arg, eco_dir, &real_home))
+        .collect();
+
+    let output = Command::new(command)
+        .args(&args)
+        .env("HOME", &real_home)
+        .current_dir(eco_dir)
+        .output()
+        .map_err(|e| AppError::Message(format!("执行 uv 命令失败: {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Err(e) = fs::remove_dir_all(&eco_claude_dir) {
+            log::warn!("清理临时目录失败 {}: {e}", eco_claude_dir.display());
+        }
+        return Err(AppError::Message(format!(
+            "uv tool install 失败:\nstdout: {stdout}\nstderr: {stderr}"
+        )));
+    }
+
+    log::info!("uv tool install 成功: {} {:?}", command, args);
+
+    // Step 2: 运行 CLI init 命令（HOME 重定向到 eco_dir）
+    // Spec Kit: specify init . --integration claude
+    // 使用 uv tool run 运行 specify，以解决 specify 安装路径没有包含在 PATH 环境变量中的问题
+    let init_output = Command::new("uv")
+        .args(["tool", "run", "specify", "init", ".", "--integration", "claude", "--force"])
+        .env("HOME", eco_dir)
+        .current_dir(eco_dir)
+        .output()
+        .map_err(|e| AppError::Message(format!("执行 specify init 失败: {e}")))?;
+
+    if !init_output.status.success() {
+        let stderr = String::from_utf8_lossy(&init_output.stderr);
+        let stdout = String::from_utf8_lossy(&init_output.stdout);
+        log::warn!("specify init 失败（将回退到手动复制）:\nstdout: {stdout}\nstderr: {stderr}");
+        if let Err(e) = fs::remove_dir_all(&eco_claude_dir) {
+            log::warn!("清理临时目录失败 {}: {e}", eco_claude_dir.display());
+        }
+        return Err(AppError::Message(format!(
+            "specify init 失败:\nstdout: {stdout}\nstderr: {stderr}"
+        )));
+    }
+
+    // Step 3: 将 .claude/ 中的文件移动到 Eco 对应目录
+    move_claude_files_to_eco(&eco_claude_dir, eco_dir, framework)?;
+
+    // 清理 Eco 的 .claude/ 目录
+    if let Err(e) = fs::remove_dir_all(&eco_claude_dir) {
+        log::warn!("清理临时目录失败 {}: {e}", eco_claude_dir.display());
+    }
+
     Ok(())
 }
 

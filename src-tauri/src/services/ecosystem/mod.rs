@@ -45,6 +45,13 @@ impl EcosystemService {
             return Err(AppError::Message(format!("生态 '{id}' 已存在")));
         }
 
+        // 检查所有选中框架的依赖是否满足，不满足则提前报错
+        for fw_id in &frameworks {
+            let framework = crate::services::ecosystem_framework::find_framework(fw_id)
+                .ok_or_else(|| AppError::Message(format!("框架 '{fw_id}' 不存在")))?;
+            framework_ops::check_framework_deps(&framework)?;
+        }
+
         let eco_dir = ecosystem_dir(&id);
         fs::create_dir_all(&eco_dir).map_err(|e| AppError::io(&eco_dir, e))?;
 
