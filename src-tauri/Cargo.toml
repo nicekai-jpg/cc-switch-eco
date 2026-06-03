@@ -1,12 +1,13 @@
 [package]
 name = "cc-switch-eco"
-version = "3.21.0"
+version = "3.21.1"
 description = "All-in-One Assistant for Claude Code, Codex & Gemini CLI"
 authors = ["Jason Young"]
 license = "MIT"
 repository = "https://github.com/nicekai-jpg/cc-switch-eco"
 edition = "2021"
 rust-version = "1.85.0"
+default-run = "cc-switch-eco"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
