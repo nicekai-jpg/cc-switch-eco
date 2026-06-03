@@ -15,6 +15,7 @@
 //! - BMAD-METHOD: npx bmad-method@latest install
 //! - Get Shit Done: npx get-shit-done@latest install
 
+use crate::services::ecosystem::dir_strategy::DirLayout;
 use serde::{Deserialize, Serialize};
 
 /// 框架注册信息
@@ -42,10 +43,7 @@ pub struct FrameworkRegistry {
     /// 安装文件前缀（用于移动到 Eco 目录时加前缀，如 "superpowers-"）
     pub file_prefix: String,
     /// 源目录内容组织方式
-    /// - "flat": 直接文件，安装时添加前缀（默认）
-    /// - "nested": 有命名空间子目录，需展开（如 commands/gsd/ → commands/）
-    /// - "recursive": 递归扫描子目录，扁平化复制（如 agency-agents 的分类目录）
-    pub dir_layout: String,
+    pub dir_layout: DirLayout,
     /// 源文件名是否已含 file_prefix（如 GSD 的 gsd-advisor-researcher.md）
     pub files_prefixed: bool,
     /// 非标准目录映射（源目录名 → eco 目标路径模板，支持 {id} 变量）
@@ -76,7 +74,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec![],
             isolated_files: vec!["CLAUDE.md".to_string()],
             file_prefix: "superpowers-".to_string(),
-            dir_layout: "flat".to_string(),
+            dir_layout: DirLayout::Flat,
             files_prefixed: false,
             dir_mappings: vec![(
                 ".claude-plugin".to_string(),
@@ -100,7 +98,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec![],
             isolated_files: vec![],
             file_prefix: "agency-".to_string(),
-            dir_layout: "recursive".to_string(),
+            dir_layout: DirLayout::Recursive,
             files_prefixed: false,
             dir_mappings: vec![],
         },
@@ -128,7 +126,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec!["hud".to_string()],
             isolated_files: vec!["CLAUDE.md".to_string(), "settings.json".to_string()],
             file_prefix: "omc-".to_string(),
-            dir_layout: "flat".to_string(),
+            dir_layout: DirLayout::Flat,
             files_prefixed: false,
             dir_mappings: vec![(
                 ".claude-plugin".to_string(),
@@ -158,7 +156,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
                 "mcp.json".to_string(),
             ],
             file_prefix: "ruflo-".to_string(),
-            dir_layout: "flat".to_string(),
+            dir_layout: DirLayout::Flat,
             files_prefixed: false,
             dir_mappings: vec![],
         },
@@ -180,7 +178,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec![],
             isolated_files: vec!["CLAUDE.md".to_string()],
             file_prefix: "speckit-".to_string(),
-            dir_layout: "flat".to_string(),
+            dir_layout: DirLayout::Flat,
             files_prefixed: false,
             dir_mappings: vec![],
         },
@@ -198,7 +196,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec![],
             isolated_files: vec![],
             file_prefix: "mp-".to_string(),
-            dir_layout: "flat".to_string(),
+            dir_layout: DirLayout::Flat,
             files_prefixed: false,
             dir_mappings: vec![],
         },
@@ -216,7 +214,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec![],
             isolated_files: vec!["settings.json".to_string()],
             file_prefix: "gstack-".to_string(),
-            dir_layout: "flat".to_string(),
+            dir_layout: DirLayout::Flat,
             files_prefixed: false,
             dir_mappings: vec![],
         },
@@ -234,7 +232,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec![],
             isolated_files: vec![],
             file_prefix: "openspec-".to_string(),
-            dir_layout: "flat".to_string(),
+            dir_layout: DirLayout::Flat,
             files_prefixed: false,
             dir_mappings: vec![],
         },
@@ -254,7 +252,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec![],
             isolated_files: vec![],
             file_prefix: "bmad-".to_string(),
-            dir_layout: "flat".to_string(),
+            dir_layout: DirLayout::Flat,
             files_prefixed: false,
             dir_mappings: vec![],
         },
@@ -277,7 +275,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             isolated_dirs: vec!["get-shit-done".to_string()],
             isolated_files: vec!["settings.json".to_string()],
             file_prefix: "gsd-".to_string(),
-            dir_layout: "nested".to_string(),
+            dir_layout: DirLayout::Nested,
             files_prefixed: true,
             dir_mappings: vec![],
         },

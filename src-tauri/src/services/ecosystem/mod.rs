@@ -4,6 +4,7 @@
 //! 每个生态包含独立的 skills/commands/hooks/agents/plugins 目录，
 //! 通过 symlink 隔离到 `~/.claude/` 下。
 
+pub mod dir_strategy;
 pub mod fragment;
 mod framework_ops;
 mod fs_utils;

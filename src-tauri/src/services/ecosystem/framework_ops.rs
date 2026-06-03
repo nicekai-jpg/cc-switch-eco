@@ -290,9 +290,7 @@ fn move_claude_files_to_eco(
 
 /// 移动隔离目录中的文件（skills/commands/hooks/agents/plugins 等）
 ///
-/// 根据 framework 的 dir_layout 和 files_prefixed 字段通用处理：
-/// - 前缀子目录展开（如 commands/gsd/ → commands/）
-/// - 文件名前缀去重（files_prefixed 时跳过重复添加）
+/// 根据 framework 的 dir_layout 策略和 files_prefixed 字段通用处理。
 fn move_isolated_dirs(
     eco_claude_dir: &Path,
     eco_dir: &Path,
@@ -300,7 +298,7 @@ fn move_isolated_dirs(
     isolation: &fragment::EcoIsolation,
 ) -> Result<(), AppError> {
     let prefix = &framework.file_prefix;
-    let files_prefixed = framework.files_prefixed;
+    let strategy = framework.dir_layout.strategy();
 
     for dir_name in &isolation.dirs {
         let src_dir = eco_claude_dir.join(dir_name);
@@ -310,80 +308,7 @@ fn move_isolated_dirs(
         let dst_dir = eco_dir.join(dir_name);
         fs::create_dir_all(&dst_dir).map_err(|e| AppError::io(&dst_dir, e))?;
 
-        if let Ok(entries) = fs::read_dir(&src_dir) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with('.') {
-                    continue;
-                }
-
-                // 处理子目录：如果子目录名以框架前缀开头，
-                // 展开其内容到目标目录（如 commands/gsd/ → commands/）
-                if entry.path().is_dir() && name.starts_with(prefix) {
-                    if let Ok(sub_entries) = fs::read_dir(&entry.path()) {
-                        for sub_entry in sub_entries.flatten() {
-                            let sub_name = sub_entry.file_name().to_string_lossy().to_string();
-                            if sub_name.starts_with('.') {
-                                continue;
-                            }
-                            let dst_name = if files_prefixed && sub_name.starts_with(prefix) {
-                                sub_name.clone()
-                            } else {
-                                format!("{prefix}{sub_name}")
-                            };
-                            let dst_path = dst_dir.join(&dst_name);
-                            if dst_path.exists() {
-                                if dst_path.is_dir() {
-                                    fs::remove_dir_all(&dst_path)
-                                        .map_err(|e| AppError::io(&dst_path, e))?;
-                                } else {
-                                    fs::remove_file(&dst_path)
-                                        .map_err(|e| AppError::io(&dst_path, e))?;
-                                }
-                            }
-                            fs::rename(sub_entry.path(), &dst_path).or_else(|_| {
-                                fs_utils::copy_path_to(&sub_entry.path(), &dst_path)?;
-                                if sub_entry.path().is_dir() {
-                                    fs::remove_dir_all(sub_entry.path())
-                                } else {
-                                    fs::remove_file(sub_entry.path())
-                                }
-                                .map_err(|e| AppError::io(sub_entry.path(), e))
-                            })?;
-                        }
-                    }
-                    // 清理已展开的子目录
-                    if let Err(e) = fs::remove_dir_all(&entry.path()) {
-                        log::warn!("清理子目录失败 {}: {e}", entry.path().display());
-                    }
-                    continue;
-                }
-
-                // 普通文件/目录：根据 files_prefixed 决定前缀
-                let dst_name = if files_prefixed && name.starts_with(prefix) {
-                    name.clone()
-                } else {
-                    format!("{prefix}{name}")
-                };
-                let dst_path = dst_dir.join(&dst_name);
-                if dst_path.exists() {
-                    if dst_path.is_dir() {
-                        fs::remove_dir_all(&dst_path).map_err(|e| AppError::io(&dst_path, e))?;
-                    } else {
-                        fs::remove_file(&dst_path).map_err(|e| AppError::io(&dst_path, e))?;
-                    }
-                }
-                fs::rename(entry.path(), &dst_path).or_else(|_| {
-                    fs_utils::copy_path_to(&entry.path(), &dst_path)?;
-                    if entry.path().is_dir() {
-                        fs::remove_dir_all(entry.path())
-                    } else {
-                        fs::remove_file(entry.path())
-                    }
-                    .map_err(|e| AppError::io(entry.path(), e))
-                })?;
-            }
-        }
+        strategy.move_from_claude(&src_dir, &dst_dir, prefix, framework.files_prefixed)?;
     }
     Ok(())
 }
@@ -625,17 +550,14 @@ fn resolve_template(template: &str, eco_dir: &Path, real_home: &Path) -> String 
 
 /// 手动复制框架文件到 Eco 目录
 ///
-/// 根据 FrameworkRegistry 的 dir_layout、files_prefixed、dir_mappings 字段通用处理：
-/// - "flat": 直接复制文件，按 files_prefixed 决定是否添加前缀
-/// - "nested": 展开前缀子目录（如 commands/gsd/ → commands/），按 files_prefixed 决定前缀
-/// - "recursive": 递归扫描子目录，扁平化复制所有文件
-/// - dir_mappings: 非标准目录映射到 eco 目标路径
+/// 根据 FrameworkRegistry 的 dir_layout 策略、files_prefixed、dir_mappings 通用处理。
 fn install_manual_copy(
     eco_dir: &Path,
     framework: &ecosystem_framework::FrameworkRegistry,
     fw_dir: &Path,
 ) -> Result<(), AppError> {
     let prefix = &framework.file_prefix;
+    let strategy = framework.dir_layout.strategy();
 
     for dir_name in &framework.provided_dirs {
         let src = fw_dir.join(dir_name);
@@ -663,87 +585,9 @@ fn install_manual_copy(
         let dst = eco_dir.join(dir_name);
         fs::create_dir_all(&dst).map_err(|e| AppError::io(&dst, e))?;
 
-        match framework.dir_layout.as_str() {
-            "nested" => {
-                // 展开前缀子目录（如 commands/gsd/ → commands/）
-                let prefix_ns = prefix.strip_suffix('-').unwrap_or(prefix);
-                let prefix_subdir = src.join(prefix_ns);
-                if prefix_subdir.exists() && prefix_subdir.is_dir() {
-                    copy_entries(&prefix_subdir, &dst, prefix, framework.files_prefixed)?;
-                }
-                // 复制源目录下的直接文件
-                copy_entries(&src, &dst, prefix, framework.files_prefixed)?;
-            }
-            "recursive" => {
-                // 递归扫描子目录，扁平化复制
-                copy_recursive_flat(&src, &dst, prefix, framework.files_prefixed)?;
-            }
-            _ => {
-                // flat: 直接复制
-                copy_entries(&src, &dst, prefix, framework.files_prefixed)?;
-            }
-        }
+        strategy.copy_to_eco(&src, &dst, prefix, framework.files_prefixed)?;
     }
 
-    Ok(())
-}
-
-/// 复制目录内容到目标目录，根据 files_prefixed 决定是否添加前缀
-fn copy_entries(
-    src_dir: &Path,
-    dst_dir: &Path,
-    prefix: &str,
-    files_prefixed: bool,
-) -> Result<(), AppError> {
-    if let Ok(entries) = fs::read_dir(src_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with('.') {
-                continue;
-            }
-            let dst_name = if files_prefixed && name.starts_with(prefix) {
-                name.clone()
-            } else {
-                format!("{prefix}{name}")
-            };
-            let dst_path = dst_dir.join(&dst_name);
-            if !dst_path.exists() {
-                fs_utils::copy_path_to(&entry.path(), &dst_path)?;
-            }
-        }
-    }
-    Ok(())
-}
-
-/// 递归扫描子目录，扁平化复制所有文件到目标目录
-fn copy_recursive_flat(
-    src_dir: &Path,
-    dst_dir: &Path,
-    prefix: &str,
-    files_prefixed: bool,
-) -> Result<(), AppError> {
-    if let Ok(entries) = fs::read_dir(src_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                copy_recursive_flat(&path, dst_dir, prefix, files_prefixed)?;
-            } else {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if !name.ends_with(".md") || name.starts_with('.') {
-                    continue;
-                }
-                let dst_name = if files_prefixed && name.starts_with(prefix) {
-                    name.clone()
-                } else {
-                    format!("{prefix}{name}")
-                };
-                let dst_path = dst_dir.join(&dst_name);
-                if !dst_path.exists() {
-                    fs::copy(&path, &dst_path).map_err(|e| AppError::io(&dst_path, e))?;
-                }
-            }
-        }
-    }
     Ok(())
 }
 
