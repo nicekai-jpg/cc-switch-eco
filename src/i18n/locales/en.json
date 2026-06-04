@@ -2705,6 +2705,7 @@
     "deleteFailed": "Failed to delete ecosystem",
     "confirmDeleteTitle": "Delete Ecosystem",
     "confirmDeleteMessage": "Are you sure you want to delete ecosystem \"{{name}}\"? This cannot be undone.",
+    "mustSelectFramework": "Please select at least one framework",
     "selectFrameworks": "Select frameworks to install",
     "installing": "Installing...",
     "installedFrameworks": "Installed frameworks",

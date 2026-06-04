@@ -20,46 +20,78 @@ fn ensure_eco_exists(state: &AppState, eco_id: &str) -> Result<(), AppError> {
 pub fn check_framework_deps(framework: &ecosystem_framework::FrameworkRegistry) -> Result<(), AppError> {
     let mut missing: Vec<String> = Vec::new();
 
+    /// 根据编译目标平台返回安装提示字符串
+    macro_rules! platform_tip {
+        ($macos:expr, $linux:expr, $windows:expr) => {
+            if cfg!(target_os = "macos") {
+                $macos
+            } else if cfg!(target_os = "linux") {
+                $linux
+            } else if cfg!(target_os = "windows") {
+                $windows
+            } else {
+                ""
+            }
+        };
+    }
+
     // 所有框架都需要 git
     if !command_exists("git") {
-        missing.push("git".to_string());
+        let tip = platform_tip!(
+            " (推荐运行: brew install git)",
+            " (推荐运行: sudo apt install git)",
+            " (推荐运行: winget install Git.Git)"
+        );
+        missing.push(format!("git{tip}"));
     }
 
     match framework.install_method.as_str() {
         "npx" => {
-            // npx 需要 Node.js 20+
+            let node_tip = platform_tip!(
+                " (Node.js 20+，推荐运行: brew install node)",
+                " (Node.js 20+，推荐运行: sudo apt install nodejs)",
+                " (Node.js 20+，推荐运行: winget install OpenJS.NodeJS.LTS)"
+            );
+
             if !command_exists("node") {
-                missing.push("node (Node.js 20+)".to_string());
+                missing.push(format!("node{node_tip}"));
             } else if let Some(ver) = get_node_major_version() {
                 if ver < 20 {
-                    missing.push(format!("node 版本过低 (当前 v{}, 需要 20+)", ver));
+                    missing.push(format!("node 版本过低 (当前 v{ver}, 需要 20+{node_tip})"));
                 }
             }
             if !command_exists("npx") {
-                missing.push("npx (随 npm 安装)".to_string());
+                missing.push("npx (通常随 npm/Node.js 一起安装)".to_string());
             }
         }
         "script" => {
-            // script 方式需要 bash
             if !command_exists("bash") {
                 missing.push("bash".to_string());
             }
             // gstack 的 setup 脚本额外需要 bun
             if framework.id == "gstack" && !command_exists("bun") {
-                missing.push("bun (https://bun.sh)".to_string());
+                let bun_tip = if cfg!(any(target_os = "macos", target_os = "linux")) {
+                    " (推荐运行: curl -fsSL https://bun.sh/install | bash)"
+                } else if cfg!(target_os = "windows") {
+                    " (推荐运行: powershell -c \"irm https://bun.sh/install.ps1 | iex\")"
+                } else {
+                    " (https://bun.sh)"
+                };
+                missing.push(format!("bun{bun_tip}"));
             }
         }
         "uv" => {
-            // uv 方式需要 uv 和 Python 3.11+
+            let uv_tip = platform_tip!(
+                " (推荐运行: brew install uv 或 curl -LsSf https://astral.sh/uv/install.sh | sh)",
+                " (推荐运行: curl -LsSf https://astral.sh/uv/install.sh | sh)",
+                " (推荐运行: powershell -c \"irm https://astral.sh/uv/install.ps1 | iex\")"
+            );
+
             if !command_exists("uv") {
-                missing.push("uv (https://docs.astral.sh/uv/)".to_string());
-            }
-            // uv tool install 会自动管理 Python，但需要确认 uv 可用
-            // uv python list 检查是否有 3.11+ 可用
-            if command_exists("uv") {
-                if !uv_has_python_311() {
-                    missing.push("Python 3.11+ (可通过 uv python install 3.11 安装)".to_string());
-                }
+                missing.push(format!("uv{uv_tip}"));
+            } else if !uv_has_python_311() {
+                // uv 存在但缺少 Python 3.11+
+                missing.push("Python 3.11+ (推荐运行: uv python install 3.11)".to_string());
             }
         }
         "copy" | "plugin" => {
@@ -71,12 +103,13 @@ pub fn check_framework_deps(framework: &ecosystem_framework::FrameworkRegistry) 
     if !missing.is_empty() {
         let tips = missing
             .iter()
-            .map(|dep| format!("  - {dep}"))
+            .map(|dep| format!("  • {dep}"))
             .collect::<Vec<_>>()
             .join("\n");
         return Err(AppError::Message(format!(
-            "框架 '{}' 安装缺少以下依赖：\n{tips}",
-            framework.id
+            "框架 '{}' 创建缺少以下依赖，请安装后重试：\n\n{}",
+            framework.name,
+            tips
         )));
     }
 
@@ -267,10 +300,7 @@ pub fn update_framework(
         return Err(AppError::Message(format!("git pull 失败: {stderr}")));
     }
 
-    // 先卸载旧文件，再重新安装
-    let framework = ecosystem_framework::find_framework(framework_id)
-        .ok_or_else(|| AppError::Message(format!("框架 '{framework_id}' 不存在")))?;
-
+    // 先卸载旧文件，再重新安装（复用已查到的 framework）
     let prefix = framework.file_prefix.as_str();
     uninstall_by_prefix(&eco_dir, prefix, framework_id)?;
 
@@ -291,6 +321,7 @@ pub fn update_framework(
     log::info!("框架 '{framework_id}' 在生态 '{eco_id}' 中已更新");
     Ok(())
 }
+
 
 /// 获取生态已安装的框架列表
 pub fn get_ecosystem_frameworks(eco_id: &str) -> Result<Vec<String>, AppError> {

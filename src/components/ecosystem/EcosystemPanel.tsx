@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Trees, Plus } from "lucide-react";
@@ -20,6 +20,12 @@ interface EcosystemPanelProps {
   onOpenChange?: (open: boolean) => void;
 }
 
+/** 待确认删除的生态条目 */
+interface DeleteTarget {
+  id: string;
+  name: string;
+}
+
 export function EcosystemPanel(_props: EcosystemPanelProps) {
   const { t } = useTranslation();
   const { data: ecosystems, isLoading } = useAllEcosystems();
@@ -32,14 +38,30 @@ export function EcosystemPanel(_props: EcosystemPanelProps) {
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [selectedFrameworks, setSelectedFrameworks] = useState<string[]>([]);
-  const [confirmDelete, setConfirmDelete] = useState<{
-    id: string;
-    name: string;
-  } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<DeleteTarget | null>(null);
   const [expandedEco, setExpandedEco] = useState<string | null>(null);
+
+  /** 阻止 Enter 键在表单输入框中意外触发提交 */
+  const handlePreventEnter = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter") e.preventDefault();
+    },
+    [],
+  );
+
+  const resetCreateForm = useCallback(() => {
+    setNewName("");
+    setNewDescription("");
+    setSelectedFrameworks([]);
+    setIsCreating(false);
+  }, []);
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
+    if (selectedFrameworks.length === 0) {
+      toast.error(t("ecosystem.mustSelectFramework"));
+      return;
+    }
     try {
       await createMutation.mutateAsync({
         name: newName.trim(),
@@ -71,13 +93,6 @@ export function EcosystemPanel(_props: EcosystemPanelProps) {
     } catch (e: unknown) {
       toast.error(extractErrorMessage(e) || t("ecosystem.deleteFailed"));
     }
-  };
-
-  const resetCreateForm = () => {
-    setNewName("");
-    setNewDescription("");
-    setSelectedFrameworks([]);
-    setIsCreating(false);
   };
 
   const toggleFramework = (fwId: string) => {
@@ -131,13 +146,13 @@ export function EcosystemPanel(_props: EcosystemPanelProps) {
             placeholder={t("ecosystem.namePlaceholder")}
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+            onKeyDown={handlePreventEnter}
           />
           <Input
             placeholder={t("ecosystem.descriptionPlaceholder")}
             value={newDescription}
             onChange={(e) => setNewDescription(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+            onKeyDown={handlePreventEnter}
           />
 
           {allFrameworks.length > 0 && (
@@ -192,7 +207,7 @@ export function EcosystemPanel(_props: EcosystemPanelProps) {
             <Button
               size="sm"
               onClick={handleCreate}
-              disabled={!newName.trim() || createMutation.isPending}
+              disabled={!newName.trim() || selectedFrameworks.length === 0 || createMutation.isPending}
             >
               {createMutation.isPending
                 ? t("ecosystem.installing")

@@ -14,6 +14,8 @@ export interface FrameworkRegistry {
   description: string;
   repoUrl: string;
   repoBranch: string;
+  installMethod: string;
+  filePrefix: string;
   providedDirs: string[];
   isolatedFiles: string[];
 }

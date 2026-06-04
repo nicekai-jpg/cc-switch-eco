@@ -18,5 +18,37 @@ fn main() {
         }
     }
 
+    // 在 macOS 和 Linux 上，确保系统的 PATH 包含常用的开发者二进制目录。
+    // macOS GUI 应用程序默认不会继承终端的 shell 配置（如 .zshrc），导致 which node/git 等检测失败。
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        let home = std::env::var("HOME").unwrap_or_default();
+        
+        let mut paths: Vec<String> = Vec::new();
+        
+        // 优先添加常用的 Homebrew / 系统全局 / 工具链路径
+        paths.push("/opt/homebrew/bin".to_string());
+        paths.push("/usr/local/bin".to_string());
+        paths.push("/opt/homebrew/sbin".to_string());
+        paths.push("/usr/local/sbin".to_string());
+        
+        if !home.is_empty() {
+            paths.push(format!("{}/.local/bin", home));
+            paths.push(format!("{}/.cargo/bin", home));
+            paths.push(format!("{}/.volta/bin", home));
+            paths.push(format!("{}/.npm-global/bin", home));
+        }
+        
+        // 保留原有的 PATH 项目以防遗漏
+        for p in current_path.split(':') {
+            if !p.is_empty() && !paths.iter().any(|existing| existing == p) {
+                paths.push(p.to_string());
+            }
+        }
+        
+        std::env::set_var("PATH", paths.join(":"));
+    }
+
     cc_switch_eco_lib::run();
 }

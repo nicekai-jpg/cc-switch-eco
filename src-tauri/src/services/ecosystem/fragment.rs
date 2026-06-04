@@ -2,18 +2,19 @@ use std::fs;
 use std::path::Path;
 
 use crate::error::AppError;
+use crate::services::ecosystem_framework;
 
 /// 解析 JSON 字符串，失败时返回带上下文的错误
 pub fn parse_json(content: &str, context: &str) -> Result<serde_json::Value, AppError> {
-    serde_json::from_str(content).map_err(|e| AppError::Message(format!("{context}: {e}")))
+    serde_json::from_str(content)
+        .map_err(|e| AppError::Message(format!("{context}: {e}")))
 }
 
 /// 序列化 JSON 值为格式化字符串
 pub fn write_json(value: &serde_json::Value) -> Result<String, AppError> {
     serde_json::to_string_pretty(value)
-        .map_err(|e| AppError::Message(format!("JSON 序列化失败: {e}")))
+        .map_err(|e| AppError::JsonSerialize { source: e })
 }
-use crate::services::ecosystem_framework;
 
 /// 计算 fragment 文件路径
 ///

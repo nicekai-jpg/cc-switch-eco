@@ -1,7 +1,35 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ecosystemApi } from "@/lib/api/ecosystem";
 
-// === 查询 Hooks ===
+// ================================================================
+// 参数类型定义
+// ================================================================
+
+interface CreateEcosystemParams {
+  name: string;
+  description: string;
+  frameworks?: string[];
+}
+
+interface EcoFrameworkParams {
+  ecoId: string;
+  frameworkId: string;
+}
+
+interface UserPreferenceParams {
+  ecoId: string;
+  fileName: string;
+}
+
+interface RemoveUserPreferenceParams {
+  ecoId: string;
+  fileName: string;
+  keyPath: string;
+}
+
+// ================================================================
+// 查询 Hooks
+// ================================================================
 
 export function useAllEcosystems() {
   return useQuery({
@@ -32,20 +60,15 @@ export function useEcosystemFrameworks(ecoId: string | undefined) {
   });
 }
 
-// === 变更 Hooks ===
+// ================================================================
+// 变更 Hooks
+// ================================================================
 
 export function useCreateEcosystem() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      name,
-      description,
-      frameworks,
-    }: {
-      name: string;
-      description: string;
-      frameworks?: string[];
-    }) => ecosystemApi.create(name, description, frameworks ?? []),
+    mutationFn: ({ name, description, frameworks }: CreateEcosystemParams) =>
+      ecosystemApi.create(name, description, frameworks ?? []),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["ecosystems", "all"] });
     },
@@ -74,18 +97,15 @@ export function useDeleteEcosystem() {
   });
 }
 
-// === 框架管理 Hooks ===
+// ================================================================
+// 框架管理 Hooks
+// ================================================================
 
 export function useInstallFramework() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      ecoId,
-      frameworkId,
-    }: {
-      ecoId: string;
-      frameworkId: string;
-    }) => ecosystemApi.installFramework(ecoId, frameworkId),
+    mutationFn: ({ ecoId, frameworkId }: EcoFrameworkParams) =>
+      ecosystemApi.installFramework(ecoId, frameworkId),
     onSuccess: (_, { ecoId }) => {
       queryClient.invalidateQueries({
         queryKey: ["ecosystems", "frameworks", ecoId],
@@ -98,13 +118,8 @@ export function useInstallFramework() {
 export function useUninstallFramework() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      ecoId,
-      frameworkId,
-    }: {
-      ecoId: string;
-      frameworkId: string;
-    }) => ecosystemApi.uninstallFramework(ecoId, frameworkId),
+    mutationFn: ({ ecoId, frameworkId }: EcoFrameworkParams) =>
+      ecosystemApi.uninstallFramework(ecoId, frameworkId),
     onSuccess: (_, { ecoId }) => {
       queryClient.invalidateQueries({
         queryKey: ["ecosystems", "frameworks", ecoId],
@@ -117,13 +132,8 @@ export function useUninstallFramework() {
 export function useUpdateFramework() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      ecoId,
-      frameworkId,
-    }: {
-      ecoId: string;
-      frameworkId: string;
-    }) => ecosystemApi.updateFramework(ecoId, frameworkId),
+    mutationFn: ({ ecoId, frameworkId }: EcoFrameworkParams) =>
+      ecosystemApi.updateFramework(ecoId, frameworkId),
     onSuccess: (_, { ecoId }) => {
       queryClient.invalidateQueries({
         queryKey: ["ecosystems", "frameworks", ecoId],
@@ -132,12 +142,14 @@ export function useUpdateFramework() {
   });
 }
 
-// === 用户偏好 Hooks ===
+// ================================================================
+// 用户偏好 Hooks
+// ================================================================
 
 export function useSaveUserPreferences() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ ecoId, fileName }: { ecoId: string; fileName: string }) =>
+    mutationFn: ({ ecoId, fileName }: UserPreferenceParams) =>
       ecosystemApi.saveUserPreferences(ecoId, fileName),
     onSuccess: (_, { ecoId }) => {
       queryClient.invalidateQueries({
@@ -150,15 +162,8 @@ export function useSaveUserPreferences() {
 export function useRemoveUserPreference() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      ecoId,
-      fileName,
-      keyPath,
-    }: {
-      ecoId: string;
-      fileName: string;
-      keyPath: string;
-    }) => ecosystemApi.removeUserPreference(ecoId, fileName, keyPath),
+    mutationFn: ({ ecoId, fileName, keyPath }: RemoveUserPreferenceParams) =>
+      ecosystemApi.removeUserPreference(ecoId, fileName, keyPath),
     onSuccess: (_, { ecoId }) => {
       queryClient.invalidateQueries({
         queryKey: ["ecosystems", "frameworks", ecoId],

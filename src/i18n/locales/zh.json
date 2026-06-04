@@ -2705,6 +2705,7 @@
     "deleteFailed": "删除生态失败",
     "confirmDeleteTitle": "删除生态",
     "confirmDeleteMessage": "确定要删除生态「{{name}}」吗？此操作不可撤销。",
+    "mustSelectFramework": "请至少选择一个框架",
     "selectFrameworks": "选择要安装的框架",
     "installing": "安装中...",
     "installedFrameworks": "已安装框架",
