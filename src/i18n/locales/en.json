@@ -2730,6 +2730,7 @@
     "userPrefRemoved": "Reset to framework default",
     "userPrefRemoveFailed": "Failed to reset to framework default",
     "saveUserPref": "Save Preferences",
-    "resetToDefault": "Reset to Default"
+    "resetToDefault": "Reset to Default",
+    "switching": "Switching..."
   }
 }

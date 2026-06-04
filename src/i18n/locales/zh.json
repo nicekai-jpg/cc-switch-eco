@@ -2730,6 +2730,7 @@
     "userPrefRemoved": "已恢复为框架默认值",
     "userPrefRemoveFailed": "恢复框架默认值失败",
     "saveUserPref": "保存偏好",
-    "resetToDefault": "恢复默认"
+    "resetToDefault": "恢复默认",
+    "switching": "切换中..."
   }
 }

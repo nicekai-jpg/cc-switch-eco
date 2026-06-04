@@ -10,6 +10,7 @@ import {
   X,
   Package,
   Save,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,13 +50,11 @@ export function EcoCard({
   const uninstallMutation = useUninstallFramework();
   const updateMutation = useUpdateFramework();
   const savePrefMutation = useSaveUserPreferences();
-  const isMutating =
-    installMutation.isPending ||
-    uninstallMutation.isPending ||
-    updateMutation.isPending;
+  const [operatingFrameworkId, setOperatingFrameworkId] = useState<string | null>(null);
   const [showFrameworkPicker, setShowFrameworkPicker] = useState(false);
 
   const handleInstall = async (frameworkId: string) => {
+    setOperatingFrameworkId(frameworkId);
     try {
       await installMutation.mutateAsync({ ecoId: eco.id, frameworkId });
       toast.success(t("ecosystem.frameworkInstalled", { name: frameworkId }));
@@ -63,10 +62,13 @@ export function EcoCard({
       toast.error(
         extractErrorMessage(e) || t("ecosystem.frameworkInstallFailed"),
       );
+    } finally {
+      setOperatingFrameworkId(null);
     }
   };
 
   const handleUninstall = async (frameworkId: string) => {
+    setOperatingFrameworkId(frameworkId);
     try {
       await uninstallMutation.mutateAsync({ ecoId: eco.id, frameworkId });
       toast.success(t("ecosystem.frameworkUninstalled", { name: frameworkId }));
@@ -74,10 +76,13 @@ export function EcoCard({
       toast.error(
         extractErrorMessage(e) || t("ecosystem.frameworkUninstallFailed"),
       );
+    } finally {
+      setOperatingFrameworkId(null);
     }
   };
 
   const handleUpdate = async (frameworkId: string) => {
+    setOperatingFrameworkId(frameworkId);
     try {
       await updateMutation.mutateAsync({ ecoId: eco.id, frameworkId });
       toast.success(t("ecosystem.frameworkUpdated", { name: frameworkId }));
@@ -85,6 +90,8 @@ export function EcoCard({
       toast.error(
         extractErrorMessage(e) || t("ecosystem.frameworkUpdateFailed"),
       );
+    } finally {
+      setOperatingFrameworkId(null);
     }
   };
 
@@ -136,8 +143,14 @@ export function EcoCard({
               onClick={() => onSwitch(eco.id)}
               disabled={switchPending}
             >
-              <ArrowRightLeft size={14} className="mr-1" />
-              {t("ecosystem.switch")}
+              {switchPending ? (
+                <Loader2 size={14} className="mr-1 animate-spin" />
+              ) : (
+                <ArrowRightLeft size={14} className="mr-1" />
+              )}
+              {switchPending
+                ? t("ecosystem.switching")
+                : t("ecosystem.switch")}
             </Button>
           )}
           <Button
@@ -237,20 +250,28 @@ export function EcoCard({
                         variant="ghost"
                         size="sm"
                         onClick={() => handleUpdate(fwId)}
-                        disabled={isMutating}
+                        disabled={operatingFrameworkId !== null}
                         title={t("ecosystem.updateFramework")}
                       >
-                        <RefreshCw size={12} />
+                        {operatingFrameworkId === fwId ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <RefreshCw size={12} />
+                        )}
                       </Button>
                       <Button
                         variant="ghost"
                         size="sm"
                         className="text-destructive hover:text-destructive"
                         onClick={() => handleUninstall(fwId)}
-                        disabled={isMutating}
+                        disabled={operatingFrameworkId !== null}
                         title={t("ecosystem.uninstallFramework")}
                       >
-                        <X size={12} />
+                        {operatingFrameworkId === fwId ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <X size={12} />
+                        )}
                       </Button>
                     </div>
                   </div>
@@ -264,7 +285,7 @@ export function EcoCard({
               allFrameworks={allFrameworks ?? []}
               installedFrameworks={installedFrameworks}
               onInstall={handleInstall}
-              installPending={installMutation.isPending}
+              installingFrameworkId={operatingFrameworkId}
             />
           )}
         </div>

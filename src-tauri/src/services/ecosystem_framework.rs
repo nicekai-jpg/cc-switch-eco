@@ -14,6 +14,9 @@
 //! - OpenSpec: npx @fission-ai/openspec@latest init --tools claude --force
 //! - BMAD-METHOD: npx bmad-method install --yes --modules bmm --tools claude-code
 //! - Get Shit Done: npx @opengsd/gsd-core@latest --yes
+//! - PUA: npx skills@latest add tanweai/pua --skill pua -y -a claude-code --copy
+//! - Web Access: npx skills@latest add eze-is/web-access -y -a claude-code --copy
+//! - Claude HUD: plugin（commands + .claude-plugin，安装后需运行 /claude-hud:setup）
 
 use crate::services::ecosystem::dir_strategy::DirLayout;
 use serde::{Deserialize, Serialize};
@@ -310,6 +313,99 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             dir_layout: DirLayout::Nested,
             files_prefixed: true,
             dir_mappings: vec![],
+        },
+        FrameworkRegistry {
+            id: "pua".to_string(),
+            name: "PUA".to_string(),
+            description: "高能动性 Agent 技能，用职场 PUA 话术驱动 AI 穷尽一切方案，含 14 种风格和 L0-L4 压力体系".to_string(),
+            repo_url: "https://github.com/tanweai/pua.git".to_string(),
+            repo_branch: "main".to_string(),
+            provided_dirs: vec![
+                "skills".to_string(),
+                "agents".to_string(),
+                "commands".to_string(),
+                "hooks".to_string(),
+                ".claude-plugin".to_string(),
+            ],
+            install_method: "npx".to_string(),
+            install_command: Some("npx".to_string()),
+            install_args: vec![
+                "skills@latest".to_string(),
+                "add".to_string(),
+                "tanweai/pua".to_string(),
+                "--skill".to_string(),
+                "pua".to_string(),
+                "-y".to_string(),
+                "-a".to_string(),
+                "claude-code".to_string(),
+                "--copy".to_string(),
+            ],
+            install_env: vec![],
+            isolated_dirs: vec![],
+            isolated_files: vec!["CLAUDE.md".to_string(), "settings.json".to_string()],
+            file_prefix: "pua-".to_string(),
+            dir_layout: DirLayout::Flat,
+            files_prefixed: false,
+            dir_mappings: vec![(
+                ".claude-plugin".to_string(),
+                "plugins/{id}".to_string(),
+            )],
+        },
+        FrameworkRegistry {
+            id: "web-access".to_string(),
+            name: "Web Access".to_string(),
+            description: "完整联网能力 Skill：三层通道调度 + CDP 浏览器自动化 + 站点经验积累，支持 Chrome/Edge".to_string(),
+            repo_url: "https://github.com/eze-is/web-access.git".to_string(),
+            repo_branch: "main".to_string(),
+            provided_dirs: vec![
+                "skills".to_string(),
+                ".claude-plugin".to_string(),
+            ],
+            install_method: "npx".to_string(),
+            install_command: Some("npx".to_string()),
+            install_args: vec![
+                "skills@latest".to_string(),
+                "add".to_string(),
+                "eze-is/web-access".to_string(),
+                "-y".to_string(),
+                "-a".to_string(),
+                "claude-code".to_string(),
+                "--copy".to_string(),
+            ],
+            install_env: vec![],
+            isolated_dirs: vec![],
+            isolated_files: vec![],
+            file_prefix: "wa-".to_string(),
+            dir_layout: DirLayout::Flat,
+            files_prefixed: false,
+            dir_mappings: vec![(
+                ".claude-plugin".to_string(),
+                "plugins/{id}".to_string(),
+            )],
+        },
+        FrameworkRegistry {
+            id: "claude-hud".to_string(),
+            name: "Claude HUD".to_string(),
+            description: "终端 HUD 插件，实时显示当前模型、上下文用量、活跃工具和 Agent 进度（安装后需运行 /claude-hud:setup）".to_string(),
+            repo_url: "https://github.com/jarrodwatts/claude-hud.git".to_string(),
+            repo_branch: "main".to_string(),
+            provided_dirs: vec![
+                "commands".to_string(),
+                ".claude-plugin".to_string(),
+            ],
+            install_method: "plugin".to_string(),
+            install_command: None,
+            install_args: vec![],
+            install_env: vec![],
+            isolated_dirs: vec![],
+            isolated_files: vec![],
+            file_prefix: "hud-".to_string(),
+            dir_layout: DirLayout::Flat,
+            files_prefixed: false,
+            dir_mappings: vec![(
+                ".claude-plugin".to_string(),
+                "plugins/{id}".to_string(),
+            )],
         },
     ]
 }
