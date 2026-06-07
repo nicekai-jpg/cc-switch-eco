@@ -202,6 +202,13 @@ pub fn write_text_file(path: &Path, data: &str) -> Result<(), AppError> {
 
 /// 原子写入：写入临时文件后 rename 替换，避免半写状态
 pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), AppError> {
+    let resolved_path = if fs::symlink_metadata(path).map(|m| m.is_symlink()).unwrap_or(false) {
+        fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    } else {
+        path.to_path_buf()
+    };
+    let path = &resolved_path;
+
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| AppError::io(parent, e))?;
     }

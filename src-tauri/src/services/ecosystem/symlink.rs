@@ -71,7 +71,7 @@ pub fn switch_symlinks(id: &str) -> Result<std::path::PathBuf, AppError> {
         create_symlink(&eco_path, &claude_path)?;
     }
 
-    // 切换根文件 symlink
+    // 切换根文件 - 用直接复制替换符号链接，彻底解决第三方 CLI 工具 rename 时删除 symlink 导致配置丢失的问题
     let rootfiles_dir = eco_dir.join("rootfiles");
     fs::create_dir_all(&rootfiles_dir).map_err(|e| AppError::io(&rootfiles_dir, e))?;
 
@@ -83,24 +83,39 @@ pub fn switch_symlinks(id: &str) -> Result<std::path::PathBuf, AppError> {
             fs::write(&eco_path, "").map_err(|e| AppError::io(&eco_path, e))?;
         }
 
-        if claude_path.exists() || is_symlink(&claude_path) {
-            if is_symlink(&claude_path) {
-                fs::remove_file(&claude_path).map_err(|e| AppError::io(&claude_path, e))?;
-            } else if claude_path.is_file() {
-                if fs::read_to_string(&eco_path).is_ok_and(|s| s.is_empty()) {
-                    if let Err(e) = fs::copy(&claude_path, &eco_path) {
-                        log::warn!(
-                            "备份文件失败: {} → {}: {e}",
-                            claude_path.display(),
-                            eco_path.display()
-                        );
-                    }
+        // 如果 live 路径是 symlink，先删掉它
+        if is_symlink(&claude_path) {
+            let _ = fs::remove_file(&claude_path);
+        }
+
+        // 如果 live 路径是常规文件，且我们要切换的生态文件 eco_path 是空的，
+        // 说明我们是首次切换，且正在捕获初始配置，故将 live 文件备份到 eco_path
+        if claude_path.exists() && claude_path.is_file() {
+            if fs::read_to_string(&eco_path).is_ok_and(|s| s.is_empty()) {
+                if let Err(e) = fs::copy(&claude_path, &eco_path) {
+                    log::warn!(
+                        "备份文件失败: {} → {}: {e}",
+                        claude_path.display(),
+                        eco_path.display()
+                    );
                 }
-                fs::remove_file(&claude_path).map_err(|e| AppError::io(&claude_path, e))?;
             }
         }
 
-        create_symlink(&eco_path, &claude_path)?;
+        // 从 eco_path 复制到 claude_path，替换 live 配置
+        if let Err(e) = fs::copy(&eco_path, &claude_path) {
+            log::warn!(
+                "复制根文件失败: {} → {}: {e}",
+                eco_path.display(),
+                claude_path.display()
+            );
+        } else {
+            log::info!(
+                "已复制生态根文件: {} → {}",
+                eco_path.display(),
+                claude_path.display()
+            );
+        }
     }
 
     // 清理不再需要的旧 symlink

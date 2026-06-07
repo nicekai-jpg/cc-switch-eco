@@ -148,8 +148,45 @@ pub fn rebuild_root_file(
 
     // 写入合并后的根文件
     let dst_path = rootfiles_dir.join(file_name);
-    let content = write_json(&merged)?;
-    fs::write(&dst_path, content).map_err(|e| AppError::io(&dst_path, e))?;
+
+    // 如果是 settings.json，清理其中包含 ${CLAUDE_PLUGIN_ROOT} 的无效全局 hooks 字段
+    let mut merged_clean = merged.clone();
+    if file_name == "settings.json" {
+        if let Some(obj) = merged_clean.as_object_mut() {
+            if let Some(hooks_val) = obj.get_mut("hooks") {
+                if let Some(hooks_obj) = hooks_val.as_object_mut() {
+                    sanitize_hooks_for_global_settings(hooks_obj);
+                }
+                if hooks_val.is_object() && hooks_val.as_object().is_some_and(|o| o.is_empty()) {
+                    obj.remove("hooks");
+                }
+            }
+        }
+    }
+
+    let content = write_json(&merged_clean)?;
+    fs::write(&dst_path, &content).map_err(|e| AppError::io(&dst_path, e))?;
+
+    // 如果是当前激活的生态，也同步写入 live 文件，保证 live 配置文件与当前生态实时一致
+    let eco_dir = rootfiles_dir.parent().unwrap_or(rootfiles_dir);
+    if is_current_ecosystem(eco_dir) {
+        let claude_dir = crate::config::get_claude_config_dir();
+        let live_path = claude_dir.join(file_name);
+        
+        // 如果 live 路径是 symlink，先删掉它
+        if is_symlink(&live_path) {
+            let _ = fs::remove_file(&live_path);
+        }
+        
+        // 对于 settings.json，如果是空文件，则不写入 (避免覆盖有用的 live 设置)
+        if file_name != "settings.json" || !content.trim().is_empty() {
+            if let Err(e) = fs::write(&live_path, &content) {
+                log::warn!("同步写入 live 文件失败 {}: {e}", live_path.display());
+            } else {
+                log::info!("已同步写入 live 文件: {}", live_path.display());
+            }
+        }
+    }
 
     // 将框架间冲突信息写入 eco.json 的 mergeConflicts 字段
     if !all_conflicts.is_empty() {
@@ -209,18 +246,28 @@ pub fn rebuild_all_root_files(eco_dir: &Path) -> Result<(), AppError> {
 /// 将当前合并后的 JSON 根文件内容保存到 user-fragment，确保用户手动修改
 /// 的配置在下次重建时不会丢失。用户偏好始终优先于框架配置。
 pub fn save_user_preferences(eco_id: &str, file_name: &str) -> Result<(), AppError> {
+    let claude_dir = crate::config::get_claude_config_dir();
     let eco_dir = super::ecosystem_dir(eco_id);
     let rootfiles_dir = eco_dir.join("rootfiles");
-    let root_file = rootfiles_dir.join(file_name);
+    let live_file = claude_dir.join(file_name);
 
-    if !root_file.exists() {
-        return Err(AppError::Message(format!("根文件 {file_name} 不存在")));
-    }
-
-    let content = fs::read_to_string(&root_file).map_err(|e| AppError::io(&root_file, e))?;
+    // 优先读取 live 路径文件（保证最新的用户偏好），如果不存在再 fallback 到生态 rootfiles 下的备份
+    let content = if live_file.exists() {
+        fs::read_to_string(&live_file).map_err(|e| AppError::io(&live_file, e))?
+    } else {
+        let root_file = rootfiles_dir.join(file_name);
+        if !root_file.exists() {
+            return Err(AppError::Message(format!("根文件 {file_name} 不存在")));
+        }
+        fs::read_to_string(&root_file).map_err(|e| AppError::io(&root_file, e))?
+    };
 
     // 验证 JSON 格式
     let _: serde_json::Value = parse_json(&content, "JSON 解析失败")?;
+
+    // 同步写回 root_file 以保持一致性
+    let root_file = rootfiles_dir.join(file_name);
+    let _ = fs::write(&root_file, &content);
 
     // 保存到 user-fragment
     let user_fragment = fragment_path(&rootfiles_dir, file_name, "user-");
@@ -344,9 +391,10 @@ pub fn save_merge_conflicts(
 
 /// 保存当前 Eco 的用户偏好
 ///
-/// 将当前合并后的 JSON 根文件内容快照到 user-fragment，
+/// 从 live 路径读取内容并快照到 user-fragment 及 rootfiles，
 /// 确保用户手动修改的配置在下次切换回来时不会丢失。
 pub fn snapshot_user_preferences(eco_id: &str, isolation: &EcoIsolation) -> Result<(), AppError> {
+    let claude_dir = crate::config::get_claude_config_dir();
     let eco_dir = super::ecosystem_dir(eco_id);
     let rootfiles_dir = eco_dir.join("rootfiles");
     if !rootfiles_dir.exists() {
@@ -354,31 +402,51 @@ pub fn snapshot_user_preferences(eco_id: &str, isolation: &EcoIsolation) -> Resu
     }
 
     for file_name in &isolation.files {
-        if !file_name.ends_with(".json") {
-            continue;
-        }
-        let root_file = rootfiles_dir.join(file_name);
-        if !root_file.exists() {
+        let live_file = claude_dir.join(file_name);
+        if !live_file.exists() {
             continue;
         }
 
-        let content = match fs::read_to_string(&root_file) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
+        if file_name.ends_with(".json") {
+            let content = match fs::read_to_string(&live_file) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
 
-        // 只保存非空 JSON
-        if content.trim().is_empty() || content.trim() == "{}" {
-            continue;
+            // 只保存非空 JSON
+            if content.trim().is_empty() || content.trim() == "{}" {
+                continue;
+            }
+
+            // 验证一下是有效的 JSON
+            if let Err(e) = serde_json::from_str::<serde_json::Value>(&content) {
+                log::warn!("Live 根文件 {} JSON 损坏，跳过快照: {e}", live_file.display());
+                continue;
+            }
+
+            // 保存到 eco root_file 以及 user-fragment
+            let root_file = rootfiles_dir.join(file_name);
+            if let Err(e) = fs::write(&root_file, &content) {
+                log::warn!("写入生态根文件失败 {}: {e}", root_file.display());
+            }
+
+            let user_fragment = fragment_path(&rootfiles_dir, file_name, "user-");
+            if let Err(e) = fs::write(&user_fragment, &content) {
+                log::warn!("写入用户 fragment 失败 {}: {e}", user_fragment.display());
+            }
+            
+            log::info!(
+                "切换前保存用户偏好: {} → {} (并同步到 rootfiles)",
+                live_file.display(),
+                user_fragment.display()
+            );
+        } else {
+            // 非 JSON 文件（例如 CLAUDE.md）直接复制到 rootfiles
+            let root_file = rootfiles_dir.join(file_name);
+            if let Err(e) = fs::copy(&live_file, &root_file) {
+                log::warn!("备份非 JSON 根文件失败: {} → {}: {e}", live_file.display(), root_file.display());
+            }
         }
-
-        let user_fragment = fragment_path(&rootfiles_dir, file_name, "user-");
-        fs::write(&user_fragment, &content).map_err(|e| AppError::io(&user_fragment, e))?;
-        log::info!(
-            "切换前保存用户偏好: {} → {}",
-            root_file.display(),
-            user_fragment.display()
-        );
     }
 
     Ok(())
@@ -583,6 +651,90 @@ pub fn update_eco_json_isolation(eco_dir: &Path, isolation: &EcoIsolation) -> Re
 
     Ok(())
 }
+
+/// 检查指定的 eco_dir 是否是当前正在激活的生态。
+/// 优先解析 plugins 符号链接，回退到查询数据库。
+fn is_current_ecosystem(eco_dir: &Path) -> bool {
+    // 1. 解析 plugins 符号链接（通常指向激活生态的 plugins 文件夹）
+    let claude_dir = crate::config::get_claude_config_dir();
+    let plugins_symlink = claude_dir.join("plugins");
+    if let Ok(target) = fs::read_link(&plugins_symlink) {
+        if let Some(target_parent) = target.parent() {
+            if let (Ok(p1), Ok(p2)) = (fs::canonicalize(eco_dir), fs::canonicalize(target_parent)) {
+                if p1 == p2 {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // 2. 数据库回退查询
+    let db_path = crate::config::get_app_config_dir().join("cc-switch-eco.db");
+    if db_path.exists() {
+        if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+            let current_id: Result<String, _> = conn.query_row(
+                "SELECT id FROM ecosystems WHERE is_current = 1 LIMIT 1",
+                [],
+                |row| row.get(0),
+            );
+            if let Ok(id) = current_id {
+                let eco_id = eco_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                return id == eco_id;
+            }
+        }
+    }
+    
+    false
+}
+
+/// 检查路径是否是符号链接
+fn is_symlink(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .map(|m| m.is_symlink())
+        .unwrap_or(false)
+}
+
+/// 清理 global hooks 字段，过滤掉包含 ${CLAUDE_PLUGIN_ROOT} 的命令，
+/// 这种命令只应由 plugin 独立 hooks 执行，不能放入全局 settings.json。
+pub fn sanitize_hooks_for_global_settings(hooks: &mut serde_json::Map<String, serde_json::Value>) {
+    for (_hook_event, event_hooks_val) in hooks.iter_mut() {
+        if let Some(groups_arr) = event_hooks_val.as_array_mut() {
+            for group in groups_arr.iter_mut() {
+                if let Some(group_obj) = group.as_object_mut() {
+                    if let Some(hooks_list) = group_obj.get_mut("hooks") {
+                        if let Some(hooks_list_arr) = hooks_list.as_array_mut() {
+                            hooks_list_arr.retain(|hook| {
+                                if let Some(hook_obj) = hook.as_object() {
+                                    if let Some(cmd) = hook_obj.get("command").and_then(|c| c.as_str()) {
+                                        if cmd.contains("${CLAUDE_PLUGIN_ROOT}") {
+                                            return false;
+                                        }
+                                    }
+                                }
+                                true
+                            });
+                        }
+                    }
+                }
+            }
+            groups_arr.retain(|group| {
+                if let Some(group_obj) = group.as_object() {
+                    if let Some(hooks_list) = group_obj.get("hooks").and_then(|h| h.as_array()) {
+                        return !hooks_list.is_empty();
+                    }
+                }
+                true
+            });
+        }
+    }
+    hooks.retain(|_hook_event, event_hooks_val| {
+        if let Some(groups_arr) = event_hooks_val.as_array() {
+            return !groups_arr.is_empty();
+        }
+        true
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

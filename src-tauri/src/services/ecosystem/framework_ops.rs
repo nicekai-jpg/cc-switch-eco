@@ -117,12 +117,56 @@ pub fn check_framework_deps(framework: &ecosystem_framework::FrameworkRegistry) 
 }
 
 /// 检查命令是否存在于 PATH
+/// 获取命令的绝对路径（支持常见安装路径扫描，应对 macOS GUI 包中 PATH 环境变量受限的问题）
+fn get_command_path(name: &str) -> Option<String> {
+    // 1. 尝试使用标准的 which 查找
+    if let Ok(output) = Command::new("which").arg(name).output() {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() && Path::new(&path).exists() {
+                return Some(path);
+            }
+        }
+    }
+
+    // 2. 在 macOS/Linux 的常见路径中扫描
+    let mut search_paths = vec![
+        "/opt/homebrew/bin".to_string(),
+        "/usr/local/bin".to_string(),
+        "/usr/bin".to_string(),
+        "/bin".to_string(),
+    ];
+
+    if let Some(home) = dirs::home_dir() {
+        search_paths.push(home.join(".bun/bin").to_string_lossy().to_string());
+        search_paths.push(home.join(".local/bin").to_string_lossy().to_string());
+        
+        // 支持 nvm
+        let nvm_dir = home.join(".nvm/versions/node");
+        if nvm_dir.exists() {
+            if let Ok(entries) = fs::read_dir(nvm_dir) {
+                for entry in entries.flatten() {
+                    let bin_dir = entry.path().join("bin");
+                    if bin_dir.exists() {
+                        search_paths.push(bin_dir.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    for prefix in search_paths {
+        let binary_path = Path::new(&prefix).join(name);
+        if binary_path.exists() && binary_path.is_file() {
+            return Some(binary_path.to_string_lossy().to_string());
+        }
+    }
+
+    None
+}
+
 fn command_exists(name: &str) -> bool {
-    Command::new("which")
-        .arg(name)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    get_command_path(name).is_some()
 }
 
 /// 获取 Node.js 主版本号
@@ -255,6 +299,24 @@ pub fn uninstall_framework(
 
     uninstall_by_prefix(&eco_dir, prefix, framework_id)?;
 
+    // 清理 dir_mappings 映射的目录（如 plugins/{id}/）
+    // 这些目录不以 file_prefix 开头，不会被 uninstall_by_prefix 清理
+    if let Some(fw) = framework {
+        for (_, dst_template) in &fw.dir_mappings {
+            let dst = eco_dir.join(dst_template.replace("{id}", &framework_id));
+            if dst.exists() {
+                if let Err(e) = fs::remove_dir_all(&dst) {
+                    log::warn!("清理 dir_mappings 目录失败 {}: {e}", dst.display());
+                }
+            }
+        }
+
+        // 对于 plugin 类型框架，从 installed_plugins.json 中移除注册
+        if fw.install_method == "plugin" {
+            unregister_plugin_from_installed_plugins(&eco_dir, framework_id)?;
+        }
+    }
+
     // 删除框架 git 仓库
     fs::remove_dir_all(&fw_dir).map_err(|e| AppError::io(&fw_dir, e))?;
 
@@ -303,6 +365,24 @@ pub fn update_framework(
     // 先卸载旧文件，再重新安装（复用已查到的 framework）
     let prefix = framework.file_prefix.as_str();
     uninstall_by_prefix(&eco_dir, prefix, framework_id)?;
+
+    // 清理 dir_mappings 映射的目录（如 plugins/{id}/）
+    for (_, dst_template) in &framework.dir_mappings {
+        let dst = eco_dir.join(dst_template.replace("{id}", framework_id));
+        if dst.exists() {
+            if let Err(e) = fs::remove_dir_all(&dst) {
+                log::warn!("清理 dir_mappings 目录失败 {}: {e}", dst.display());
+            }
+        }
+    }
+
+    // 对于 plugin 类型框架，先清理旧的注册信息（cache、installed_plugins 等）
+    // 否则 do_install 重新注册时旧版本 cache 会残留
+    if framework.install_method == "plugin" {
+        if let Err(e) = unregister_plugin_from_installed_plugins(&eco_dir, framework_id) {
+            log::warn!("更新时清理旧插件注册失败: {e}");
+        }
+    }
 
     // 重新安装
     do_install(&eco_dir, &framework, &fw_dir)?;
@@ -381,6 +461,11 @@ fn do_install(
     // 安装完成后，将框架的 hooks/hooks.json 合并到 settings fragment
     if result.is_ok() {
         merge_hooks_json_to_fragment(eco_dir, fw_dir, &framework.file_prefix)?;
+    }
+
+    // 对于 plugin 类型框架，注册到 installed_plugins.json
+    if result.is_ok() && framework.install_method == "plugin" {
+        register_plugin_to_installed_plugins(eco_dir, framework)?;
     }
 
     result
@@ -797,6 +882,10 @@ fn resolve_template(template: &str, eco_dir: &Path, real_home: &Path) -> String 
 /// 手动复制框架文件到 Eco 目录
 ///
 /// 根据 FrameworkRegistry 的 dir_layout 策略、files_prefixed、dir_mappings 通用处理。
+///
+/// 对于 plugin 类型框架，当 .claude-plugin 通过 dir_mappings 映射到 plugins/{id} 时，
+/// provided_dirs 中除 .claude-plugin 外的其他目录（如 commands）也需要复制到插件目录内，
+/// 因为 plugin.json 中的路径（如 ./commands/setup.md）是相对于插件目录的。
 fn install_manual_copy(
     eco_dir: &Path,
     framework: &ecosystem_framework::FrameworkRegistry,
@@ -804,6 +893,13 @@ fn install_manual_copy(
 ) -> Result<(), AppError> {
     let prefix = &framework.file_prefix;
     let strategy = framework.dir_layout.strategy();
+
+    // 检测是否有 .claude-plugin → plugins/{id} 的映射
+    let plugin_dir_mapping: Option<String> = framework
+        .dir_mappings
+        .iter()
+        .find(|(src_name, _)| src_name == ".claude-plugin")
+        .map(|(_, dst)| dst.replace("{id}", &framework.id));
 
     for dir_name in &framework.provided_dirs {
         let src = fw_dir.join(dir_name);
@@ -818,14 +914,25 @@ fn install_manual_copy(
             .find(|(src_name, _)| src_name == dir_name)
         {
             let dst = eco_dir.join(mapping.1.replace("{id}", &framework.id));
-            if !dst.exists() {
-                fs_utils::copy_dir_recursive(&src, &dst)?;
-            }
+            // dir_mappings 目标可能已部分存在（如其他映射先创建了子目录），
+            // 使用 copy_dir_recursive 合并而非跳过
+            fs_utils::copy_dir_recursive(&src, &dst)?;
             continue;
         }
 
         if !src.is_dir() {
             continue;
+        }
+
+        // 对于 plugin 类型框架，将非 .claude-plugin 的 provided_dirs 也复制到插件目录内
+        // 这样 plugin.json 中的相对路径引用（如 ./commands/setup.md）才能正确解析
+        if framework.install_method == "plugin" {
+            if let Some(ref plugin_dst) = plugin_dir_mapping {
+                let plugin_commands_dir = eco_dir.join(plugin_dst).join(dir_name);
+                if !plugin_commands_dir.exists() {
+                    fs_utils::copy_dir_recursive(&src, &plugin_commands_dir)?;
+                }
+            }
         }
 
         let dst = eco_dir.join(dir_name);
@@ -1004,5 +1111,635 @@ fn remove_framework_from_eco_json(eco_dir: &Path, framework_id: &str) -> Result<
     let content = fragment::write_json(&json)?;
     fs::write(&eco_json_path, content).map_err(|e| AppError::io(&eco_json_path, e))?;
 
+    Ok(())
+}
+
+/// 将 plugin 类型框架注册到 Claude Code 的插件发现系统
+///
+/// Claude Code 的插件系统需要三个文件协同工作：
+/// 1. installed_plugins.json — 记录已安装插件，key 格式为 pluginName@marketplaceName
+/// 2. known_marketplaces.json — 记录 marketplace 来源
+/// 3. marketplaces/{marketplaceName}/ — marketplace 仓库克隆（含 .claude-plugin/marketplace.json）
+///
+/// 此外还需要：
+/// - cache/{marketplaceName}/{pluginName}/{version}/ — 插件安装路径
+/// - data/{pluginName}-{marketplaceName}/ — 插件数据目录
+///
+/// 因为 ~/.claude/plugins/ 是指向 eco_dir/plugins/ 的 symlink，
+/// 所有路径都写入 eco_dir/plugins/ 下，通过 symlink 透明映射到 ~/.claude/plugins/。
+fn register_plugin_to_installed_plugins(
+    eco_dir: &Path,
+    framework: &ecosystem_framework::FrameworkRegistry,
+) -> Result<(), AppError> {
+    let marketplace_name = framework
+        .marketplace_name
+        .as_ref()
+        .ok_or_else(|| AppError::Message(format!(
+            "框架 '{}' 是 plugin 类型但未配置 marketplace_name",
+            framework.id
+        )))?;
+
+    let plugins_dir = eco_dir.join("plugins");
+    let plugin_name = &framework.id;
+    let plugin_key = format!("{plugin_name}@{marketplace_name}");
+
+    // 读取 plugin.json 获取版本信息
+    let plugin_json_path = plugins_dir
+        .join(plugin_name)
+        .join(".claude-plugin")
+        .join("plugin.json");
+    let version = if plugin_json_path.exists() {
+        let content = fs::read_to_string(&plugin_json_path)
+            .map_err(|e| AppError::io(&plugin_json_path, e))?;
+        let json: serde_json::Value = fragment::parse_json(&content, "解析 plugin.json 失败")?;
+        json.get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0.0.0")
+            .to_string()
+    } else {
+        "0.0.0".to_string()
+    };
+
+    // 读取 marketplace.json 获取 git commit sha
+    let marketplace_json_path = plugins_dir
+        .join(plugin_name)
+        .join(".claude-plugin")
+        .join("marketplace.json");
+    let git_commit_sha = get_git_commit_hash(&eco_dir.join("frameworks").join(plugin_name));
+
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // 1. 创建 cache/{marketplaceName}/{pluginName}/{version}/ 目录并复制插件内容
+    let cache_install_path = plugins_dir
+        .join("cache")
+        .join(marketplace_name)
+        .join(plugin_name)
+        .join(&version);
+    let plugin_src = plugins_dir.join(plugin_name);
+    if !cache_install_path.exists() {
+        fs_utils::copy_dir_recursive(&plugin_src, &cache_install_path)?;
+    }
+
+    // Claude Code 解析 plugin.json 中的路径（如 "./commands/setup.md"）时，
+    // 是相对于 installPath（即 cache_install_path）而非 .claude-plugin/ 目录。
+    // 因此需要将 .claude-plugin/ 下的子目录（commands、hooks 等）也复制到 installPath 根目录。
+    let cp_plugin_dir = cache_install_path.join(".claude-plugin");
+    if cp_plugin_dir.exists() {
+        if let Ok(entries) = fs::read_dir(&cp_plugin_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                let src = entry.path();
+                if src.is_dir() && !name.starts_with('.') && name != "marketplace.json" {
+                    let dst = cache_install_path.join(&name);
+                    if !dst.exists() {
+                        fs_utils::copy_dir_recursive(&src, &dst)?;
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. 创建 data/{pluginName}-{marketplaceName}/ 目录
+    let data_dir = plugins_dir
+        .join("data")
+        .join(format!("{plugin_name}-{marketplace_name}"));
+    fs::create_dir_all(&data_dir).map_err(|e| AppError::io(&data_dir, e))?;
+
+    // 3. 创建 marketplaces/{marketplaceName}/ 目录（含 .claude-plugin/marketplace.json）
+    let marketplace_dir = plugins_dir.join("marketplaces").join(marketplace_name);
+    if !marketplace_dir.exists() {
+        // 从框架 git 仓库复制整个目录作为 marketplace
+        let fw_dir = eco_dir.join("frameworks").join(plugin_name);
+        if fw_dir.exists() {
+            fs_utils::copy_dir_recursive(&fw_dir, &marketplace_dir)?;
+            // 删除 .git 目录以减小体积
+            let git_dir = marketplace_dir.join(".git");
+            if git_dir.exists() {
+                if let Err(e) = fs::remove_dir_all(&git_dir) {
+                    log::warn!("清理 marketplace .git 目录失败: {e}");
+                }
+            }
+        } else {
+            // 如果没有 git 仓库，创建最小 marketplace 结构
+            fs::create_dir_all(&marketplace_dir)
+                .map_err(|e| AppError::io(&marketplace_dir, e))?;
+            let marketplace_plugin_dir = marketplace_dir.join(".claude-plugin");
+            fs::create_dir_all(&marketplace_plugin_dir)
+                .map_err(|e| AppError::io(&marketplace_plugin_dir, e))?;
+            if marketplace_json_path.exists() {
+                fs::copy(&marketplace_json_path, marketplace_plugin_dir.join("marketplace.json"))
+                    .map_err(|e| AppError::io(&marketplace_plugin_dir.join("marketplace.json"), e))?;
+            }
+        }
+    }
+
+    // 4. 更新 installed_plugins.json
+    let installed_plugins_path = plugins_dir.join("installed_plugins.json");
+    let mut installed_json: serde_json::Value = if installed_plugins_path.exists() {
+        let content = fs::read_to_string(&installed_plugins_path)
+            .map_err(|e| AppError::io(&installed_plugins_path, e))?;
+        fragment::parse_json(&content, "解析 installed_plugins.json 失败")?
+    } else {
+        serde_json::json!({ "version": 2, "plugins": {} })
+    };
+
+    if !installed_json.is_object() {
+        installed_json = serde_json::json!({ "version": 2, "plugins": {} });
+    }
+    if installed_json.get("version").is_none() {
+        installed_json
+            .as_object_mut()
+            .unwrap()
+            .insert("version".to_string(), serde_json::json!(2));
+    }
+    if installed_json.get("plugins").is_none() {
+        installed_json
+            .as_object_mut()
+            .unwrap()
+            .insert("plugins".to_string(), serde_json::json!({}));
+    }
+
+    // installPath 使用 ~/.claude/plugins/cache/{marketplaceName}/{pluginName}/{version}/
+    // 因为 ~/.claude/plugins/ 是 symlink，Claude Code 通过 symlink 解析到 eco 目录
+    let claude_dir = crate::config::get_claude_config_dir();
+    let install_path_str = claude_dir
+        .join("plugins")
+        .join("cache")
+        .join(marketplace_name)
+        .join(plugin_name)
+        .join(&version)
+        .to_str()
+        .unwrap_or("")
+        .to_string();
+
+    let mut entry = serde_json::json!({
+        "scope": "user",
+        "installPath": install_path_str,
+        "version": version,
+        "installedAt": now,
+        "lastUpdated": now
+    });
+    if let Some(sha) = git_commit_sha {
+        entry
+            .as_object_mut()
+            .unwrap()
+            .insert("gitCommitSha".to_string(), serde_json::Value::String(sha));
+    }
+
+    if let Some(plugins_obj) = installed_json.get_mut("plugins").and_then(|v| v.as_object_mut()) {
+        plugins_obj.insert(plugin_key.clone(), serde_json::json!([entry]));
+    }
+
+    let content = fragment::write_json(&installed_json)?;
+    fs::write(&installed_plugins_path, content)
+        .map_err(|e| AppError::io(&installed_plugins_path, e))?;
+
+    // 5. 更新 known_marketplaces.json
+    let known_marketplaces_path = plugins_dir.join("known_marketplaces.json");
+    let mut marketplaces_json: serde_json::Value = if known_marketplaces_path.exists() {
+        let content = fs::read_to_string(&known_marketplaces_path)
+            .map_err(|e| AppError::io(&known_marketplaces_path, e))?;
+        fragment::parse_json(&content, "解析 known_marketplaces.json 失败")?
+    } else {
+        serde_json::json!({})
+    };
+
+    if !marketplaces_json.is_object() {
+        marketplaces_json = serde_json::json!({});
+    }
+
+    // marketplace installLocation 使用 ~/.claude/plugins/marketplaces/{marketplaceName}/
+    let marketplace_install_location = claude_dir
+        .join("plugins")
+        .join("marketplaces")
+        .join(marketplace_name)
+        .to_str()
+        .unwrap_or("")
+        .to_string();
+
+    // 从 repo_url 提取 GitHub repo 信息
+    let source = serde_json::json!({
+        "source": "github",
+        "repo": extract_github_repo(&framework.repo_url)
+    });
+
+    let marketplace_entry = serde_json::json!({
+        "source": source,
+        "installLocation": marketplace_install_location,
+        "lastUpdated": now
+    });
+
+    if let Some(obj) = marketplaces_json.as_object_mut() {
+        obj.insert(marketplace_name.clone(), marketplace_entry);
+    }
+
+    let content = fragment::write_json(&marketplaces_json)?;
+    fs::write(&known_marketplaces_path, content)
+        .map_err(|e| AppError::io(&known_marketplaces_path, e))?;
+
+    // 6. 自动 enable 插件（写入 ~/.claude/settings.json 的 enabledPlugins）
+    enable_plugin_in_settings(eco_dir, &plugin_key)?;
+
+    // 7. 对于 claude-hud 插件，自动完成 HUD setup（statusLine + config.json）
+    if framework.id == "claude-hud" {
+        auto_setup_hud(eco_dir, &cache_install_path)?;
+    }
+
+    log::info!(
+        "已将插件 '{}' 注册到 Claude Code 插件系统 (key: {})",
+        framework.id,
+        plugin_key
+    );
+    Ok(())
+}
+
+/// 自动完成 Claude HUD 的 setup 配置
+///
+/// HUD 的 /claude-hud:setup 命令需要用户手动运行，这里在安装时自动完成：
+/// 1. 检测 runtime（优先 bun，回退 node）
+/// 2. 生成 statusLine 命令并写入 HUD 的 settings fragment
+/// 3. 创建 ~/.claude/plugins/claude-hud/config.json 默认配置
+fn auto_setup_hud(
+    eco_dir: &Path,
+    cache_install_path: &Path,
+) -> Result<(), AppError> {
+    // 1. 检测 runtime：优先 bun（更快），回退 node
+    let runtime = if command_exists("bun") {
+        get_command_path("bun")
+    } else if command_exists("node") {
+        get_command_path("node")
+    } else {
+        log::warn!("HUD auto-setup: 未找到 bun 或 node，跳过 statusLine 配置");
+        return Ok(());
+    };
+
+    let runtime_path = match runtime {
+        Some(p) => p,
+        None => {
+            log::warn!("HUD auto-setup: 无法获取 runtime 路径，跳过 statusLine 配置");
+            return Ok(());
+        }
+    };
+
+    // 2. 确定源文件：bun 用 src/index.ts，node 用 dist/index.js
+    let use_bun = runtime_path.contains("bun");
+    let source = if use_bun {
+        "src/index.ts"
+    } else {
+        "dist/index.js"
+    };
+
+    // 检查源文件是否存在于 cache 目录
+    let source_file = cache_install_path.join(source);
+    if !source_file.exists() {
+        log::warn!(
+            "HUD auto-setup: 源文件 {} 不存在于 {}，跳过 statusLine 配置",
+            source,
+            cache_install_path.display()
+        );
+        return Ok(());
+    }
+
+    // 3. 生成 statusLine 命令
+    // macOS/Linux 格式（与 HUD setup.md Step 1 一致）
+    // 使用动态版本查找，这样插件更新后无需重新 setup
+    //
+    // 原始命令中的 '"'"' 是 bash 单引号嵌套技巧：
+    // 结束当前单引号 → 双引号包裹一个单引号 → 重新开始单引号
+    // 在 Rust 字符串中直接写 '"'"' 即可
+    let statusline_command = if use_bun {
+        format!(
+            "bash -c 'cols=$(stty size </dev/tty 2>/dev/null | awk '\"'\"'{{print $2}}'\"'\"'); \
+             export COLUMNS=$(( ${{cols:-120}} > 4 ? ${{cols:-120}} - 4 : 1 )); \
+             plugin_dir=$(ls -d \"${{CLAUDE_CONFIG_DIR:-$HOME/.claude}}\"/plugins/cache/*/claude-hud/*/ 2>/dev/null | \
+               awk -F/ '\"'\"'{{ print $(NF-1) \"\\t\" $(0) }}'\"'\"' | \
+               grep -E '\"'\"'^[0-9]+\\.[0-9]+\\.[0-9]+[[:space:]]'\"'\"' | \
+               sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -1 | cut -f2-); \
+             exec \"{runtime_path}\" --env-file /dev/null \"${{plugin_dir}}{source}\"'"
+        )
+    } else {
+        format!(
+            "bash -c 'cols=$(stty size </dev/tty 2>/dev/null | awk '\"'\"'{{print $2}}'\"'\"'); \
+             export COLUMNS=$(( ${{cols:-120}} > 4 ? ${{cols:-120}} - 4 : 1 )); \
+             plugin_dir=$(ls -d \"${{CLAUDE_CONFIG_DIR:-$HOME/.claude}}\"/plugins/cache/*/claude-hud/*/ 2>/dev/null | \
+               awk -F/ '\"'\"'{{ print $(NF-1) \"\\t\" $(0) }}'\"'\"' | \
+               grep -E '\"'\"'^[0-9]+\\.[0-9]+\\.[0-9]+[[:space:]]'\"'\"' | \
+               sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -1 | cut -f2-); \
+             exec \"{runtime_path}\" \"${{plugin_dir}}{source}\"'"
+        )
+    };
+
+    // 4. 将 statusLine 写入 HUD 的 settings fragment
+    // 这样 rebuild_all_root_files 会自动合并 statusLine 到 settings.json
+    // 避免直接写入 ~/.claude/settings.json 导致 symlink 被破坏或 fragment 重建时丢失
+    let rootfiles_dir = eco_dir.join("rootfiles");
+    fs::create_dir_all(&rootfiles_dir).map_err(|e| AppError::io(&rootfiles_dir, e))?;
+
+    // 确保 settings.json 在隔离列表中
+    let isolation = fragment::collect_eco_isolation(eco_dir);
+    if !isolation.files.contains(&"settings.json".to_string()) {
+        let mut updated_files = isolation.files.clone();
+        updated_files.push("settings.json".to_string());
+        let updated_isolation = fragment::EcoIsolation {
+            dirs: isolation.dirs,
+            files: updated_files,
+        };
+        fragment::update_eco_json_isolation(eco_dir, &updated_isolation)?;
+    }
+
+    let hud_prefix = "hud-";
+    let frag_path = fragment::fragment_path(&rootfiles_dir, "settings.json", hud_prefix);
+
+    let statusline_fragment = serde_json::json!({
+        "statusLine": {
+            "type": "command",
+            "command": statusline_command
+        }
+    });
+
+    // 合并到已有 fragment（保留其他 HUD 写入的 settings 配置）
+    if frag_path.exists() {
+        let existing = fs::read_to_string(&frag_path).map_err(|e| AppError::io(&frag_path, e))?;
+        let mut existing_json: serde_json::Value =
+            fragment::parse_json(&existing, "解析 HUD fragment 失败")?;
+
+        let mut conflicts = Vec::new();
+        fragment::json_deep_merge_with_array_dedup(
+            &mut existing_json,
+            &statusline_fragment,
+            "",
+            hud_prefix,
+            &mut conflicts,
+        );
+
+        fs::write(&frag_path, fragment::write_json(&existing_json)?)
+            .map_err(|e| AppError::io(&frag_path, e))?;
+    } else {
+        fs::write(&frag_path, fragment::write_json(&statusline_fragment)?)
+            .map_err(|e| AppError::io(&frag_path, e))?;
+    }
+
+    // 从 fragment 重建 settings.json
+    fragment::rebuild_all_root_files(eco_dir)?;
+
+    log::info!(
+        "HUD auto-setup: 已写入 statusLine fragment (runtime: {}, source: {})",
+        runtime_path,
+        source
+    );
+
+    // 5. 创建 config.json 默认配置
+    // HUD 读取 ~/.claude/plugins/claude-hud/config.json
+    // ~/.claude/plugins/ 是 symlink → eco_dir/plugins/
+    // 所以写入 eco_dir/plugins/claude-hud/config.json 即可
+    let hud_config_dir = eco_dir.join("plugins").join("claude-hud");
+    fs::create_dir_all(&hud_config_dir).map_err(|e| AppError::io(&hud_config_dir, e))?;
+
+    let config_path = hud_config_dir.join("config.json");
+    if !config_path.exists() {
+        // 默认配置：expanded 布局，显示 model + context bar + git + token breakdown + usage
+        let default_config = serde_json::json!({
+            "language": "en",
+            "lineLayout": "expanded",
+            "showSeparators": false,
+            "gitStatus": {
+                "enabled": true,
+                "showDirty": true,
+                "showAheadBehind": false,
+                "showFileStats": false
+            },
+            "display": {
+                "showModel": true,
+                "showContextBar": true,
+                "showTokenBreakdown": true,
+                "showUsage": true,
+                "usageBarEnabled": true
+            }
+        });
+
+        let config_content = fragment::write_json(&default_config)?;
+        fs::write(&config_path, config_content).map_err(|e| AppError::io(&config_path, e))?;
+
+        log::info!("HUD auto-setup: 已创建默认 config.json");
+    }
+
+    Ok(())
+}
+
+
+
+/// 在 eco 的 settings user-fragment 中启用插件
+///
+/// enabledPlugins 是跨框架共享的配置，不属于任何特定框架的 fragment，
+/// 因此写入 user-fragment（始终最后合并，优先级最高）。
+/// 这样 rebuild_all_root_files 不会丢失 enabledPlugins。
+fn enable_plugin_in_settings(eco_dir: &Path, plugin_key: &str) -> Result<(), AppError> {
+    let rootfiles_dir = eco_dir.join("rootfiles");
+    fs::create_dir_all(&rootfiles_dir).map_err(|e| AppError::io(&rootfiles_dir, e))?;
+
+    let user_frag_path = fragment::fragment_path(&rootfiles_dir, "settings.json", "user-");
+
+    let mut user_frag: serde_json::Value = if user_frag_path.exists() {
+        let content = fs::read_to_string(&user_frag_path)
+            .map_err(|e| AppError::io(&user_frag_path, e))?;
+        fragment::parse_json(&content, "解析 user-fragment 失败")?
+    } else {
+        serde_json::json!({})
+    };
+
+    if !user_frag.is_object() {
+        user_frag = serde_json::json!({});
+    }
+
+    // 确保 enabledPlugins 字段存在
+    if user_frag.get("enabledPlugins").is_none() {
+        user_frag
+            .as_object_mut()
+            .unwrap()
+            .insert("enabledPlugins".to_string(), serde_json::json!({}));
+    }
+
+    // 添加插件到 enabledPlugins
+    if let Some(ep) = user_frag.get_mut("enabledPlugins").and_then(|v| v.as_object_mut()) {
+        ep.insert(plugin_key.to_string(), serde_json::json!(true));
+    }
+
+    let content = fragment::write_json(&user_frag)?;
+    fs::write(&user_frag_path, content)
+        .map_err(|e| AppError::io(&user_frag_path, e))?;
+
+    // 重建 settings.json
+    fragment::rebuild_all_root_files(eco_dir)?;
+
+    log::info!("已在 user-fragment 中启用插件 '{}'", plugin_key);
+    Ok(())
+}
+
+/// 从 GitHub URL 提取 owner/repo 格式
+/// 如 https://github.com/jarrodwatts/claude-hud.git → jarrodwatts/claude-hud
+fn extract_github_repo(url: &str) -> String {
+    url
+        .strip_prefix("https://github.com/")
+        .and_then(|s| s.strip_suffix(".git"))
+        .unwrap_or(url)
+        .to_string()
+}
+
+/// 从 installed_plugins.json 和 known_marketplaces.json 中移除插件注册
+fn unregister_plugin_from_installed_plugins(
+    eco_dir: &Path,
+    framework_id: &str,
+) -> Result<(), AppError> {
+    let framework = ecosystem_framework::find_framework(framework_id);
+    let marketplace_name = framework
+        .as_ref()
+        .and_then(|f| f.marketplace_name.as_ref());
+
+    let plugins_dir = eco_dir.join("plugins");
+
+    // 从 installed_plugins.json 中移除
+    let installed_plugins_path = plugins_dir.join("installed_plugins.json");
+    if installed_plugins_path.exists() {
+        let content = fs::read_to_string(&installed_plugins_path)
+            .map_err(|e| AppError::io(&installed_plugins_path, e))?;
+        let mut json: serde_json::Value = fragment::parse_json(&content, "解析 installed_plugins.json 失败")?;
+
+        if let Some(plugins_obj) = json.get_mut("plugins").and_then(|v| v.as_object_mut()) {
+            // 移除所有包含该 framework_id 的 key（可能是 id 或 id@marketplace）
+            let keys_to_remove: Vec<String> = plugins_obj
+                .keys()
+                .filter(|k| k.as_str() == framework_id || k.starts_with(&format!("{framework_id}@")))
+                .cloned()
+                .collect();
+            for key in keys_to_remove {
+                plugins_obj.remove(&key);
+            }
+        }
+
+        let content = fragment::write_json(&json)?;
+        fs::write(&installed_plugins_path, content)
+            .map_err(|e| AppError::io(&installed_plugins_path, e))?;
+    }
+
+    // 从 known_marketplaces.json 中移除
+    if let Some(mkt_name) = marketplace_name {
+        let known_marketplaces_path = plugins_dir.join("known_marketplaces.json");
+        if known_marketplaces_path.exists() {
+            let content = fs::read_to_string(&known_marketplaces_path)
+                .map_err(|e| AppError::io(&known_marketplaces_path, e))?;
+            let mut json: serde_json::Value = fragment::parse_json(&content, "解析 known_marketplaces.json 失败")?;
+
+            if let Some(obj) = json.as_object_mut() {
+                obj.remove(mkt_name);
+            }
+
+            let content = fragment::write_json(&json)?;
+            fs::write(&known_marketplaces_path, content)
+                .map_err(|e| AppError::io(&known_marketplaces_path, e))?;
+        }
+
+        // 清理 marketplace 目录
+        let marketplace_dir = plugins_dir.join("marketplaces").join(mkt_name);
+        if marketplace_dir.exists() {
+            if let Err(e) = fs::remove_dir_all(&marketplace_dir) {
+                log::warn!("清理 marketplace 目录失败 {}: {e}", marketplace_dir.display());
+            }
+        }
+
+        // 清理 cache 目录
+        let cache_dir = plugins_dir.join("cache").join(mkt_name);
+        if cache_dir.exists() {
+            if let Err(e) = fs::remove_dir_all(&cache_dir) {
+                log::warn!("清理 cache 目录失败 {}: {e}", cache_dir.display());
+            }
+        }
+
+        // 清理 data 目录
+        let data_dir = plugins_dir.join("data").join(format!("{framework_id}-{mkt_name}"));
+        if data_dir.exists() {
+            if let Err(e) = fs::remove_dir_all(&data_dir) {
+                log::warn!("清理 data 目录失败 {}: {e}", data_dir.display());
+            }
+        }
+    }
+
+    // 从 settings.json 的 enabledPlugins 中移除
+    let plugin_key = if let Some(mkt_name) = marketplace_name {
+        format!("{framework_id}@{mkt_name}")
+    } else {
+        framework_id.to_string()
+    };
+    disable_plugin_in_settings(eco_dir, &plugin_key)?;
+
+    // 对于 claude-hud，清理 statusLine 和 config.json
+    if framework_id == "claude-hud" {
+        cleanup_hud_settings(eco_dir)?;
+    }
+
+    log::info!(
+        "已从 Claude Code 插件系统中移除插件 '{}'",
+        framework_id
+    );
+    Ok(())
+}
+
+/// 清理 HUD 的 statusLine fragment 和 config.json
+///
+/// 卸载 claude-hud 时需要：
+/// 1. 删除 HUD 的 settings fragment（rootfiles/settings.hud-fragment.json）
+/// 2. 重建 settings.json（statusLine 会自动消失）
+/// 3. 删除 ~/.claude/plugins/claude-hud/config.json（通过 symlink 在 eco 目录下）
+fn cleanup_hud_settings(eco_dir: &Path) -> Result<(), AppError> {
+    // 删除 HUD 的 settings fragment
+    let rootfiles_dir = eco_dir.join("rootfiles");
+    let hud_frag = fragment::fragment_path(&rootfiles_dir, "settings.json", "hud-");
+    if hud_frag.exists() {
+        fs::remove_file(&hud_frag).map_err(|e| AppError::io(&hud_frag, e))?;
+    }
+
+    // 重建 settings.json（statusLine 会自动消失）
+    fragment::rebuild_all_root_files(eco_dir)?;
+
+    // 移除 config.json（在 eco 的 plugins 目录下，通过 symlink 映射到 ~/.claude/plugins/）
+    let hud_config_dir = eco_dir.join("plugins").join("claude-hud");
+    let config_path = hud_config_dir.join("config.json");
+    if config_path.exists() {
+        if let Err(e) = fs::remove_file(&config_path) {
+            log::warn!("清理 HUD config.json 失败 {}: {e}", config_path.display());
+        }
+    }
+
+    log::info!("已清理 HUD statusLine fragment 和 config.json");
+    Ok(())
+}
+
+/// 从 eco 的 settings user-fragment 中移除插件
+///
+/// 与 enable_plugin_in_settings 对应，从 user-fragment 的 enabledPlugins 中移除插件。
+fn disable_plugin_in_settings(eco_dir: &Path, plugin_key: &str) -> Result<(), AppError> {
+    let rootfiles_dir = eco_dir.join("rootfiles");
+    let user_frag_path = fragment::fragment_path(&rootfiles_dir, "settings.json", "user-");
+
+    if !user_frag_path.exists() {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(&user_frag_path)
+        .map_err(|e| AppError::io(&user_frag_path, e))?;
+    let mut user_frag: serde_json::Value =
+        fragment::parse_json(&content, "解析 user-fragment 失败")?;
+
+    if let Some(ep) = user_frag.get_mut("enabledPlugins").and_then(|v| v.as_object_mut()) {
+        ep.remove(plugin_key);
+    }
+
+    let content = fragment::write_json(&user_frag)?;
+    fs::write(&user_frag_path, content)
+        .map_err(|e| AppError::io(&user_frag_path, e))?;
+
+    // 重建 settings.json
+    fragment::rebuild_all_root_files(eco_dir)?;
+
+    log::info!("已从 user-fragment 中移除插件 '{}'", plugin_key);
     Ok(())
 }

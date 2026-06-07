@@ -16,7 +16,7 @@
 //! - Get Shit Done: npx @opengsd/gsd-core@latest --yes
 //! - PUA: npx skills@latest add tanweai/pua --skill pua -y -a claude-code --copy
 //! - Web Access: npx skills@latest add eze-is/web-access -y -a claude-code --copy
-//! - Claude HUD: plugin（commands + .claude-plugin，安装后需运行 /claude-hud:setup）
+//! - Claude HUD: plugin（commands + .claude-plugin，安装后自动配置 statusLine）
 
 use crate::services::ecosystem::dir_strategy::DirLayout;
 use serde::{Deserialize, Serialize};
@@ -52,6 +52,10 @@ pub struct FrameworkRegistry {
     /// 非标准目录映射（源目录名 → eco 目标路径模板，支持 {id} 变量）
     /// 如 (".claude-plugin", "plugins/{id}")
     pub dir_mappings: Vec<(String, String)>,
+    /// 插件 marketplace 名称（仅 plugin 类型框架需要）
+    /// Claude Code 的 installed_plugins.json key 格式为 pluginName@marketplaceName
+    /// 如 warp 的 marketplace 为 "claude-code-warp"，key 为 "warp@claude-code-warp"
+    pub marketplace_name: Option<String>,
 }
 
 /// 获取所有注册的框架
@@ -83,6 +87,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
                 ".claude-plugin".to_string(),
                 "plugins/{id}".to_string(),
             )],
+            marketplace_name: None,
         },
         FrameworkRegistry {
             id: "agency-agents-zh".to_string(),
@@ -104,6 +109,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             dir_layout: DirLayout::Recursive,
             files_prefixed: false,
             dir_mappings: vec![],
+            marketplace_name: None,
         },
         FrameworkRegistry {
             id: "ohmyclaudecode".to_string(),
@@ -135,6 +141,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
                 ".claude-plugin".to_string(),
                 "plugins/{id}".to_string(),
             )],
+            marketplace_name: None,
         },
         FrameworkRegistry {
             id: "ruflo".to_string(),
@@ -166,6 +173,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             dir_layout: DirLayout::Flat,
             files_prefixed: false,
             dir_mappings: vec![],
+            marketplace_name: None,
         },
         FrameworkRegistry {
             id: "speckit".to_string(),
@@ -191,6 +199,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             dir_layout: DirLayout::Flat,
             files_prefixed: false,
             dir_mappings: vec![],
+            marketplace_name: None,
         },
         FrameworkRegistry {
             id: "mattpocock-skills".to_string(),
@@ -217,6 +226,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             dir_layout: DirLayout::Flat,
             files_prefixed: false,
             dir_mappings: vec![],
+            marketplace_name: None,
         },
         FrameworkRegistry {
             id: "gstack".to_string(),
@@ -235,6 +245,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             dir_layout: DirLayout::Flat,
             files_prefixed: false,
             dir_mappings: vec![],
+            marketplace_name: None,
         },
         FrameworkRegistry {
             id: "openspec".to_string(),
@@ -259,6 +270,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             dir_layout: DirLayout::Flat,
             files_prefixed: false,
             dir_mappings: vec![],
+            marketplace_name: None,
         },
         FrameworkRegistry {
             id: "bmad-method".to_string(),
@@ -287,6 +299,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             dir_layout: DirLayout::Flat,
             files_prefixed: false,
             dir_mappings: vec![],
+            marketplace_name: None,
         },
         FrameworkRegistry {
             id: "get-shit-done".to_string(),
@@ -313,6 +326,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             dir_layout: DirLayout::Nested,
             files_prefixed: true,
             dir_mappings: vec![],
+            marketplace_name: None,
         },
         FrameworkRegistry {
             id: "pua".to_string(),
@@ -350,6 +364,7 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
                 ".claude-plugin".to_string(),
                 "plugins/{id}".to_string(),
             )],
+            marketplace_name: None,
         },
         FrameworkRegistry {
             id: "web-access".to_string(),
@@ -382,16 +397,18 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
                 ".claude-plugin".to_string(),
                 "plugins/{id}".to_string(),
             )],
+            marketplace_name: None,
         },
         FrameworkRegistry {
             id: "claude-hud".to_string(),
             name: "Claude HUD".to_string(),
-            description: "终端 HUD 插件，实时显示当前模型、上下文用量、活跃工具和 Agent 进度（安装后需运行 /claude-hud:setup）".to_string(),
+            description: "终端 HUD 插件，实时显示当前模型、上下文用量、活跃工具和 Agent 进度（安装后自动配置 statusLine）".to_string(),
             repo_url: "https://github.com/jarrodwatts/claude-hud.git".to_string(),
             repo_branch: "main".to_string(),
             provided_dirs: vec![
                 "commands".to_string(),
                 ".claude-plugin".to_string(),
+                "src".to_string(),
             ],
             install_method: "plugin".to_string(),
             install_command: None,
@@ -402,10 +419,21 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             file_prefix: "hud-".to_string(),
             dir_layout: DirLayout::Flat,
             files_prefixed: false,
-            dir_mappings: vec![(
-                ".claude-plugin".to_string(),
-                "plugins/{id}".to_string(),
-            )],
+            dir_mappings: vec![
+                // .claude-plugin/ 整体复制到 plugins/{id}/.claude-plugin/
+                // 这样 Claude Code 在 installPath 下能找到 .claude-plugin/plugin.json
+                (
+                    ".claude-plugin".to_string(),
+                    "plugins/{id}/.claude-plugin".to_string(),
+                ),
+                // commands/ 复制到 plugins/{id}/.claude-plugin/commands/
+                // 因为 plugin.json 中的路径（如 ./commands/setup.md）相对于 .claude-plugin/
+                (
+                    "commands".to_string(),
+                    "plugins/{id}/.claude-plugin/commands".to_string(),
+                ),
+            ],
+            marketplace_name: Some("claude-hud".to_string()),
         },
     ]
 }

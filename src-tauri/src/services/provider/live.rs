@@ -30,6 +30,17 @@ pub(crate) fn sanitize_claude_settings_for_live(settings: &Value) -> Value {
         obj.remove("apiFormat");
         obj.remove("openrouter_compat_mode");
         obj.remove("openrouterCompatMode");
+
+        // 清理 global hooks: 过滤掉包含 ${CLAUDE_PLUGIN_ROOT} 的命令，
+        // 这种命令只应由 plugin 独立 hooks 执行，不能放入全局 settings.json。
+        if let Some(hooks_val) = obj.get_mut("hooks") {
+            if let Some(hooks_obj) = hooks_val.as_object_mut() {
+                crate::services::ecosystem::fragment::sanitize_hooks_for_global_settings(hooks_obj);
+            }
+            if hooks_val.is_object() && hooks_val.as_object().is_some_and(|o| o.is_empty()) {
+                obj.remove("hooks");
+            }
+        }
     }
     v
 }
@@ -769,7 +780,24 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
     match app_type {
         AppType::Claude => {
             let path = get_claude_settings_path();
-            let settings = sanitize_claude_settings_for_live(&provider.settings_config);
+            let mut settings = sanitize_claude_settings_for_live(&provider.settings_config);
+            
+            // 如果已有配置文件，保留其中的 statusLine 等非 Provider 控制的字段
+            if path.exists() {
+                if let Ok(existing_content) = fs::read_to_string(&path) {
+                    if let Ok(existing_json) = serde_json::from_str::<Value>(&existing_content) {
+                        if let Some(existing_obj) = existing_json.as_object() {
+                            if let Some(settings_obj) = settings.as_object_mut() {
+                                // 保留 statusLine 字段
+                                if let Some(status_line) = existing_obj.get("statusLine") {
+                                    settings_obj.insert("statusLine".to_string(), status_line.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
             write_json_file(&path, &settings)?;
         }
         AppType::ClaudeDesktop => {
@@ -977,7 +1005,9 @@ pub fn sync_current_to_live(state: &AppState) -> Result<(), AppError> {
     for app_type in AppType::all() {
         if app_type.is_additive_mode() {
             // Additive mode: sync ALL providers
-            sync_all_providers_to_live(state, &app_type)?;
+            if let Err(e) = sync_all_providers_to_live(state, &app_type) {
+                log::warn!("同步 {:?} 的所有供应商失败: {e}", app_type);
+            }
         } else {
             // Switch mode: sync only current provider
             let current_id =
@@ -988,7 +1018,17 @@ pub fn sync_current_to_live(state: &AppState) -> Result<(), AppError> {
 
             let providers = state.db.get_all_providers(app_type.as_str())?;
             if let Some(provider) = providers.get(&current_id) {
-                write_live_with_common_config(state.db.as_ref(), &app_type, provider)?;
+                if let Err(e) = write_live_with_common_config(state.db.as_ref(), &app_type, provider) {
+                    log::warn!(
+                        "同步应用 {:?} 的当前供应商 '{}' 到 live 配置失败: {e}",
+                        app_type,
+                        current_id
+                    );
+                    // 如果是 Claude，则视为致命错误需要向上传播，其他应用仅记录警告并继续
+                    if matches!(app_type, AppType::Claude | AppType::ClaudeDesktop) {
+                        return Err(e);
+                    }
+                }
             }
             // Note: get_effective_current_provider already validates existence,
             // so providers.get() should always succeed here

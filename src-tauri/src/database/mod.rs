@@ -141,6 +141,10 @@ impl Database {
         }
         db.ensure_model_pricing_seeded()?;
 
+        if let Err(e) = db.self_heal_corrupted_providers() {
+            log::warn!("Startup self-healing for corrupted provider configs failed: {e}");
+        }
+
         // Startup cleanup: prune old logs and reclaim space
         if let Err(e) = db.cleanup_old_stream_check_logs(7) {
             log::warn!("Startup stream_check_logs cleanup failed: {e}");
@@ -268,5 +272,90 @@ impl Database {
             .query_row("SELECT COUNT(*) FROM prompts", [], |row| row.get(0))
             .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(count == 0)
+    }
+
+    /// 自愈数据库中可能由于历史版本迁移或人为导入导致损坏的辅助 CLI 供应商配置
+    pub(crate) fn self_heal_corrupted_providers(&self) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        
+        // 1. 修复 Codex 供应商配置（必须包含 auth 字段，否则重置为官方默认空配置）
+        // 扫描所有 codex 供应商，如果 settings_config 不是对象，或者不含 "auth" 键，则重置为 {"auth":{},"config":""}
+        let mut stmt = conn
+            .prepare("SELECT id, settings_config FROM providers WHERE app_type = 'codex'")
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        
+        let mut updates = Vec::new();
+        let mut rows = stmt
+            .query([])
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        
+        while let Some(row) = rows.next().map_err(|e| AppError::Database(e.to_string()))? {
+            let id: String = row.get(0).map_err(|e| AppError::Database(e.to_string()))?;
+            let settings_config_str: String = row.get(1).map_err(|e| AppError::Database(e.to_string()))?;
+            
+            let needs_repair = if let Ok(val) = serde_json::from_str::<serde_json::Value>(&settings_config_str) {
+                if let Some(obj) = val.as_object() {
+                    !obj.contains_key("auth")
+                } else {
+                    true
+                }
+            } else {
+                true
+            };
+            
+            if needs_repair {
+                updates.push((id, "codex".to_string(), r#"{"auth":{},"config":""}"#.to_string()));
+            }
+        }
+        drop(rows);
+        drop(stmt);
+
+        // 2. 修复 Gemini 供应商配置（如果含有 Claude 特有的 ANTHROPIC_AUTH_TOKEN 且不含 GEMINI_API_KEY，重置为 {"env":{},"config":{}}）
+        let mut stmt = conn
+            .prepare("SELECT id, settings_config FROM providers WHERE app_type = 'gemini'")
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        
+        let mut rows = stmt
+            .query([])
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        
+        while let Some(row) = rows.next().map_err(|e| AppError::Database(e.to_string()))? {
+            let id: String = row.get(0).map_err(|e| AppError::Database(e.to_string()))?;
+            let settings_config_str: String = row.get(1).map_err(|e| AppError::Database(e.to_string()))?;
+            
+            let needs_repair = if let Ok(val) = serde_json::from_str::<serde_json::Value>(&settings_config_str) {
+                if let Some(obj) = val.as_object() {
+                    if let Some(env_obj) = obj.get("env").and_then(|e| e.as_object()) {
+                        env_obj.contains_key("ANTHROPIC_AUTH_TOKEN") && !env_obj.contains_key("GEMINI_API_KEY")
+                    } else {
+                        !obj.contains_key("env")
+                    }
+                } else {
+                    true
+                }
+            } else {
+                true
+            };
+            
+            if needs_repair {
+                updates.push((id, "gemini".to_string(), r#"{"env":{},"config":{}}"#.to_string()));
+            }
+        }
+        drop(rows);
+        drop(stmt);
+
+        // 执行更新
+        if !updates.is_empty() {
+            for (id, app_type, repair_config) in updates {
+                log::info!("Self-healing: repairing corrupted config for provider '{}' (app_type: {})", id, app_type);
+                conn.execute(
+                    "UPDATE providers SET settings_config = ?1 WHERE id = ?2 AND app_type = ?3",
+                    rusqlite::params![repair_config, id, app_type],
+                )
+                .map_err(|e| AppError::Database(e.to_string()))?;
+            }
+        }
+
+        Ok(())
     }
 }

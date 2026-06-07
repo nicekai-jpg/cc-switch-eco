@@ -9,8 +9,31 @@
 | **名称** | CC Switch Eco |
 | **Fork 来源** | [farion1231/cc-switch](https://github.com/farion1231/cc-switch) |
 | **仓库** | [nicekai-jpg/cc-switch-eco](https://github.com/nicekai-jpg/cc-switch-eco) |
-| **版本** | 3.17.0 |
+| **版本** | 3.25.0 |
 | **技术栈** | Tauri 2 + React + TypeScript + Rust |
+
+---
+
+## 变更日志
+
+### v3.25.0 (2026-06-07)
+
+#### 🐛 Bug 修复 & 架构重构
+
+**根文件同步 - 彻底解决生态切换时配置丢失的问题**
+- **根因**：旧版使用符号链接（symlink）将 `settings.json`/`CLAUDE.md` 映射到生态目录。现代 CLI 工具（Claude Code/Codex/Gemini 等）保存配置时采用原子写入（write temp + rename），该操作会**静默删除符号链接**，将其替换为普通文件，导致生态目录中的备份与 live 文件永久脱钩，每次切换/重建时丢失配置。
+- **修复**：`symlink.rs` 将隔离根文件的切换机制从**符号链接改为文件复制**；`fragment.rs` 重构 `snapshot_user_preferences` 和 `save_user_preferences` 优先从 live 路径（`~/.claude/settings.json`）读取内容，确保 CLI 工具的任何修改都被同步捕获并写回生态备份；`rebuild_root_file` 重建后自动将最新内容同步到 live 路径。
+
+**Plugin Hook 报错修复 - 消除启动时的 `${CLAUDE_PLUGIN_ROOT}` 错误**
+- **根因**：框架安装时，包含 `${CLAUDE_PLUGIN_ROOT}` 变量的插件专属 Hook 被错误合并进全局 `settings.json` 的顶层 `hooks` 字段，而 Claude Code 的全局 Hook 无法识别该变量，导致每次启动均报错。
+- **修复**：`fragment.rs` 新增 `sanitize_hooks_for_global_settings` 函数，在重建/写入 `settings.json` 时自动过滤包含 `${CLAUDE_PLUGIN_ROOT}` 的 Hook 命令；`live.rs` 在 provider 同步时同步执行清洗。
+
+**Claude HUD statusLine 未生效修复**
+- **根因**：macOS GUI 应用从 Finder 启动时，继承的 `PATH` 非常受限（仅 `/usr/bin:/bin`），导致 `command_exists("bun")` 和 `command_exists("node")` 均返回 false，`auto_setup_hud` 跳过 statusLine 写入。
+- **修复**：`framework_ops.rs` 重构 `command_exists` 和 `get_command_path`，在 `which` 查找失败后自动扫描 `/opt/homebrew/bin`、`~/.bun/bin`、`~/.local/bin`、nvm 版本目录等常见安装路径，确保 GUI 环境下也能正确识别运行时。
+
+**数据库自修复（Self-Healing）**
+- 启动时自动检测并修复损坏的 Codex/Gemini provider 配置（缺少 `auth` 字段等），防止生态切换时崩溃报错。
 
 ---
 
@@ -316,6 +339,17 @@ FrameworkRegistry {
     file_prefix: "nf-".to_string(),
 }
 ```
+
+## 开发规范与工作规则
+
+为确保多生态隔离（Ecosystem）及多应用切换功能的健壮性，请严格遵守以下开发规范：
+
+1. **从代码层面实现最终解决**：
+   在开发与调试过程中，如果发现由于缺少某些环境字段、配置冲突、数据库状态不一致等导致的运行/切换失败，**必须从 Rust 源码或前端代码逻辑层面进行容错或重构解决**。
+2. **禁止仅修改本地配置**：
+   绝对不能通过仅修改本地的 `config.json`、`settings.json`、`~/.claude/` 临时文件或 SQLite 数据库来规避 Bug。这样操作虽然能让本地测试通过，但在重新构建、安装或换机后问题依然会复现，无法将改动回流给最终用户。
+3. **针对非核心功能的容错处理**：
+   对于非核心的辅助命令行工具（如 Codex、Gemini 等）的同步、更新或配置损坏，应该采取日志警告（`log::warn!`）并继续的容错设计，**严禁将此类非核心组件的配置异常升级为致命错误（Err/Panic）**，避免其阻塞核心生态环境（Claude / Claude Desktop）的创建、切换和主要生命周期。
 
 ---
 
