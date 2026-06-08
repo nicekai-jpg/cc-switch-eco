@@ -17,11 +17,8 @@ use super::{
     handler_context::RequestContext,
     providers::{
         codex_chat_history::record_responses_sse_stream, get_adapter, get_claude_api_format,
-        streaming::create_anthropic_sse_stream,
-        streaming_codex_chat::create_responses_sse_stream_from_chat,
-        streaming_gemini::create_anthropic_sse_stream_from_gemini,
-        streaming_responses::create_anthropic_sse_stream_from_responses, transform,
-        transform_codex_chat, transform_gemini, transform_responses,
+        get_transformer, TransformContext, transform_codex_chat, transform_gemini,
+        streaming_codex_chat,
     },
     response_processor::{
         create_logged_passthrough_stream, process_response, read_decoded_body,
@@ -278,21 +275,14 @@ async fn handle_claude_transform(
     if use_streaming {
         // 根据 api_format 选择流式转换器
         let stream = response.bytes_stream();
-        let sse_stream: Box<
-            dyn futures::Stream<Item = Result<Bytes, std::io::Error>> + Send + Unpin,
-        > = if api_format == "openai_responses" {
-            Box::new(Box::pin(create_anthropic_sse_stream_from_responses(stream)))
-        } else if api_format == "gemini_native" {
-            Box::new(Box::pin(create_anthropic_sse_stream_from_gemini(
-                stream,
-                Some(state.gemini_shadow.clone()),
-                Some(ctx.provider.id.clone()),
-                Some(ctx.session_id.clone()),
-                tool_schema_hints.clone(),
-            )))
-        } else {
-            Box::new(Box::pin(create_anthropic_sse_stream(stream)))
+        let transformer = get_transformer(api_format);
+        let transform_ctx = TransformContext {
+            provider: ctx.provider.clone(),
+            session_id: Some(ctx.session_id.clone()),
+            gemini_shadow: Some(state.gemini_shadow.clone()),
+            tool_schema_hints: tool_schema_hints.clone(),
         };
+        let sse_stream = transformer.transform_stream(Box::pin(stream), &transform_ctx);
 
         // 创建使用量收集器；关闭 usage logging 时不要再解析转换后的 SSE。
         let usage_collector = if usage_logging_enabled(state) {
@@ -386,23 +376,19 @@ async fn handle_claude_transform(
     };
 
     // 根据 api_format 选择非流式转换器
-    let anthropic_response = if api_format == "openai_responses" {
-        transform_responses::responses_to_anthropic(upstream_response)
-    } else if api_format == "gemini_native" {
-        transform_gemini::gemini_to_anthropic_with_shadow_and_hints(
-            upstream_response,
-            Some(state.gemini_shadow.as_ref()),
-            Some(&ctx.provider.id),
-            Some(&ctx.session_id),
-            tool_schema_hints.as_ref(),
-        )
-    } else {
-        transform::openai_to_anthropic(upstream_response)
-    }
-    .map_err(|e| {
-        log::error!("[Claude] 转换响应失败: {e}");
-        e
-    })?;
+    let transformer = get_transformer(api_format);
+    let transform_ctx = TransformContext {
+        provider: ctx.provider.clone(),
+        session_id: Some(ctx.session_id.clone()),
+        gemini_shadow: Some(state.gemini_shadow.clone()),
+        tool_schema_hints: tool_schema_hints.clone(),
+    };
+    let anthropic_response = transformer
+        .transform_response(upstream_response, &transform_ctx)
+        .map_err(|e| {
+            log::error!("[Claude] 转换响应失败: {e}");
+            e
+        })?;
 
     // 记录使用量
     if let Some(usage) = TokenUsage::from_claude_response(&anthropic_response) {
@@ -708,7 +694,7 @@ async fn handle_codex_chat_to_responses_transform(
 
     if is_stream || response.is_sse() {
         let stream = response.bytes_stream();
-        let sse_stream = create_responses_sse_stream_from_chat(stream);
+        let sse_stream = streaming_codex_chat::create_responses_sse_stream_from_chat(stream);
         let sse_stream = record_responses_sse_stream(sse_stream, state.codex_chat_history.clone());
 
         let usage_collector = if usage_logging_enabled(state) {

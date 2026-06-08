@@ -32,12 +32,14 @@ pub mod transform;
 pub mod transform_codex_chat;
 pub mod transform_gemini;
 pub mod transform_responses;
+pub mod strategy;
 
 use crate::app_config::AppType;
 use crate::provider::Provider;
 use serde::{Deserialize, Serialize};
 
 // 公开导出
+pub use strategy::{PayloadTransformer, TransformContext, get_transformer};
 pub use adapter::ProviderAdapter;
 pub use auth::{AuthInfo, AuthStrategy};
 pub use claude::{

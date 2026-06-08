@@ -8,10 +8,17 @@ use crate::prompt::Prompt;
 use indexmap::IndexMap;
 use rusqlite::params;
 
-impl Database {
+pub struct PromptRepository<'a> {
+    db: &'a Database,
+}
+
+impl<'a> PromptRepository<'a> {
+    pub fn new(db: &'a Database) -> Self {
+        Self { db }
+    }
     /// 获取指定应用类型的所有提示词
     pub fn get_prompts(&self, app_type: &str) -> Result<IndexMap<String, Prompt>, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let mut stmt = conn
             .prepare(
                 "SELECT id, name, content, description, enabled, created_at, updated_at
@@ -55,7 +62,7 @@ impl Database {
 
     /// 保存提示词
     pub fn save_prompt(&self, app_type: &str, prompt: &Prompt) -> Result<(), AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         conn.execute(
             "INSERT OR REPLACE INTO prompts (
                 id, app_type, name, content, description, enabled, created_at, updated_at
@@ -77,12 +84,27 @@ impl Database {
 
     /// 删除提示词
     pub fn delete_prompt(&self, app_type: &str, id: &str) -> Result<(), AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         conn.execute(
             "DELETE FROM prompts WHERE id = ?1 AND app_type = ?2",
             params![id, app_type],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(())
+    }
+}
+
+// Keep delegate methods on Database for backward compatibility and caller simplicity
+impl Database {
+    pub fn get_prompts(&self, app_type: &str) -> Result<IndexMap<String, Prompt>, AppError> {
+        PromptRepository::new(self).get_prompts(app_type)
+    }
+
+    pub fn save_prompt(&self, app_type: &str, prompt: &Prompt) -> Result<(), AppError> {
+        PromptRepository::new(self).save_prompt(app_type, prompt)
+    }
+
+    pub fn delete_prompt(&self, app_type: &str, id: &str) -> Result<(), AppError> {
+        PromptRepository::new(self).delete_prompt(app_type, id)
     }
 }

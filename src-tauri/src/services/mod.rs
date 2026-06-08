@@ -39,5 +39,5 @@ pub use usage_cache::UsageCache;
 #[allow(unused_imports)]
 pub use usage_stats::{
     DailyStats, LogFilters, ModelStats, PaginatedLogs, ProviderLimitStatus, ProviderStats,
-    RequestLogDetail, UsageSummary, UsageSummaryByApp,
+    RequestLogDetail, UsageSummary, UsageSummaryByApp, UsageStatsRepository,
 };

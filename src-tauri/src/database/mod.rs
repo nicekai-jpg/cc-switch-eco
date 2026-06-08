@@ -39,6 +39,11 @@ pub(crate) use dao::proxy::{
 };
 pub use dao::Ecosystem;
 pub use dao::FailoverQueueItem;
+pub use dao::providers::ProviderRepository;
+pub use dao::skills::SkillRepository;
+pub use dao::mcp::McpRepository;
+pub use dao::prompts::PromptRepository;
+pub use dao::settings::SettingsRepository;
 
 use crate::config::get_app_config_dir;
 use crate::error::AppError;

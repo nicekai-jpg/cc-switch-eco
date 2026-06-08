@@ -15,8 +15,7 @@ pub fn get_usage_summary(
     end_date: Option<i64>,
     app_type: Option<String>,
 ) -> Result<UsageSummary, AppError> {
-    state
-        .db
+    UsageStatsRepository::new(&state.db)
         .get_usage_summary(start_date, end_date, app_type.as_deref())
 }
 
@@ -27,7 +26,7 @@ pub fn get_usage_summary_by_app(
     start_date: Option<i64>,
     end_date: Option<i64>,
 ) -> Result<Vec<UsageSummaryByApp>, AppError> {
-    state.db.get_usage_summary_by_app(start_date, end_date)
+    UsageStatsRepository::new(&state.db).get_usage_summary_by_app(start_date, end_date)
 }
 
 /// 获取每日趋势
@@ -38,8 +37,7 @@ pub fn get_usage_trends(
     end_date: Option<i64>,
     app_type: Option<String>,
 ) -> Result<Vec<DailyStats>, AppError> {
-    state
-        .db
+    UsageStatsRepository::new(&state.db)
         .get_daily_trends(start_date, end_date, app_type.as_deref())
 }
 
@@ -51,8 +49,7 @@ pub fn get_provider_stats(
     end_date: Option<i64>,
     app_type: Option<String>,
 ) -> Result<Vec<ProviderStats>, AppError> {
-    state
-        .db
+    UsageStatsRepository::new(&state.db)
         .get_provider_stats(start_date, end_date, app_type.as_deref())
 }
 
@@ -64,8 +61,7 @@ pub fn get_model_stats(
     end_date: Option<i64>,
     app_type: Option<String>,
 ) -> Result<Vec<ModelStats>, AppError> {
-    state
-        .db
+    UsageStatsRepository::new(&state.db)
         .get_model_stats(start_date, end_date, app_type.as_deref())
 }
 
@@ -77,7 +73,7 @@ pub fn get_request_logs(
     page: u32,
     page_size: u32,
 ) -> Result<PaginatedLogs, AppError> {
-    state.db.get_request_logs(&filters, page, page_size)
+    UsageStatsRepository::new(&state.db).get_request_logs(&filters, page, page_size)
 }
 
 /// 获取单个请求详情
@@ -86,7 +82,7 @@ pub fn get_request_detail(
     state: State<'_, AppState>,
     request_id: String,
 ) -> Result<Option<RequestLogDetail>, AppError> {
-    state.db.get_request_detail(&request_id)
+    UsageStatsRepository::new(&state.db).get_request_detail(&request_id)
 }
 
 /// 获取模型定价列表
@@ -209,7 +205,7 @@ pub fn update_model_pricing(
         .map_err(|e| AppError::Database(format!("更新模型定价失败: {e}")))?;
     }
 
-    if let Err(e) = db.backfill_missing_usage_costs_for_model(&model_id) {
+    if let Err(e) = UsageStatsRepository::new(&db).backfill_missing_usage_costs_for_model(&model_id) {
         log::warn!("模型定价更新后回填历史用量成本失败 (model_id={model_id}): {e}");
     }
 
@@ -223,7 +219,7 @@ pub fn check_provider_limits(
     provider_id: String,
     app_type: String,
 ) -> Result<crate::services::usage_stats::ProviderLimitStatus, AppError> {
-    state.db.check_provider_limits(&provider_id, &app_type)
+    UsageStatsRepository::new(&state.db).check_provider_limits(&provider_id, &app_type)
 }
 
 /// 删除模型定价

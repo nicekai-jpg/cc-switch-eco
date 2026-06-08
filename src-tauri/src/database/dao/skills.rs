@@ -13,12 +13,19 @@ use crate::services::skill::SkillRepo;
 use indexmap::IndexMap;
 use rusqlite::params;
 
-impl Database {
+pub struct SkillRepository<'a> {
+    db: &'a Database,
+}
+
+impl<'a> SkillRepository<'a> {
+    pub fn new(db: &'a Database) -> Self {
+        Self { db }
+    }
     // ========== InstalledSkill CRUD ==========
 
     /// 获取所有已安装的 Skills
     pub fn get_all_installed_skills(&self) -> Result<IndexMap<String, InstalledSkill>, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let mut stmt = conn
             .prepare(
                 "SELECT id, name, description, directory, repo_owner, repo_name, repo_branch,
@@ -63,7 +70,7 @@ impl Database {
 
     /// 获取单个已安装的 Skill
     pub fn get_installed_skill(&self, id: &str) -> Result<Option<InstalledSkill>, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let mut stmt = conn
             .prepare(
                 "SELECT id, name, description, directory, repo_owner, repo_name, repo_branch,
@@ -105,7 +112,7 @@ impl Database {
 
     /// 保存 Skill（添加或更新）
     pub fn save_skill(&self, skill: &InstalledSkill) -> Result<(), AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         conn.execute(
             "INSERT OR REPLACE INTO skills
              (id, name, description, directory, repo_owner, repo_name, repo_branch,
@@ -137,7 +144,7 @@ impl Database {
 
     /// 删除 Skill
     pub fn delete_skill(&self, id: &str) -> Result<bool, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let affected = conn
             .execute("DELETE FROM skills WHERE id = ?1", params![id])
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -146,7 +153,7 @@ impl Database {
 
     /// 清空所有 Skills（用于迁移）
     pub fn clear_skills(&self) -> Result<(), AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         conn.execute("DELETE FROM skills", [])
             .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(())
@@ -154,7 +161,7 @@ impl Database {
 
     /// 更新 Skill 的应用启用状态
     pub fn update_skill_apps(&self, id: &str, apps: &SkillApps) -> Result<bool, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let affected = conn
             .execute(
                 "UPDATE skills SET enabled_claude = ?1, enabled_codex = ?2, enabled_gemini = ?3, enabled_opencode = ?4, enabled_hermes = ?5 WHERE id = ?6",
@@ -171,7 +178,7 @@ impl Database {
         content_hash: &str,
         updated_at: i64,
     ) -> Result<bool, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let affected = conn
             .execute(
                 "UPDATE skills SET content_hash = ?1, updated_at = ?2 WHERE id = ?3",
@@ -185,7 +192,7 @@ impl Database {
 
     /// 获取所有 Skill 仓库
     pub fn get_skill_repos(&self) -> Result<Vec<SkillRepo>, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let mut stmt = conn
             .prepare(
                 "SELECT owner, name, branch, enabled FROM skill_repos ORDER BY owner ASC, name ASC",
@@ -212,7 +219,7 @@ impl Database {
 
     /// 保存 Skill 仓库
     pub fn save_skill_repo(&self, repo: &SkillRepo) -> Result<(), AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         conn.execute(
             "INSERT OR REPLACE INTO skill_repos (owner, name, branch, enabled) VALUES (?1, ?2, ?3, ?4)",
             params![repo.owner, repo.name, repo.branch, repo.enabled],
@@ -223,7 +230,7 @@ impl Database {
 
     /// 删除 Skill 仓库
     pub fn delete_skill_repo(&self, owner: &str, name: &str) -> Result<(), AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         conn.execute(
             "DELETE FROM skill_repos WHERE owner = ?1 AND name = ?2",
             params![owner, name],
@@ -259,5 +266,57 @@ impl Database {
             log::info!("补充默认 Skill 仓库完成，新增 {count} 个");
         }
         Ok(count)
+    }
+}
+
+// Keep delegate methods on Database for backward compatibility and caller simplicity
+impl Database {
+    pub fn get_all_installed_skills(&self) -> Result<IndexMap<String, InstalledSkill>, AppError> {
+        SkillRepository::new(self).get_all_installed_skills()
+    }
+
+    pub fn get_installed_skill(&self, id: &str) -> Result<Option<InstalledSkill>, AppError> {
+        SkillRepository::new(self).get_installed_skill(id)
+    }
+
+    pub fn save_skill(&self, skill: &InstalledSkill) -> Result<(), AppError> {
+        SkillRepository::new(self).save_skill(skill)
+    }
+
+    pub fn delete_skill(&self, id: &str) -> Result<bool, AppError> {
+        SkillRepository::new(self).delete_skill(id)
+    }
+
+    pub fn clear_skills(&self) -> Result<(), AppError> {
+        SkillRepository::new(self).clear_skills()
+    }
+
+    pub fn update_skill_apps(&self, id: &str, apps: &SkillApps) -> Result<bool, AppError> {
+        SkillRepository::new(self).update_skill_apps(id, apps)
+    }
+
+    pub fn update_skill_hash(
+        &self,
+        id: &str,
+        content_hash: &str,
+        updated_at: i64,
+    ) -> Result<bool, AppError> {
+        SkillRepository::new(self).update_skill_hash(id, content_hash, updated_at)
+    }
+
+    pub fn get_skill_repos(&self) -> Result<Vec<SkillRepo>, AppError> {
+        SkillRepository::new(self).get_skill_repos()
+    }
+
+    pub fn save_skill_repo(&self, repo: &SkillRepo) -> Result<(), AppError> {
+        SkillRepository::new(self).save_skill_repo(repo)
+    }
+
+    pub fn delete_skill_repo(&self, owner: &str, name: &str) -> Result<(), AppError> {
+        SkillRepository::new(self).delete_skill_repo(owner, name)
+    }
+
+    pub fn init_default_skill_repos(&self) -> Result<usize, AppError> {
+        SkillRepository::new(self).init_default_skill_repos()
     }
 }

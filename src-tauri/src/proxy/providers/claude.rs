@@ -82,142 +82,21 @@ pub fn claude_api_format_needs_transform(api_format: &str) -> bool {
     )
 }
 
-fn is_reasoning_content_compatible_identifier(value: &str) -> bool {
-    let value = value.to_ascii_lowercase();
-    value.contains("moonshot")
-        || value.contains("kimi")
-        || value.contains("deepseek")
-        || value.contains("mimo")
-        || value.contains("xiaomimimo")
-}
-
-fn should_preserve_reasoning_content_for_openai_chat(
-    provider: &Provider,
-    body: &serde_json::Value,
-) -> bool {
-    if body
-        .get("model")
-        .and_then(|m| m.as_str())
-        .is_some_and(is_reasoning_content_compatible_identifier)
-    {
-        return true;
-    }
-
-    let settings = &provider.settings_config;
-    let base_urls = [
-        settings
-            .get("env")
-            .and_then(|env| env.get("ANTHROPIC_BASE_URL"))
-            .and_then(|v| v.as_str()),
-        settings.get("base_url").and_then(|v| v.as_str()),
-        settings.get("baseURL").and_then(|v| v.as_str()),
-        settings.get("apiEndpoint").and_then(|v| v.as_str()),
-    ];
-
-    base_urls
-        .into_iter()
-        .flatten()
-        .any(is_reasoning_content_compatible_identifier)
-}
-
 pub fn transform_claude_request_for_api_format(
     body: serde_json::Value,
     provider: &Provider,
     api_format: &str,
     session_id: Option<&str>,
-    shadow_store: Option<&super::gemini_shadow::GeminiShadowStore>,
+    shadow_store: Option<std::sync::Arc<super::gemini_shadow::GeminiShadowStore>>,
 ) -> Result<serde_json::Value, ProxyError> {
-    let is_codex_oauth = provider.is_codex_oauth();
-
-    // Copilot 场景：优先从 metadata.user_id 提取 session ID 作为 cache key
-    // 格式: "uuid_sessionId" → 提取 "_" 后面的部分作为 session 标识
-    // 同一会话的请求共享 cache key，提升 Copilot 缓存命中率
-    let is_copilot = provider
-        .meta
-        .as_ref()
-        .and_then(|m| m.provider_type.as_deref())
-        == Some("github_copilot")
-        || provider
-            .settings_config
-            .get("baseUrl")
-            .and_then(|v| v.as_str())
-            .is_some_and(|u| u.contains("githubcopilot.com"));
-    let session_cache_key: Option<String> = if is_copilot {
-        let metadata = body.get("metadata");
-        // Session 提取优先级（与 forwarder 和 session.rs 统一）：
-        //   1. metadata.user_id 中的 _session_ 后缀
-        //   2. metadata.session_id（直接字段）
-        metadata
-            .and_then(|m| m.get("user_id"))
-            .and_then(|v| v.as_str())
-            .and_then(super::super::session::parse_session_from_user_id)
-            .or_else(|| {
-                metadata
-                    .and_then(|m| m.get("session_id"))
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
-            })
-    } else {
-        session_id
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(ToString::to_string)
+    let transformer = super::get_transformer(api_format);
+    let context = super::TransformContext {
+        provider: provider.clone(),
+        session_id: session_id.map(ToString::to_string),
+        gemini_shadow: shadow_store,
+        tool_schema_hints: None,
     };
-
-    let explicit_cache_key = provider
-        .meta
-        .as_ref()
-        .and_then(|m| m.prompt_cache_key.as_deref());
-    let (cache_key, cache_key_source) = if let Some(key) = explicit_cache_key {
-        (Some(key), "explicit")
-    } else if let Some(key) = session_cache_key.as_deref() {
-        (Some(key), "session")
-    } else {
-        (None, "none")
-    };
-    match api_format {
-        "openai_responses" => {
-            log::debug!(
-                "[Cache] OpenAI Responses prompt_cache_key source={cache_key_source}, provider={}, codex_oauth={is_codex_oauth}, has_key={}",
-                provider.id,
-                cache_key.is_some()
-            );
-            // Codex OAuth (ChatGPT Plus/Pro 反代) 需要在请求体里强制 store: false
-            // + include: ["reasoning.encrypted_content"]，由 transform 层统一处理。
-            let codex_fast_mode = provider.codex_fast_mode_enabled();
-            super::transform_responses::anthropic_to_responses(
-                body,
-                cache_key,
-                is_codex_oauth,
-                codex_fast_mode,
-            )
-        }
-        "openai_chat" => {
-            let preserve_reasoning_content =
-                should_preserve_reasoning_content_for_openai_chat(provider, &body);
-            let mut result = super::transform::anthropic_to_openai_with_reasoning_content(
-                body,
-                preserve_reasoning_content,
-            )?;
-            // Inject prompt_cache_key only if explicitly configured in meta
-            if let Some(key) = provider
-                .meta
-                .as_ref()
-                .and_then(|m| m.prompt_cache_key.as_deref())
-            {
-                result["prompt_cache_key"] = serde_json::json!(key);
-            }
-            Ok(result)
-        }
-        "gemini_native" => super::transform_gemini::anthropic_to_gemini_with_shadow(
-            body,
-            shadow_store,
-            Some(&provider.id),
-            session_id,
-        ),
-        _ => Ok(body),
-    }
+    transformer.transform_request(body, &context)
 }
 
 /// Claude 适配器

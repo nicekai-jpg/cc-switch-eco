@@ -16,12 +16,19 @@ type OmoProviderRow = (
     String,
 );
 
-impl Database {
+pub struct ProviderRepository<'a> {
+    db: &'a Database,
+}
+
+impl<'a> ProviderRepository<'a> {
+    pub fn new(db: &'a Database) -> Self {
+        Self { db }
+    }
     pub fn get_all_providers(
         &self,
         app_type: &str,
     ) -> Result<IndexMap<String, Provider>, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let mut stmt = conn.prepare(
             "SELECT id, name, settings_config, website_url, category, created_at, sort_index, notes, icon, icon_color, meta, in_failover_queue
              FROM providers WHERE app_type = ?1
@@ -109,7 +116,7 @@ impl Database {
     }
 
     pub fn get_current_provider(&self, app_type: &str) -> Result<Option<String>, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let mut stmt = conn
             .prepare("SELECT id FROM providers WHERE app_type = ?1 AND is_current = 1 LIMIT 1")
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -132,7 +139,7 @@ impl Database {
         id: &str,
         app_type: &str,
     ) -> Result<Option<Provider>, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let result = conn.query_row(
             "SELECT name, settings_config, website_url, category, created_at, sort_index, notes, icon, icon_color, meta, in_failover_queue
              FROM providers WHERE id = ?1 AND app_type = ?2",
@@ -178,7 +185,7 @@ impl Database {
     }
 
     pub fn save_provider(&self, app_type: &str, provider: &Provider) -> Result<(), AppError> {
-        let mut conn = lock_conn!(self.conn);
+        let mut conn = lock_conn!(self.db.conn);
         let tx = conn
             .transaction()
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -278,7 +285,7 @@ impl Database {
     }
 
     pub fn delete_provider(&self, app_type: &str, id: &str) -> Result<(), AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         conn.execute(
             "DELETE FROM providers WHERE id = ?1 AND app_type = ?2",
             params![id, app_type],
@@ -288,7 +295,7 @@ impl Database {
     }
 
     pub fn set_current_provider(&self, app_type: &str, id: &str) -> Result<(), AppError> {
-        let mut conn = lock_conn!(self.conn);
+        let mut conn = lock_conn!(self.db.conn);
         let tx = conn
             .transaction()
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -315,7 +322,7 @@ impl Database {
         provider_id: &str,
         settings_config: &serde_json::Value,
     ) -> Result<(), AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         conn.execute(
             "UPDATE providers SET settings_config = ?1 WHERE id = ?2 AND app_type = ?3",
             params![
@@ -336,7 +343,7 @@ impl Database {
         provider_id: &str,
         url: &str,
     ) -> Result<(), AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let added_at = chrono::Utc::now().timestamp_millis();
         conn.execute(
             "INSERT INTO provider_endpoints (provider_id, app_type, url, added_at) VALUES (?1, ?2, ?3, ?4)",
@@ -351,7 +358,7 @@ impl Database {
         provider_id: &str,
         url: &str,
     ) -> Result<(), AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         conn.execute(
             "DELETE FROM provider_endpoints WHERE provider_id = ?1 AND app_type = ?2 AND url = ?3",
             params![provider_id, app_type, url],
@@ -366,7 +373,7 @@ impl Database {
         provider_id: &str,
         category: &str,
     ) -> Result<(), AppError> {
-        let mut conn = lock_conn!(self.conn);
+        let mut conn = lock_conn!(self.db.conn);
         let tx = conn
             .transaction()
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -409,7 +416,7 @@ impl Database {
         provider_id: &str,
         category: &str,
     ) -> Result<bool, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         match conn.query_row(
             "SELECT is_current FROM providers
              WHERE id = ?1 AND app_type = ?2 AND category = ?3",
@@ -428,7 +435,7 @@ impl Database {
         provider_id: &str,
         category: &str,
     ) -> Result<(), AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         conn.execute(
             "UPDATE providers SET is_current = 0
              WHERE id = ?1 AND app_type = ?2 AND category = ?3",
@@ -443,7 +450,7 @@ impl Database {
         app_type: &str,
         category: &str,
     ) -> Result<Option<Provider>, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let row_data: Result<OmoProviderRow, rusqlite::Error> = conn.query_row(
             "SELECT id, name, settings_config, category, created_at, sort_index, notes, meta
              FROM providers
@@ -507,7 +514,7 @@ impl Database {
     /// 用于区分"全新安装"和"升级用户"：在启动流程 import/seed 之前调用。
     /// 使用 `EXISTS` 短路查询，比 `COUNT(*)` 在将来表变大时更高效。
     pub fn is_providers_empty(&self) -> Result<bool, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let exists: bool = conn
             .query_row("SELECT EXISTS(SELECT 1 FROM providers)", [], |row| {
                 row.get(0)
@@ -521,7 +528,7 @@ impl Database {
     /// 比 `get_all_providers` 轻量得多：只读 id 列、无 endpoint 子查询。
     /// 用于只需要做存在性检查的场景（如 additive 模式的 live 同步去重）。
     pub fn get_provider_ids(&self, app_type: &str) -> Result<HashSet<String>, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let mut stmt = conn
             .prepare("SELECT id FROM providers WHERE app_type = ?1")
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -540,7 +547,7 @@ impl Database {
     /// 启动阶段的 live import 需要使用这个更严格的判断：
     /// 只要该 app 已经有任何 provider（包括官方 seed），就不应再自动导入 `default`。
     pub fn has_any_provider_for_app(&self, app_type: &str) -> Result<bool, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let exists: bool = conn
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM providers WHERE app_type = ?1)",
@@ -557,7 +564,7 @@ impl Database {
     /// 用于 `import_default_config` 决定是否跳过 live 导入。
     pub fn has_non_official_seed_provider(&self, app_type: &str) -> Result<bool, AppError> {
         use crate::database::dao::providers_seed::is_official_seed_id;
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let mut stmt = conn
             .prepare("SELECT id FROM providers WHERE app_type = ?1")
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -575,7 +582,7 @@ impl Database {
 
     /// 计算指定 app 下一个可用的 sort_index（追加到末尾）。
     fn next_sort_index_for_app(&self, app_type: &str) -> Result<usize, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let max: Option<i64> = conn
             .query_row(
                 "SELECT MAX(sort_index) FROM providers WHERE app_type = ?1",
@@ -599,7 +606,7 @@ impl Database {
         use crate::database::dao::providers_seed::OFFICIAL_SEEDS;
 
         if self
-            .get_bool_flag("official_providers_seeded")
+            .db.get_bool_flag("official_providers_seeded")
             .unwrap_or(false)
         {
             return Ok(0);
@@ -645,7 +652,7 @@ impl Database {
         }
 
         // 即使 inserted=0（例如用户手动创建过同 id）也设置 flag 防止反复检查
-        self.set_setting("official_providers_seeded", "true")?;
+        self.db.set_setting("official_providers_seeded", "true")?;
 
         Ok(inserted)
     }
@@ -707,6 +714,130 @@ impl Database {
     }
 }
 
+
+// Keep delegate methods on Database for backward compatibility and caller simplicity
+impl Database {
+    pub fn get_all_providers(
+        &self,
+        app_type: &str,
+    ) -> Result<IndexMap<String, Provider>, AppError> {
+        ProviderRepository::new(self).get_all_providers(app_type)
+    }
+
+    pub fn get_current_provider(&self, app_type: &str) -> Result<Option<String>, AppError> {
+        ProviderRepository::new(self).get_current_provider(app_type)
+    }
+
+    pub fn get_provider_by_id(
+        &self,
+        id: &str,
+        app_type: &str,
+    ) -> Result<Option<Provider>, AppError> {
+        ProviderRepository::new(self).get_provider_by_id(id, app_type)
+    }
+
+    pub fn save_provider(&self, app_type: &str, provider: &Provider) -> Result<(), AppError> {
+        ProviderRepository::new(self).save_provider(app_type, provider)
+    }
+
+    pub fn delete_provider(&self, app_type: &str, id: &str) -> Result<(), AppError> {
+        ProviderRepository::new(self).delete_provider(app_type, id)
+    }
+
+    pub fn set_current_provider(&self, app_type: &str, id: &str) -> Result<(), AppError> {
+        ProviderRepository::new(self).set_current_provider(app_type, id)
+    }
+
+    pub fn update_provider_settings_config(
+        &self,
+        app_type: &str,
+        id: &str,
+        config: &serde_json::Value,
+    ) -> Result<(), AppError> {
+        ProviderRepository::new(self).update_provider_settings_config(app_type, id, config)
+    }
+
+    pub fn add_custom_endpoint(
+        &self,
+        provider_id: &str,
+        app_type: &str,
+        url: &str,
+    ) -> Result<(), AppError> {
+        ProviderRepository::new(self).add_custom_endpoint(provider_id, app_type, url)
+    }
+
+    pub fn remove_custom_endpoint(
+        &self,
+        provider_id: &str,
+        app_type: &str,
+        url: &str,
+    ) -> Result<(), AppError> {
+        ProviderRepository::new(self).remove_custom_endpoint(provider_id, app_type, url)
+    }
+
+    pub fn set_omo_provider_current(
+        &self,
+        app_type: &str,
+        provider_id: &str,
+        category: &str,
+    ) -> Result<(), AppError> {
+        ProviderRepository::new(self).set_omo_provider_current(app_type, provider_id, category)
+    }
+
+    pub fn is_omo_provider_current(
+        &self,
+        app_type: &str,
+        provider_id: &str,
+        category: &str,
+    ) -> Result<bool, AppError> {
+        ProviderRepository::new(self).is_omo_provider_current(app_type, provider_id, category)
+    }
+
+    pub fn clear_omo_provider_current(
+        &self,
+        app_type: &str,
+        provider_id: &str,
+        category: &str,
+    ) -> Result<(), AppError> {
+        ProviderRepository::new(self).clear_omo_provider_current(app_type, provider_id, category)
+    }
+
+    pub fn get_current_omo_provider(
+        &self,
+        app_type: &str,
+        category: &str,
+    ) -> Result<Option<Provider>, AppError> {
+        ProviderRepository::new(self).get_current_omo_provider(app_type, category)
+    }
+
+    pub fn is_providers_empty(&self) -> Result<bool, AppError> {
+        ProviderRepository::new(self).is_providers_empty()
+    }
+
+    pub fn get_provider_ids(&self, app_type: &str) -> Result<HashSet<String>, AppError> {
+        ProviderRepository::new(self).get_provider_ids(app_type)
+    }
+
+    pub fn has_any_provider_for_app(&self, app_type: &str) -> Result<bool, AppError> {
+        ProviderRepository::new(self).has_any_provider_for_app(app_type)
+    }
+
+    pub fn has_non_official_seed_provider(&self, app_type: &str) -> Result<bool, AppError> {
+        ProviderRepository::new(self).has_non_official_seed_provider(app_type)
+    }
+
+    pub fn init_default_official_providers(&self) -> Result<usize, AppError> {
+        ProviderRepository::new(self).init_default_official_providers()
+    }
+
+    pub fn ensure_official_seed_by_id(
+        &self,
+        seed_id: &str,
+        app_type: crate::app_config::AppType,
+    ) -> Result<bool, AppError> {
+        ProviderRepository::new(self).ensure_official_seed_by_id(seed_id, app_type)
+    }
+}
 #[cfg(test)]
 mod ensure_official_seed_tests {
     use crate::app_config::AppType;

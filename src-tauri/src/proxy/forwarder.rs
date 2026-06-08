@@ -1177,7 +1177,7 @@ impl RequestForwarder {
                     api_format,
                     self.session_client_provided
                         .then_some(self.session_id.as_str()),
-                    Some(self.gemini_shadow.as_ref()),
+                    Some(self.gemini_shadow.clone()),
                 )?
             } else {
                 adapter.transform_request(mapped_body, provider)?

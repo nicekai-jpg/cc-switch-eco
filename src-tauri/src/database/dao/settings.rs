@@ -6,7 +6,14 @@ use crate::database::{lock_conn, Database};
 use crate::error::AppError;
 use rusqlite::params;
 
-impl Database {
+pub struct SettingsRepository<'a> {
+    db: &'a Database,
+}
+
+impl<'a> SettingsRepository<'a> {
+    pub fn new(db: &'a Database) -> Self {
+        Self { db }
+    }
     const LEGACY_COMMON_CONFIG_MIGRATED_KEY: &'static str = "common_config_legacy_migrated_v1";
 
     fn config_snippet_cleared_key(app_type: &str) -> String {
@@ -15,7 +22,7 @@ impl Database {
 
     /// 获取设置值
     pub fn get_setting(&self, key: &str) -> Result<Option<String>, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let mut stmt = conn
             .prepare("SELECT value FROM settings WHERE key = ?1")
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -47,7 +54,7 @@ impl Database {
 
     /// 设置值
     pub fn set_setting(&self, key: &str, value: &str) -> Result<(), AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         conn.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
             params![key, value],
@@ -81,7 +88,7 @@ impl Database {
         if cleared {
             self.set_setting(&key, "true")
         } else {
-            let conn = lock_conn!(self.conn);
+            let conn = lock_conn!(self.db.conn);
             conn.execute("DELETE FROM settings WHERE key = ?1", params![key])
                 .map_err(|e| AppError::Database(e.to_string()))?;
             Ok(())
@@ -107,7 +114,7 @@ impl Database {
         if migrated {
             self.set_setting(Self::LEGACY_COMMON_CONFIG_MIGRATED_KEY, "true")
         } else {
-            let conn = lock_conn!(self.conn);
+            let conn = lock_conn!(self.db.conn);
             conn.execute(
                 "DELETE FROM settings WHERE key = ?1",
                 params![Self::LEGACY_COMMON_CONFIG_MIGRATED_KEY],
@@ -128,7 +135,7 @@ impl Database {
             self.set_setting(&key, &value)
         } else {
             // 如果为 None 则删除
-            let conn = lock_conn!(self.conn);
+            let conn = lock_conn!(self.db.conn);
             conn.execute("DELETE FROM settings WHERE key = ?1", params![key])
                 .map_err(|e| AppError::Database(e.to_string()))?;
             Ok(())
@@ -159,7 +166,7 @@ impl Database {
             }
             _ => {
                 // 清除代理设置
-                let conn = lock_conn!(self.conn);
+                let conn = lock_conn!(self.db.conn);
                 conn.execute(
                     "DELETE FROM settings WHERE key = ?1",
                     params![Self::GLOBAL_PROXY_URL_KEY],
@@ -207,7 +214,7 @@ impl Database {
     /// **已废弃**: 请使用 `is_live_takeover_active()` 替代
     #[deprecated(since = "3.9.0", note = "使用 is_live_takeover_active() 替代")]
     pub fn has_any_proxy_takeover(&self) -> Result<bool, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM settings WHERE key LIKE 'proxy_takeover_%' AND value = 'true'",
@@ -226,7 +233,7 @@ impl Database {
         note = "使用 update_proxy_config_for_app() 清除各应用的 enabled 字段"
     )]
     pub fn clear_all_proxy_takeover(&self) -> Result<(), AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         conn.execute(
             "UPDATE settings SET value = 'false' WHERE key LIKE 'proxy_takeover_%'",
             [],
@@ -323,5 +330,127 @@ impl Database {
         let json = serde_json::to_string(config)
             .map_err(|e| AppError::Database(format!("序列化日志配置失败: {e}")))?;
         self.set_setting("log_config", &json)
+    }
+}
+
+// Keep delegate methods on Database for backward compatibility and caller simplicity
+impl Database {
+    pub fn get_setting(&self, key: &str) -> Result<Option<String>, AppError> {
+        SettingsRepository::new(self).get_setting(key)
+    }
+
+    pub fn get_bool_flag(&self, key: &str) -> Result<bool, AppError> {
+        SettingsRepository::new(self).get_bool_flag(key)
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<(), AppError> {
+        SettingsRepository::new(self).set_setting(key, value)
+    }
+
+    pub fn get_config_snippet(&self, app_type: &str) -> Result<Option<String>, AppError> {
+        SettingsRepository::new(self).get_config_snippet(app_type)
+    }
+
+    pub fn is_config_snippet_cleared(&self, app_type: &str) -> Result<bool, AppError> {
+        SettingsRepository::new(self).is_config_snippet_cleared(app_type)
+    }
+
+    pub fn set_config_snippet_cleared(
+        &self,
+        app_type: &str,
+        cleared: bool,
+    ) -> Result<(), AppError> {
+        SettingsRepository::new(self).set_config_snippet_cleared(app_type, cleared)
+    }
+
+    pub fn should_auto_extract_config_snippet(&self, app_type: &str) -> Result<bool, AppError> {
+        SettingsRepository::new(self).should_auto_extract_config_snippet(app_type)
+    }
+
+    pub fn is_legacy_common_config_migrated(&self) -> Result<bool, AppError> {
+        SettingsRepository::new(self).is_legacy_common_config_migrated()
+    }
+
+    pub fn set_legacy_common_config_migrated(&self, migrated: bool) -> Result<(), AppError> {
+        SettingsRepository::new(self).set_legacy_common_config_migrated(migrated)
+    }
+
+    pub fn set_config_snippet(
+        &self,
+        app_type: &str,
+        snippet: Option<String>,
+    ) -> Result<(), AppError> {
+        SettingsRepository::new(self).set_config_snippet(app_type, snippet)
+    }
+
+    pub fn get_global_proxy_url(&self) -> Result<Option<String>, AppError> {
+        SettingsRepository::new(self).get_global_proxy_url()
+    }
+
+    pub fn set_global_proxy_url(&self, url: Option<&str>) -> Result<(), AppError> {
+        SettingsRepository::new(self).set_global_proxy_url(url)
+    }
+
+    pub fn get_proxy_takeover_enabled(&self, app_type: &str) -> Result<bool, AppError> {
+        SettingsRepository::new(self).get_proxy_takeover_enabled(app_type)
+    }
+
+    pub fn set_proxy_takeover_enabled(
+        &self,
+        app_type: &str,
+        enabled: bool,
+    ) -> Result<(), AppError> {
+        SettingsRepository::new(self).set_proxy_takeover_enabled(app_type, enabled)
+    }
+
+    pub fn has_any_proxy_takeover(&self) -> Result<bool, AppError> {
+        SettingsRepository::new(self).has_any_proxy_takeover()
+    }
+
+    pub fn clear_all_proxy_takeover(&self) -> Result<(), AppError> {
+        SettingsRepository::new(self).clear_all_proxy_takeover()
+    }
+
+    pub fn get_rectifier_config(&self) -> Result<crate::proxy::types::RectifierConfig, AppError> {
+        SettingsRepository::new(self).get_rectifier_config()
+    }
+
+    pub fn set_rectifier_config(
+        &self,
+        config: &crate::proxy::types::RectifierConfig,
+    ) -> Result<(), AppError> {
+        SettingsRepository::new(self).set_rectifier_config(config)
+    }
+
+    pub fn get_optimizer_config(&self) -> Result<crate::proxy::types::OptimizerConfig, AppError> {
+        SettingsRepository::new(self).get_optimizer_config()
+    }
+
+    pub fn set_optimizer_config(
+        &self,
+        config: &crate::proxy::types::OptimizerConfig,
+    ) -> Result<(), AppError> {
+        SettingsRepository::new(self).set_optimizer_config(config)
+    }
+
+    pub fn get_copilot_optimizer_config(
+        &self,
+    ) -> Result<crate::proxy::types::CopilotOptimizerConfig, AppError> {
+        SettingsRepository::new(self).get_copilot_optimizer_config()
+    }
+
+    pub fn set_copilot_optimizer_config(
+        &self,
+        config: &crate::proxy::types::CopilotOptimizerConfig,
+    ) -> Result<(), AppError> {
+        SettingsRepository::new(self).set_copilot_optimizer_config(config)
+    }
+
+    pub fn get_log_config(&self) -> Result<crate::proxy::types::LogConfig, AppError> {
+        SettingsRepository::new(self).get_log_config()
+    }
+
+    pub fn set_log_config(&self, config: &crate::proxy::types::LogConfig) -> Result<(), AppError> {
+        SettingsRepository::new(self).set_log_config(config)
     }
 }

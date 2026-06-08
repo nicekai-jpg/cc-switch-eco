@@ -54,7 +54,7 @@ pub use provider::{Provider, ProviderMeta};
 pub use services::{
     skill::{migrate_skills_to_ssot, ImportSkillSelection},
     ConfigService, EndpointLatency, McpService, PromptService, ProviderService, ProxyService,
-    SkillService, SpeedtestService,
+    SkillService, SpeedtestService, UsageStatsRepository,
 };
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;
@@ -984,7 +984,7 @@ pub fn run() {
                     // 首次同步
                     run_step(
                         "Usage cost startup backfill",
-                        db.backfill_missing_usage_costs(),
+                        UsageStatsRepository::new(db).backfill_missing_usage_costs(),
                     );
                     run_step(
                         "Session usage initial sync",

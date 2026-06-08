@@ -8,10 +8,17 @@ use crate::error::AppError;
 use indexmap::IndexMap;
 use rusqlite::params;
 
-impl Database {
+pub struct McpRepository<'a> {
+    db: &'a Database,
+}
+
+impl<'a> McpRepository<'a> {
+    pub fn new(db: &'a Database) -> Self {
+        Self { db }
+    }
     /// 获取所有 MCP 服务器
     pub fn get_all_mcp_servers(&self) -> Result<IndexMap<String, McpServer>, AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         let mut stmt = conn.prepare(
             "SELECT id, name, server_config, description, homepage, docs, tags, enabled_claude, enabled_codex, enabled_gemini, enabled_opencode, enabled_hermes
              FROM mcp_servers
@@ -68,7 +75,7 @@ impl Database {
 
     /// 保存 MCP 服务器
     pub fn save_mcp_server(&self, server: &McpServer) -> Result<(), AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         conn.execute(
             "INSERT OR REPLACE INTO mcp_servers (
                 id, name, server_config, description, homepage, docs, tags,
@@ -98,9 +105,24 @@ impl Database {
 
     /// 删除 MCP 服务器
     pub fn delete_mcp_server(&self, id: &str) -> Result<(), AppError> {
-        let conn = lock_conn!(self.conn);
+        let conn = lock_conn!(self.db.conn);
         conn.execute("DELETE FROM mcp_servers WHERE id = ?1", params![id])
             .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(())
+    }
+}
+
+// Keep delegate methods on Database for backward compatibility and caller simplicity
+impl Database {
+    pub fn get_all_mcp_servers(&self) -> Result<IndexMap<String, McpServer>, AppError> {
+        McpRepository::new(self).get_all_mcp_servers()
+    }
+
+    pub fn save_mcp_server(&self, server: &McpServer) -> Result<(), AppError> {
+        McpRepository::new(self).save_mcp_server(server)
+    }
+
+    pub fn delete_mcp_server(&self, id: &str) -> Result<(), AppError> {
+        McpRepository::new(self).delete_mcp_server(id)
     }
 }

@@ -45,13 +45,9 @@ import {
   hermesProviderPresets,
   type HermesProviderPreset,
 } from "@/config/hermesProviderPresets";
-import { OpenCodeFormFields } from "./OpenCodeFormFields";
-import { OpenClawFormFields } from "./OpenClawFormFields";
-import { HermesFormFields } from "./HermesFormFields";
 import type { UniversalProviderPreset } from "@/config/universalProviderPresets";
 import {
   applyTemplateValues,
-  hasApiKeyField,
 } from "@/utils/providerConfigUtils";
 import { mergeProviderMeta } from "@/utils/providerMetaUtils";
 import {
@@ -61,18 +57,11 @@ import {
 } from "@/utils/providerConfigUtils";
 import { isNonNegativeDecimalString } from "@/types/usage";
 import { getCodexCustomTemplate } from "@/config/codexTemplates";
-import CodexConfigEditor from "./CodexConfigEditor";
-import { CommonConfigEditor } from "./CommonConfigEditor";
-import GeminiConfigEditor from "./GeminiConfigEditor";
-import JsonEditor from "@/components/JsonEditor";
 import { Label } from "@/components/ui/label";
 import { ProviderPresetSelector } from "./ProviderPresetSelector";
 import { BasicFormFields } from "./BasicFormFields";
-import { ClaudeFormFields } from "./ClaudeFormFields";
 import { ClaudeDesktopProviderForm } from "./ClaudeDesktopProviderForm";
-import { CodexFormFields } from "./CodexFormFields";
-import { GeminiFormFields } from "./GeminiFormFields";
-import { OmoFormFields } from "./OmoFormFields";
+import { AppSpecificFormFields, AppSpecificConfigEditor } from "./AppSpecificFormFields";
 import { parseOmoOtherFieldsObject } from "@/types/omo";
 import {
   ProviderAdvancedConfig,
@@ -1936,367 +1925,240 @@ function ProviderFormFull({
             }
           />
 
-          {appId === "claude" && (
-            <ClaudeFormFields
-              providerId={providerId}
-              shouldShowApiKey={
-                (category !== "cloud_provider" ||
-                  hasApiKeyField(form.getValues("settingsConfig"), "claude")) &&
-                shouldShowApiKey(form.getValues("settingsConfig"), isEditMode)
-              }
-              apiKey={apiKey}
-              onApiKeyChange={handleApiKeyChange}
-              category={category}
-              shouldShowApiKeyLink={shouldShowClaudeApiKeyLink}
-              websiteUrl={claudeWebsiteUrl}
-              isPartner={isClaudePartner}
-              partnerPromotionKey={claudePartnerPromotionKey}
-              isCopilotPreset={
-                templatePreset?.providerType === "github_copilot" ||
-                initialData?.meta?.providerType === "github_copilot" ||
-                baseUrl.includes("githubcopilot.com")
-              }
-              isCodexOauthPreset={
-                templatePreset?.providerType === "codex_oauth" ||
-                initialData?.meta?.providerType === "codex_oauth"
-              }
-              usesOAuth={
-                templatePreset?.requiresOAuth === true ||
-                templatePreset?.providerType === "github_copilot" ||
-                initialData?.meta?.providerType === "github_copilot" ||
-                baseUrl.includes("githubcopilot.com") ||
-                templatePreset?.providerType === "codex_oauth" ||
-                initialData?.meta?.providerType === "codex_oauth"
-              }
-              isCopilotAuthenticated={isCopilotAuthenticated}
-              selectedGitHubAccountId={selectedGitHubAccountId}
-              onGitHubAccountSelect={setSelectedGitHubAccountId}
-              isCodexOauthAuthenticated={isCodexOauthAuthenticated}
-              selectedCodexAccountId={selectedCodexAccountId}
-              onCodexAccountSelect={setSelectedCodexAccountId}
-              codexFastMode={codexFastMode}
-              onCodexFastModeChange={setCodexFastMode}
-              templateValueEntries={templateValueEntries}
-              templateValues={templateValues}
-              templatePresetName={templatePreset?.name || ""}
-              onTemplateValueChange={handleTemplateValueChange}
-              shouldShowSpeedTest={shouldShowSpeedTest}
-              baseUrl={baseUrl}
-              onBaseUrlChange={handleClaudeBaseUrlChange}
-              isEndpointModalOpen={isEndpointModalOpen}
-              onEndpointModalToggle={setIsEndpointModalOpen}
-              onCustomEndpointsChange={
-                isEditMode ? undefined : setDraftCustomEndpoints
-              }
-              autoSelect={endpointAutoSelect}
-              onAutoSelectChange={setEndpointAutoSelect}
-              showEndpointTools
-              shouldShowModelSelector={category !== "official"}
-              claudeModel={claudeModel}
-              defaultHaikuModel={defaultHaikuModel}
-              defaultHaikuModelName={defaultHaikuModelName}
-              defaultSonnetModel={defaultSonnetModel}
-              defaultSonnetModelName={defaultSonnetModelName}
-              defaultOpusModel={defaultOpusModel}
-              defaultOpusModelName={defaultOpusModelName}
-              onModelChange={handleModelChange}
-              speedTestEndpoints={speedTestEndpoints}
-              apiFormat={localApiFormat}
-              onApiFormatChange={handleApiFormatChange}
-              apiKeyField={localApiKeyField}
-              onApiKeyFieldChange={handleApiKeyFieldChange}
-              isFullUrl={localIsFullUrl}
-              onFullUrlChange={setLocalIsFullUrl}
-            />
-          )}
+          <AppSpecificFormFields
+            appId={appId}
+            category={category}
+            providerId={providerId}
+            isEditMode={isEditMode}
+            isAnyOmoCategory={isAnyOmoCategory}
+            apiKey={apiKey}
+            onClaudeApiKeyChange={handleApiKeyChange}
+            baseUrl={baseUrl}
+            onClaudeBaseUrlChange={handleClaudeBaseUrlChange}
+            onClaudeModelChange={handleModelChange}
+            shouldShowApiKey={shouldShowApiKey}
+            shouldShowApiKeyLink={
+              appId === "claude"
+                ? shouldShowClaudeApiKeyLink
+                : appId === "codex"
+                  ? shouldShowCodexApiKeyLink
+                  : appId === "gemini"
+                    ? shouldShowGeminiApiKeyLink
+                    : appId === "opencode"
+                      ? shouldShowOpencodeApiKeyLink
+                      : appId === "openclaw"
+                        ? shouldShowOpenclawApiKeyLink
+                        : appId === "hermes"
+                          ? shouldShowHermesApiKeyLink
+                          : false
+            }
+            websiteUrl={
+              appId === "claude"
+                ? claudeWebsiteUrl
+                : appId === "codex"
+                  ? codexWebsiteUrl
+                  : appId === "gemini"
+                    ? geminiWebsiteUrl
+                    : appId === "opencode"
+                      ? opencodeWebsiteUrl
+                      : appId === "openclaw"
+                        ? openclawWebsiteUrl
+                        : appId === "hermes"
+                          ? hermesWebsiteUrl
+                          : ""
+            }
+            isPartner={
+              appId === "claude"
+                ? isClaudePartner
+                : appId === "codex"
+                  ? isCodexPartner
+                  : appId === "gemini"
+                    ? isGeminiPartner
+                    : appId === "opencode"
+                      ? isOpencodePartner
+                      : appId === "openclaw"
+                        ? isOpenclawPartner
+                        : appId === "hermes"
+                          ? isHermesPartner
+                          : false
+            }
+            partnerPromotionKey={
+              appId === "claude"
+                ? claudePartnerPromotionKey
+                : appId === "codex"
+                  ? codexPartnerPromotionKey
+                  : appId === "gemini"
+                    ? geminiPartnerPromotionKey
+                    : appId === "opencode"
+                      ? opencodePartnerPromotionKey
+                      : appId === "openclaw"
+                        ? openclawPartnerPromotionKey
+                        : appId === "hermes"
+                          ? hermesPartnerPromotionKey
+                          : undefined
+            }
+            shouldShowSpeedTest={shouldShowSpeedTest}
+            speedTestEndpoints={speedTestEndpoints}
+            isEndpointModalOpen={isEndpointModalOpen || isCodexEndpointModalOpen}
+            onEndpointModalToggle={appId === "codex" ? setIsCodexEndpointModalOpen : setIsEndpointModalOpen}
+            onCustomEndpointsChange={isEditMode ? undefined : setDraftCustomEndpoints}
+            autoSelect={endpointAutoSelect}
+            onAutoSelectChange={setEndpointAutoSelect}
+            isFullUrl={localIsFullUrl}
+            onFullUrlChange={setLocalIsFullUrl}
+            settingsConfig={form.getValues("settingsConfig")}
+            isCopilotPreset={
+              templatePreset?.providerType === "github_copilot" ||
+              initialData?.meta?.providerType === "github_copilot" ||
+              baseUrl.includes("githubcopilot.com")
+            }
+            isCodexOauthPreset={
+              templatePreset?.providerType === "codex_oauth" ||
+              initialData?.meta?.providerType === "codex_oauth"
+            }
+            usesOAuth={
+              templatePreset?.requiresOAuth === true ||
+              templatePreset?.providerType === "github_copilot" ||
+              initialData?.meta?.providerType === "github_copilot" ||
+              baseUrl.includes("githubcopilot.com") ||
+              templatePreset?.providerType === "codex_oauth" ||
+              initialData?.meta?.providerType === "codex_oauth"
+            }
+            isCopilotAuthenticated={isCopilotAuthenticated}
+            selectedGitHubAccountId={selectedGitHubAccountId}
+            onGitHubAccountSelect={setSelectedGitHubAccountId}
+            isCodexOauthAuthenticated={isCodexOauthAuthenticated}
+            selectedCodexAccountId={selectedCodexAccountId}
+            onCodexAccountSelect={setSelectedCodexAccountId}
+            codexFastMode={codexFastMode}
+            onCodexFastModeChange={setCodexFastMode}
+            templateValueEntries={templateValueEntries}
+            templateValues={templateValues}
+            templatePresetName={templatePreset?.name || ""}
+            onTemplateValueChange={handleTemplateValueChange}
+            shouldShowModelSelector={category !== "official"}
+            claudeModel={claudeModel}
+            defaultHaikuModel={defaultHaikuModel}
+            defaultHaikuModelName={defaultHaikuModelName}
+            defaultSonnetModel={defaultSonnetModel}
+            defaultSonnetModelName={defaultSonnetModelName}
+            defaultOpusModel={defaultOpusModel}
+            defaultOpusModelName={defaultOpusModelName}
+            apiFormat={localApiFormat}
+            onApiFormatChange={handleApiFormatChange}
+            apiKeyField={localApiKeyField}
+            onApiKeyFieldChange={handleApiKeyFieldChange}
+            codexApiKey={codexApiKey}
+            onCodexApiKeyChange={handleCodexApiKeyChange}
+            codexBaseUrl={codexBaseUrl}
+            onCodexBaseUrlChange={handleCodexBaseUrlChange}
+            codexApiFormat={localCodexApiFormat}
+            onCodexApiFormatChange={handleCodexApiFormatChange}
+            codexChatReasoning={codexChatReasoning}
+            onCodexChatReasoningChange={setCodexChatReasoning}
+            codexCatalogModels={codexCatalogModels}
+            onCodexCatalogModelsChange={setCodexCatalogModels}
+            geminiApiKey={geminiApiKey}
+            onGeminiApiKeyChange={handleGeminiApiKeyChange}
+            geminiBaseUrl={geminiBaseUrl}
+            onGeminiBaseUrlChange={handleGeminiBaseUrlChange}
+            geminiModel={geminiModel}
+            onGeminiModelChange={handleGeminiModelChange}
+            opencodeForm={{
+              opencodeNpm: opencodeForm.opencodeNpm,
+              handleOpencodeNpmChange: opencodeForm.handleOpencodeNpmChange,
+              opencodeApiKey: opencodeForm.opencodeApiKey,
+              handleOpencodeApiKeyChange: opencodeForm.handleOpencodeApiKeyChange,
+              opencodeBaseUrl: opencodeForm.opencodeBaseUrl,
+              handleOpencodeBaseUrlChange: opencodeForm.handleOpencodeBaseUrlChange,
+              opencodeModels: opencodeForm.opencodeModels,
+              handleOpencodeModelsChange: opencodeForm.handleOpencodeModelsChange,
+              opencodeExtraOptions: opencodeForm.opencodeExtraOptions,
+              handleOpencodeExtraOptionsChange: opencodeForm.handleOpencodeExtraOptionsChange,
+            }}
+            omoModelOptions={omoModelOptions}
+            omoModelVariantsMap={omoModelVariantsMap}
+            omoPresetMetaMap={omoPresetMetaMap}
+            omoDraft={{
+              omoAgents: omoDraft.omoAgents,
+              setOmoAgents: omoDraft.setOmoAgents,
+              omoCategories: omoDraft.omoCategories,
+              setOmoCategories: omoDraft.setOmoCategories,
+              omoOtherFieldsStr: omoDraft.omoOtherFieldsStr,
+              setOmoOtherFieldsStr: omoDraft.setOmoOtherFieldsStr,
+            }}
+            openclawForm={{
+              openclawBaseUrl: openclawForm.openclawBaseUrl,
+              handleOpenclawBaseUrlChange: openclawForm.handleOpenclawBaseUrlChange,
+              openclawApiKey: openclawForm.openclawApiKey,
+              handleOpenclawApiKeyChange: openclawForm.handleOpenclawApiKeyChange,
+              openclawApi: openclawForm.openclawApi,
+              handleOpenclawApiChange: openclawForm.handleOpenclawApiChange,
+              openclawModels: openclawForm.openclawModels,
+              handleOpenclawModelsChange: openclawForm.handleOpenclawModelsChange,
+              openclawUserAgent: openclawForm.openclawUserAgent,
+              handleOpenclawUserAgentChange: openclawForm.handleOpenclawUserAgentChange,
+            }}
+            hermesForm={{
+              hermesBaseUrl: hermesForm.hermesBaseUrl,
+              handleHermesBaseUrlChange: hermesForm.handleHermesBaseUrlChange,
+              hermesApiKey: hermesForm.hermesApiKey,
+              handleHermesApiKeyChange: hermesForm.handleHermesApiKeyChange,
+              hermesApiMode: hermesForm.hermesApiMode,
+              handleHermesApiModeChange: hermesForm.handleHermesApiModeChange,
+              hermesModels: hermesForm.hermesModels,
+              handleHermesModelsChange: hermesForm.handleHermesModelsChange,
+              hermesRateLimitDelay: hermesForm.hermesRateLimitDelay,
+              handleHermesRateLimitDelayChange: hermesForm.handleHermesRateLimitDelayChange,
+            }}
+          />
 
-          {appId === "codex" && (
-            <CodexFormFields
-              providerId={providerId}
-              codexApiKey={codexApiKey}
-              onApiKeyChange={handleCodexApiKeyChange}
-              category={category}
-              shouldShowApiKeyLink={shouldShowCodexApiKeyLink}
-              websiteUrl={codexWebsiteUrl}
-              isPartner={isCodexPartner}
-              partnerPromotionKey={codexPartnerPromotionKey}
-              shouldShowSpeedTest={shouldShowSpeedTest}
-              codexBaseUrl={codexBaseUrl}
-              onBaseUrlChange={handleCodexBaseUrlChange}
-              isFullUrl={localIsFullUrl}
-              onFullUrlChange={setLocalIsFullUrl}
-              isEndpointModalOpen={isCodexEndpointModalOpen}
-              onEndpointModalToggle={setIsCodexEndpointModalOpen}
-              onCustomEndpointsChange={
-                isEditMode ? undefined : setDraftCustomEndpoints
-              }
-              autoSelect={endpointAutoSelect}
-              onAutoSelectChange={setEndpointAutoSelect}
-              apiFormat={localCodexApiFormat}
-              onApiFormatChange={handleCodexApiFormatChange}
-              codexChatReasoning={codexChatReasoning}
-              onCodexChatReasoningChange={setCodexChatReasoning}
-              catalogModels={codexCatalogModels}
-              onCatalogModelsChange={setCodexCatalogModels}
-              speedTestEndpoints={speedTestEndpoints}
-            />
-          )}
-
-          {appId === "gemini" && (
-            <GeminiFormFields
-              providerId={providerId}
-              shouldShowApiKey={shouldShowApiKey(
-                form.getValues("settingsConfig"),
-                isEditMode,
-              )}
-              apiKey={geminiApiKey}
-              onApiKeyChange={handleGeminiApiKeyChange}
-              category={category}
-              shouldShowApiKeyLink={shouldShowGeminiApiKeyLink}
-              websiteUrl={geminiWebsiteUrl}
-              isPartner={isGeminiPartner}
-              partnerPromotionKey={geminiPartnerPromotionKey}
-              shouldShowSpeedTest={shouldShowSpeedTest}
-              baseUrl={geminiBaseUrl}
-              onBaseUrlChange={handleGeminiBaseUrlChange}
-              isEndpointModalOpen={isEndpointModalOpen}
-              onEndpointModalToggle={setIsEndpointModalOpen}
-              onCustomEndpointsChange={setDraftCustomEndpoints}
-              autoSelect={endpointAutoSelect}
-              onAutoSelectChange={setEndpointAutoSelect}
-              shouldShowModelField={true}
-              model={geminiModel}
-              onModelChange={handleGeminiModelChange}
-              speedTestEndpoints={speedTestEndpoints}
-            />
-          )}
-
-          {appId === "opencode" && !isAnyOmoCategory && (
-            <OpenCodeFormFields
-              npm={opencodeForm.opencodeNpm}
-              onNpmChange={opencodeForm.handleOpencodeNpmChange}
-              apiKey={opencodeForm.opencodeApiKey}
-              onApiKeyChange={opencodeForm.handleOpencodeApiKeyChange}
-              category={category}
-              shouldShowApiKeyLink={shouldShowOpencodeApiKeyLink}
-              websiteUrl={opencodeWebsiteUrl}
-              isPartner={isOpencodePartner}
-              partnerPromotionKey={opencodePartnerPromotionKey}
-              baseUrl={opencodeForm.opencodeBaseUrl}
-              onBaseUrlChange={opencodeForm.handleOpencodeBaseUrlChange}
-              models={opencodeForm.opencodeModels}
-              onModelsChange={opencodeForm.handleOpencodeModelsChange}
-              extraOptions={opencodeForm.opencodeExtraOptions}
-              onExtraOptionsChange={
-                opencodeForm.handleOpencodeExtraOptionsChange
-              }
-            />
-          )}
-
-          {appId === "opencode" &&
-            (category === "omo" || category === "omo-slim") && (
-              <OmoFormFields
-                modelOptions={omoModelOptions}
-                modelVariantsMap={omoModelVariantsMap}
-                presetMetaMap={omoPresetMetaMap}
-                agents={omoDraft.omoAgents}
-                onAgentsChange={omoDraft.setOmoAgents}
-                categories={
-                  category === "omo" ? omoDraft.omoCategories : undefined
-                }
-                onCategoriesChange={
-                  category === "omo" ? omoDraft.setOmoCategories : undefined
-                }
-                otherFieldsStr={omoDraft.omoOtherFieldsStr}
-                onOtherFieldsStrChange={omoDraft.setOmoOtherFieldsStr}
-                isSlim={category === "omo-slim"}
-              />
-            )}
-
-          {/* OpenClaw 专属字段 */}
-          {appId === "openclaw" && (
-            <OpenClawFormFields
-              baseUrl={openclawForm.openclawBaseUrl}
-              onBaseUrlChange={openclawForm.handleOpenclawBaseUrlChange}
-              apiKey={openclawForm.openclawApiKey}
-              onApiKeyChange={openclawForm.handleOpenclawApiKeyChange}
-              category={category}
-              shouldShowApiKeyLink={shouldShowOpenclawApiKeyLink}
-              websiteUrl={openclawWebsiteUrl}
-              isPartner={isOpenclawPartner}
-              partnerPromotionKey={openclawPartnerPromotionKey}
-              api={openclawForm.openclawApi}
-              onApiChange={openclawForm.handleOpenclawApiChange}
-              models={openclawForm.openclawModels}
-              onModelsChange={openclawForm.handleOpenclawModelsChange}
-              userAgent={openclawForm.openclawUserAgent}
-              onUserAgentChange={openclawForm.handleOpenclawUserAgentChange}
-            />
-          )}
-
-          {/* Hermes 专属字段 */}
-          {appId === "hermes" && (
-            <HermesFormFields
-              baseUrl={hermesForm.hermesBaseUrl}
-              onBaseUrlChange={hermesForm.handleHermesBaseUrlChange}
-              apiKey={hermesForm.hermesApiKey}
-              onApiKeyChange={hermesForm.handleHermesApiKeyChange}
-              category={category}
-              shouldShowApiKeyLink={shouldShowHermesApiKeyLink}
-              websiteUrl={hermesWebsiteUrl}
-              isPartner={isHermesPartner}
-              partnerPromotionKey={hermesPartnerPromotionKey}
-              apiMode={hermesForm.hermesApiMode}
-              onApiModeChange={hermesForm.handleHermesApiModeChange}
-              models={hermesForm.hermesModels}
-              onModelsChange={hermesForm.handleHermesModelsChange}
-              rateLimitDelay={hermesForm.hermesRateLimitDelay}
-              onRateLimitDelayChange={
-                hermesForm.handleHermesRateLimitDelayChange
-              }
-            />
-          )}
-
-          {/* 配置编辑器：Codex、Claude、Gemini 分别使用不同的编辑器 */}
-          {appId === "codex" ? (
-            <>
-              <CodexConfigEditor
-                authValue={codexAuth}
-                configValue={codexConfig}
-                onAuthChange={setCodexAuth}
-                onConfigChange={handleCodexConfigChange}
-                useCommonConfig={useCodexCommonConfigFlag}
-                onCommonConfigToggle={handleCodexCommonConfigToggle}
-                commonConfigSnippet={codexCommonConfigSnippet}
-                onCommonConfigSnippetChange={
-                  handleCodexCommonConfigSnippetChange
-                }
-                onCommonConfigErrorClear={clearCodexCommonConfigError}
-                commonConfigError={codexCommonConfigError}
-                authError={codexAuthError}
-                configError={codexConfigError}
-                onExtract={handleCodexExtract}
-                isExtracting={isCodexExtracting}
-              />
-              {settingsConfigErrorField}
-            </>
-          ) : appId === "gemini" ? (
-            <>
-              <GeminiConfigEditor
-                envValue={geminiEnv}
-                configValue={geminiConfig}
-                onEnvChange={handleGeminiEnvChange}
-                onConfigChange={handleGeminiConfigChange}
-                useCommonConfig={useGeminiCommonConfigFlag}
-                onCommonConfigToggle={handleGeminiCommonConfigToggle}
-                commonConfigSnippet={geminiCommonConfigSnippet}
-                onCommonConfigSnippetChange={
-                  handleGeminiCommonConfigSnippetChange
-                }
-                onCommonConfigErrorClear={clearGeminiCommonConfigError}
-                commonConfigError={geminiCommonConfigError}
-                envError={envError}
-                configError={geminiConfigError}
-                onExtract={handleGeminiExtract}
-                isExtracting={isGeminiExtracting}
-              />
-              {settingsConfigErrorField}
-            </>
-          ) : appId === "opencode" &&
-            (category === "omo" || category === "omo-slim") ? (
-            <div className="space-y-2">
-              <Label>{t("provider.configJson")}</Label>
-              <JsonEditor
-                value={omoDraft.mergedOmoJsonPreview}
-                onChange={() => {}}
-                rows={14}
-                showValidation={false}
-                language="json"
-              />
-            </div>
-          ) : appId === "opencode" &&
-            category !== "omo" &&
-            category !== "omo-slim" ? (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="settingsConfig">
-                  {t("provider.configJson")}
-                </Label>
-                <JsonEditor
-                  value={form.getValues("settingsConfig")}
-                  onChange={(config) => form.setValue("settingsConfig", config)}
-                  placeholder={`{
-  "npm": "@ai-sdk/openai-compatible",
-  "options": {
-    "baseURL": "https://your-api-endpoint.com",
-    "apiKey": "your-api-key-here"
-  },
-  "models": {}
-}`}
-                  rows={14}
-                  showValidation={true}
-                  language="json"
-                />
-              </div>
-              {settingsConfigErrorField}
-            </>
-          ) : appId === "openclaw" || appId === "hermes" ? (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="settingsConfig">
-                  {t("provider.configJson")}
-                </Label>
-                <JsonEditor
-                  value={form.getValues("settingsConfig")}
-                  onChange={(config) => form.setValue("settingsConfig", config)}
-                  placeholder={
-                    appId === "hermes"
-                      ? `{
-  "name": "my-provider",
-  "base_url": "https://api.example.com/v1",
-  "api_key": ""
-}`
-                      : `{
-  "baseUrl": "https://api.example.com/v1",
-  "apiKey": "your-api-key-here",
-  "api": "openai-completions",
-  "models": []
-}`
-                  }
-                  rows={14}
-                  showValidation={true}
-                  language="json"
-                />
-              </div>
-              <FormField
-                control={form.control}
-                name="settingsConfig"
-                render={() => (
-                  <FormItem className="space-y-0">
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </>
-          ) : (
-            <>
-              <CommonConfigEditor
-                value={form.getValues("settingsConfig")}
-                onChange={(value) => form.setValue("settingsConfig", value)}
-                useCommonConfig={useCommonConfig}
-                onCommonConfigToggle={handleCommonConfigToggle}
-                commonConfigSnippet={commonConfigSnippet}
-                onCommonConfigSnippetChange={handleCommonConfigSnippetChange}
-                commonConfigError={commonConfigError}
-                onEditClick={() => setIsCommonConfigModalOpen(true)}
-                isModalOpen={isCommonConfigModalOpen}
-                onModalClose={() => setIsCommonConfigModalOpen(false)}
-                onExtract={handleClaudeExtract}
-                isExtracting={isClaudeExtracting}
-              />
-              {settingsConfigErrorField}
-            </>
-          )}
+          <AppSpecificConfigEditor
+            appId={appId}
+            category={category}
+            form={form}
+            settingsConfigErrorField={settingsConfigErrorField}
+            codexAuth={codexAuth}
+            codexConfig={codexConfig}
+            setCodexAuth={setCodexAuth}
+            handleCodexConfigChange={handleCodexConfigChange}
+            useCodexCommonConfigFlag={useCodexCommonConfigFlag}
+            handleCodexCommonConfigToggle={handleCodexCommonConfigToggle}
+            codexCommonConfigSnippet={codexCommonConfigSnippet}
+            handleCodexCommonConfigSnippetChange={handleCodexCommonConfigSnippetChange}
+            clearCodexCommonConfigError={clearCodexCommonConfigError}
+            codexCommonConfigError={codexCommonConfigError}
+            codexAuthError={codexAuthError}
+            codexConfigError={codexConfigError}
+            handleCodexExtract={handleCodexExtract}
+            isCodexExtracting={isCodexExtracting}
+            geminiEnv={geminiEnv}
+            geminiConfig={geminiConfig}
+            handleGeminiEnvChange={handleGeminiEnvChange}
+            handleGeminiConfigChange={handleGeminiConfigChange}
+            useGeminiCommonConfigFlag={useGeminiCommonConfigFlag}
+            handleGeminiCommonConfigToggle={handleGeminiCommonConfigToggle}
+            geminiCommonConfigSnippet={geminiCommonConfigSnippet}
+            handleGeminiCommonConfigSnippetChange={handleGeminiCommonConfigSnippetChange}
+            clearGeminiCommonConfigError={clearGeminiCommonConfigError}
+            geminiCommonConfigError={geminiCommonConfigError}
+            envError={envError}
+            geminiConfigError={geminiConfigError}
+            handleGeminiExtract={handleGeminiExtract}
+            isGeminiExtracting={isGeminiExtracting}
+            omoDraft={{
+              mergedOmoJsonPreview: omoDraft.mergedOmoJsonPreview,
+            }}
+            useCommonConfig={useCommonConfig}
+            handleCommonConfigToggle={handleCommonConfigToggle}
+            commonConfigSnippet={commonConfigSnippet}
+            handleCommonConfigSnippetChange={handleCommonConfigSnippetChange}
+            commonConfigError={commonConfigError}
+            setIsCommonConfigModalOpen={setIsCommonConfigModalOpen}
+            isCommonConfigModalOpen={isCommonConfigModalOpen}
+            handleClaudeExtract={handleClaudeExtract}
+            isClaudeExtracting={isClaudeExtracting}
+          />
 
           {!isAnyOmoCategory &&
             appId !== "opencode" &&
