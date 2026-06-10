@@ -1,34 +1,22 @@
 /**
  * Codex 预设供应商配置模板
  */
-import { ProviderCategory } from "../types";
+import type {
+  BaseProviderPreset,
+} from "./baseProviderPreset";
 import type {
   CodexApiFormat,
   CodexCatalogModel,
   CodexChatReasoning,
 } from "../types";
-import type { PresetTheme } from "./claudeProviderPresets";
+import { PROVIDER_METADATA } from "./providerMetadata";
 
-export interface CodexProviderPreset {
-  name: string;
-  nameKey?: string; // i18n key for localized display name
-  websiteUrl: string;
-  // 第三方供应商可提供单独的获取 API Key 链接
-  apiKeyUrl?: string;
+export interface CodexProviderPreset extends BaseProviderPreset {
   auth: Record<string, any>; // 将写入 ~/.codex/auth.json
   config: string; // 将写入 ~/.codex/config.toml（TOML 字符串）
-  isOfficial?: boolean; // 标识是否为官方预设
-  isPartner?: boolean; // 标识是否为商业合作伙伴
-  partnerPromotionKey?: string; // 合作伙伴促销信息的 i18n key
-  category?: ProviderCategory; // 新增：分类
   isCustomTemplate?: boolean; // 标识是否为自定义模板
-  // 新增：请求地址候选列表（用于地址管理/测速）
+  // 请求地址候选列表（用于地址管理/测速）
   endpointCandidates?: string[];
-  // 新增：视觉主题配置
-  theme?: PresetTheme;
-  // 图标配置
-  icon?: string; // 图标名称
-  iconColor?: string; // 图标颜色
   // Codex API 格式
   apiFormat?: CodexApiFormat;
   // Codex Chat 本地路由模式下的模型目录
@@ -86,10 +74,8 @@ function modelCatalog(
 
 export const codexProviderPresets: CodexProviderPreset[] = [
   {
-    name: "OpenAI Official",
-    websiteUrl: "https://chatgpt.com/codex",
+    ...PROVIDER_METADATA.openaiOfficial,
     isOfficial: true,
-    category: "official",
     auth: {},
     config: ``,
     theme: {
@@ -97,30 +83,18 @@ export const codexProviderPresets: CodexProviderPreset[] = [
       backgroundColor: "#1F2937", // gray-800
       textColor: "#FFFFFF",
     },
-    icon: "openai",
-    iconColor: "#00A67E",
   },
   {
-    name: "Shengsuanyun",
-    nameKey: "providerForm.presets.shengsuanyun",
-    websiteUrl: "https://www.shengsuanyun.com",
-    apiKeyUrl: "https://www.shengsuanyun.com/?from=CH_4HHXMRYF",
+    ...PROVIDER_METADATA.shengsuanyun,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "shengsuanyun",
       "https://router.shengsuanyun.com/api/v1",
       "gpt-5.4",
     ),
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "shengsuanyun",
-    icon: "shengsuanyun",
   },
   {
-    name: "PatewayAI",
-    websiteUrl: "https://pateway.ai",
-    apiKeyUrl: "https://pateway.ai/?ch=etzpm8&aff=WB6M6F67#/",
-    category: "third_party",
+    ...PROVIDER_METADATA.patewayAi,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "patewayai",
@@ -128,16 +102,9 @@ export const codexProviderPresets: CodexProviderPreset[] = [
       "gpt-5.5",
     ),
     endpointCandidates: ["https://api.pateway.ai/v1"],
-    isPartner: true,
-    partnerPromotionKey: "patewayai",
-    icon: "pateway",
   },
   {
-    name: "火山Agentplan",
-    websiteUrl:
-      "https://www.volcengine.com/activity/agentplan?utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
-    apiKeyUrl:
-      "https://www.volcengine.com/activity/agentplan?utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
+    ...PROVIDER_METADATA.volcengineAgentplan,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "ark_agentplan",
@@ -153,18 +120,9 @@ export const codexProviderPresets: CodexProviderPreset[] = [
         contextWindow: 256000,
       },
     ]),
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "volcengine_agentplan",
-    icon: "huoshan",
-    iconColor: "#3370FF",
   },
   {
-    name: "BytePlus",
-    websiteUrl:
-      "https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
-    apiKeyUrl:
-      "https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
+    ...PROVIDER_METADATA.bytePlus,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "byteplus",
@@ -182,18 +140,9 @@ export const codexProviderPresets: CodexProviderPreset[] = [
         contextWindow: 256000,
       },
     ]),
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "byteplus",
-    icon: "byteplus",
-    iconColor: "#3370FF",
   },
   {
-    name: "DouBaoSeed",
-    websiteUrl:
-      "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey?apikey=%7B%7D&utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
-    apiKeyUrl:
-      "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey?apikey=%7B%7D&utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
+    ...PROVIDER_METADATA.douBaoSeed,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "doubaoseed",
@@ -209,17 +158,9 @@ export const codexProviderPresets: CodexProviderPreset[] = [
         contextWindow: 256000,
       },
     ]),
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "doubaoseed",
-    icon: "doubao",
-    iconColor: "#3370FF",
   },
   {
-    name: "Azure OpenAI",
-    websiteUrl:
-      "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/codex",
-    category: "third_party",
+    ...PROVIDER_METADATA.azureOpenai,
     isOfficial: true,
     auth: generateThirdPartyAuth(""),
     config: `model_provider = "custom"
@@ -240,13 +181,9 @@ requires_openai_auth = true`,
       backgroundColor: "#0078D4",
       textColor: "#FFFFFF",
     },
-    icon: "azure",
-    iconColor: "#0078D4",
   },
   {
-    name: "DeepSeek",
-    websiteUrl: "https://platform.deepseek.com",
-    apiKeyUrl: "https://platform.deepseek.com/api_keys",
+    ...PROVIDER_METADATA.deepSeek,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "deepseek",
@@ -275,14 +212,9 @@ requires_openai_auth = true`,
       effortValueMode: "deepseek",
       outputFormat: "reasoning_content",
     },
-    category: "cn_official",
-    icon: "deepseek",
-    iconColor: "#1E88E5",
   },
   {
-    name: "Zhipu GLM",
-    websiteUrl: "https://open.bigmodel.cn",
-    apiKeyUrl: "https://www.bigmodel.cn/claude-code?ic=RRVJPB5SII",
+    ...PROVIDER_METADATA.zhipuGlm,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "zhipu_glm",
@@ -301,14 +233,9 @@ requires_openai_auth = true`,
       effortParam: "none",
       outputFormat: "reasoning_content",
     },
-    category: "cn_official",
-    icon: "zhipu",
-    iconColor: "#0F62FE",
   },
   {
-    name: "Zhipu GLM en",
-    websiteUrl: "https://z.ai",
-    apiKeyUrl: "https://z.ai/subscribe?ic=8JVLJQFSKB",
+    ...PROVIDER_METADATA.zhipuGlmEn,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "zhipu_glm_en",
@@ -327,15 +254,9 @@ requires_openai_auth = true`,
       effortParam: "none",
       outputFormat: "reasoning_content",
     },
-    category: "cn_official",
-    icon: "zhipu",
-    iconColor: "#0F62FE",
   },
   {
-    name: "Baidu Qianfan Coding Plan",
-    websiteUrl: "https://cloud.baidu.com/product/qianfan_modelbuilder",
-    apiKeyUrl:
-      "https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application",
+    ...PROVIDER_METADATA.baiduQianfan,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "qianfan_coding",
@@ -351,14 +272,9 @@ requires_openai_auth = true`,
         contextWindow: 131072,
       },
     ]),
-    category: "cn_official",
-    icon: "baidu",
-    iconColor: "#2932E1",
   },
   {
-    name: "Bailian",
-    websiteUrl: "https://bailian.console.aliyun.com",
-    apiKeyUrl: "https://bailian.console.aliyun.com/#/api-key",
+    ...PROVIDER_METADATA.bailian,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "bailian",
@@ -382,14 +298,9 @@ requires_openai_auth = true`,
       effortParam: "none",
       outputFormat: "reasoning_content",
     },
-    category: "cn_official",
-    icon: "bailian",
-    iconColor: "#624AFF",
   },
   {
-    name: "Kimi",
-    websiteUrl: "https://platform.moonshot.cn/console",
-    apiKeyUrl: "https://platform.moonshot.cn/console/api-keys",
+    ...PROVIDER_METADATA.kimi,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "kimi",
@@ -408,14 +319,9 @@ requires_openai_auth = true`,
       effortParam: "none",
       outputFormat: "reasoning_content",
     },
-    category: "cn_official",
-    icon: "kimi",
-    iconColor: "#6366F1",
   },
   {
-    name: "StepFun",
-    websiteUrl: "https://platform.stepfun.com/step-plan",
-    apiKeyUrl: "https://platform.stepfun.com/interface-key",
+    ...PROVIDER_METADATA.stepFun,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "stepfun",
@@ -436,14 +342,9 @@ requires_openai_auth = true`,
         contextWindow: 262144,
       },
     ]),
-    category: "cn_official",
-    icon: "stepfun",
-    iconColor: "#16D6D2",
   },
   {
-    name: "StepFun en",
-    websiteUrl: "https://platform.stepfun.ai/step-plan",
-    apiKeyUrl: "https://platform.stepfun.ai/interface-key",
+    ...PROVIDER_METADATA.stepFunEn,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "stepfun_en",
@@ -464,14 +365,9 @@ requires_openai_auth = true`,
         contextWindow: 262144,
       },
     ]),
-    category: "cn_official",
-    icon: "stepfun",
-    iconColor: "#16D6D2",
   },
   {
-    name: "ModelScope",
-    websiteUrl: "https://modelscope.cn",
-    apiKeyUrl: "https://modelscope.cn/my/myaccesstoken",
+    ...PROVIDER_METADATA.modelScope,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "modelscope",
@@ -494,14 +390,9 @@ requires_openai_auth = true`,
       effortParam: "none",
       outputFormat: "reasoning_content",
     },
-    category: "aggregator",
-    icon: "modelscope",
-    iconColor: "#624AFF",
   },
   {
-    name: "Longcat",
-    websiteUrl: "https://longcat.chat/platform",
-    apiKeyUrl: "https://longcat.chat/platform/api_keys",
+    ...PROVIDER_METADATA.longcat,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "longcat",
@@ -517,14 +408,9 @@ requires_openai_auth = true`,
         contextWindow: 262144,
       },
     ]),
-    category: "cn_official",
-    icon: "longcat",
-    iconColor: "#29E154",
   },
   {
-    name: "MiniMax",
-    websiteUrl: "https://platform.minimaxi.com",
-    apiKeyUrl: "https://platform.minimaxi.com/subscribe/coding-plan",
+    ...PROVIDER_METADATA.miniMax,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "minimax",
@@ -547,20 +433,13 @@ requires_openai_auth = true`,
       effortParam: "none",
       outputFormat: "reasoning_details",
     },
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "minimax_cn",
     theme: {
       backgroundColor: "#f64551",
       textColor: "#FFFFFF",
     },
-    icon: "minimax",
-    iconColor: "#FF6B6B",
   },
   {
-    name: "MiniMax en",
-    websiteUrl: "https://platform.minimax.io",
-    apiKeyUrl: "https://platform.minimax.io/subscribe/coding-plan",
+    ...PROVIDER_METADATA.miniMaxEn,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "minimax_en",
@@ -583,20 +462,13 @@ requires_openai_auth = true`,
       effortParam: "none",
       outputFormat: "reasoning_details",
     },
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "minimax_en",
     theme: {
       backgroundColor: "#f64551",
       textColor: "#FFFFFF",
     },
-    icon: "minimax",
-    iconColor: "#FF6B6B",
   },
   {
-    name: "BaiLing",
-    websiteUrl: "https://alipaytbox.yuque.com/sxs0ba/ling/get_started",
-    apiKeyUrl: "https://ling.tbox.cn/open",
+    ...PROVIDER_METADATA.baiLing,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "bailing",
@@ -612,12 +484,9 @@ requires_openai_auth = true`,
         contextWindow: 131072,
       },
     ]),
-    category: "cn_official",
   },
   {
-    name: "Xiaomi MiMo",
-    websiteUrl: "https://platform.xiaomimimo.com",
-    apiKeyUrl: "https://platform.xiaomimimo.com/#/console/api-keys",
+    ...PROVIDER_METADATA.xiaomiMiMo,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "xiaomi_mimo",
@@ -640,14 +509,9 @@ requires_openai_auth = true`,
       effortParam: "none",
       outputFormat: "reasoning_content",
     },
-    category: "cn_official",
-    icon: "xiaomimimo",
-    iconColor: "#000000",
   },
   {
-    name: "Xiaomi MiMo Token Plan (China)",
-    websiteUrl: "https://platform.xiaomimimo.com/#/token-plan",
-    apiKeyUrl: "https://platform.xiaomimimo.com/#/console/plan-manage",
+    ...PROVIDER_METADATA.xiaomiMiMoTokenPlan,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "xiaomi_mimo_token_plan",
@@ -670,14 +534,9 @@ requires_openai_auth = true`,
       effortParam: "none",
       outputFormat: "reasoning_content",
     },
-    category: "cn_official",
-    icon: "xiaomimimo",
-    iconColor: "#000000",
   },
   {
-    name: "SiliconFlow",
-    websiteUrl: "https://siliconflow.cn",
-    apiKeyUrl: "https://cloud.siliconflow.cn/i/drGuwc9k",
+    ...PROVIDER_METADATA.siliconFlow,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "siliconflow",
@@ -693,16 +552,9 @@ requires_openai_auth = true`,
         contextWindow: 200000,
       },
     ]),
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "siliconflow",
-    icon: "siliconflow",
-    iconColor: "#6E29F6",
   },
   {
-    name: "SiliconFlow en",
-    websiteUrl: "https://siliconflow.com",
-    apiKeyUrl: "https://cloud.siliconflow.cn/i/drGuwc9k",
+    ...PROVIDER_METADATA.siliconFlowEn,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "siliconflow_en",
@@ -718,16 +570,9 @@ requires_openai_auth = true`,
         contextWindow: 200000,
       },
     ]),
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "siliconflow",
-    icon: "siliconflow",
-    iconColor: "#000000",
   },
   {
-    name: "Novita AI",
-    websiteUrl: "https://novita.ai",
-    apiKeyUrl: "https://novita.ai",
+    ...PROVIDER_METADATA.novitaAi,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "novita",
@@ -746,14 +591,9 @@ requires_openai_auth = true`,
       effortParam: "none",
       outputFormat: "reasoning_content",
     },
-    category: "aggregator",
-    icon: "novita",
-    iconColor: "#000000",
   },
   {
-    name: "Nvidia",
-    websiteUrl: "https://build.nvidia.com",
-    apiKeyUrl: "https://build.nvidia.com/settings/api-keys",
+    ...PROVIDER_METADATA.nvidia,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "nvidia",
@@ -776,14 +616,9 @@ requires_openai_auth = true`,
       effortParam: "none",
       outputFormat: "reasoning_content",
     },
-    category: "aggregator",
-    icon: "nvidia",
-    iconColor: "#000000",
   },
   {
-    name: "AiHubMix",
-    websiteUrl: "https://aihubmix.com",
-    category: "aggregator",
+    ...PROVIDER_METADATA.aiHubMix,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "aihubmix",
@@ -796,9 +631,7 @@ requires_openai_auth = true`,
     ],
   },
   {
-    name: "DMXAPI",
-    websiteUrl: "https://www.dmxapi.cn",
-    category: "aggregator",
+    ...PROVIDER_METADATA.dmxapi,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "dmxapi",
@@ -806,14 +639,9 @@ requires_openai_auth = true`,
       "gpt-5.4",
     ),
     endpointCandidates: ["https://www.dmxapi.cn/v1"],
-    isPartner: true, // 合作伙伴
-    partnerPromotionKey: "dmxapi", // 促销信息 i18n key
   },
   {
-    name: "PackyCode",
-    websiteUrl: "https://www.packyapi.com",
-    apiKeyUrl: "https://www.packyapi.com/register?aff=cc-switch-eco",
-    category: "third_party",
+    ...PROVIDER_METADATA.packyCode,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "packycode",
@@ -824,57 +652,36 @@ requires_openai_auth = true`,
       "https://www.packyapi.com/v1",
       "https://api-slb.packyapi.com/v1",
     ],
-    isPartner: true, // 合作伙伴
-    partnerPromotionKey: "packycode", // 促销信息 i18n key
-    icon: "packycode",
   },
   {
-    name: "ClaudeCN",
-    websiteUrl: "https://claudecn.top",
-    apiKeyUrl: "https://claudecn.top/register?aff=ccswitche",
-    category: "third_party",
+    ...PROVIDER_METADATA.claudecn,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "claudecn",
       "https://claudecn.top/v1",
       "gpt-5.5",
     ),
-    isPartner: true,
-    partnerPromotionKey: "claudecn",
-    icon: "claudecn",
   },
   {
-    name: "RunAPI",
-    websiteUrl: "https://runapi.co",
-    apiKeyUrl: "https://runapi.co",
-    category: "aggregator",
+    ...PROVIDER_METADATA.runapi,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "runapi",
       "https://runapi.co/v1",
       "gpt-5.5",
     ),
-    isPartner: true,
-    partnerPromotionKey: "runapi",
-    icon: "runapi",
   },
   {
-    name: "RelaxyCode",
-    websiteUrl: "https://www.relaxycode.com",
-    apiKeyUrl: "https://www.relaxycode.com/register",
-    category: "third_party",
+    ...PROVIDER_METADATA.relaxyCode,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "relaxycode",
       "https://www.relaxycode.com/v1",
       "gpt-5.5",
     ),
-    icon: "relaxcode",
   },
   {
-    name: "Cubence",
-    websiteUrl: "https://cubence.com",
-    apiKeyUrl: "https://cubence.com/signup?code=CCSWITCH&source=ccs",
+    ...PROVIDER_METADATA.cubence,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "cubence",
@@ -887,17 +694,9 @@ requires_openai_auth = true`,
       "https://api-dmit.cubence.com/v1",
       "https://api-bwg.cubence.com/v1",
     ],
-    category: "third_party",
-    isPartner: true, // 合作伙伴
-    partnerPromotionKey: "cubence", // 促销信息 i18n key
-    icon: "cubence",
-    iconColor: "#000000",
   },
   {
-    name: "AIGoCode",
-    websiteUrl: "https://aigocode.com",
-    apiKeyUrl: "https://aigocode.com/invite/CC-SWITCH",
-    category: "third_party",
+    ...PROVIDER_METADATA.aiGoCode,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "aigocode",
@@ -905,31 +704,18 @@ requires_openai_auth = true`,
       "gpt-5.4",
     ),
     endpointCandidates: ["https://api.aigocode.com"],
-    isPartner: true, // 合作伙伴
-    partnerPromotionKey: "aigocode", // 促销信息 i18n key
-    icon: "aigocode",
-    iconColor: "#5B7FFF",
   },
   {
-    name: "RightCode",
-    websiteUrl: "https://www.right.codes",
-    apiKeyUrl: "https://www.right.codes/register?aff=CCSWITCH",
+    ...PROVIDER_METADATA.rightCode,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "rightcode",
       "https://right.codes/codex/v1",
       "gpt-5.4",
     ),
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "rightcode",
-    icon: "rc",
-    iconColor: "#E96B2C",
   },
   {
-    name: "AICodeMirror",
-    websiteUrl: "https://www.aicodemirror.com",
-    apiKeyUrl: "https://www.aicodemirror.com/register?invitecode=9915W3",
+    ...PROVIDER_METADATA.aiCodeMirror,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "aicodemirror",
@@ -940,16 +726,9 @@ requires_openai_auth = true`,
       "https://api.aicodemirror.com/api/codex/backend-api/codex",
       "https://api.claudecode.net.cn/api/codex/backend-api/codex",
     ],
-    isPartner: true,
-    partnerPromotionKey: "aicodemirror",
-    icon: "aicodemirror",
-    iconColor: "#000000",
   },
   {
-    name: "CrazyRouter",
-    websiteUrl: "https://www.crazyrouter.com",
-    apiKeyUrl:
-      "https://www.crazyrouter.com/register?aff=OZcm&ref=cc-switch-eco",
+    ...PROVIDER_METADATA.crazyRouter,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "crazyrouter",
@@ -957,15 +736,9 @@ requires_openai_auth = true`,
       "gpt-5.4",
     ),
     endpointCandidates: ["https://cn.crazyrouter.com/v1"],
-    isPartner: true,
-    partnerPromotionKey: "crazyrouter",
-    icon: "crazyrouter",
-    iconColor: "#000000",
   },
   {
-    name: "SSSAiCode",
-    websiteUrl: "https://www.sssaicode.com",
-    apiKeyUrl: "https://www.sssaicode.com/register?ref=DCP0SM",
+    ...PROVIDER_METADATA.sssAiCode,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "sssaicode",
@@ -977,18 +750,9 @@ requires_openai_auth = true`,
       "https://claude2.sssaicode.com/api/v1",
       "https://anti.sssaicode.com/api/v1",
     ],
-    category: "third_party",
-    isPartner: true, // 合作伙伴
-    partnerPromotionKey: "sssaicode", // 促销信息 i18n key
-    icon: "sssaicode",
-    iconColor: "#000000",
   },
   {
-    name: "Compshare",
-    nameKey: "providerForm.presets.ucloud",
-    websiteUrl: "https://www.compshare.cn",
-    apiKeyUrl:
-      "https://www.compshare.cn/coding-plan?ytag=GPU_YY_YX_git_cc-switch-eco",
+    ...PROVIDER_METADATA.compshare,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "compshare",
@@ -996,18 +760,9 @@ requires_openai_auth = true`,
       "gpt-5.4",
     ),
     endpointCandidates: ["https://api.modelverse.cn/v1"],
-    category: "aggregator",
-    isPartner: true, // 合作伙伴
-    partnerPromotionKey: "ucloud", // 促销信息 i18n key
-    icon: "ucloud",
-    iconColor: "#000000",
   },
   {
-    name: "Compshare Coding Plan",
-    nameKey: "providerForm.presets.ucloudCoding",
-    websiteUrl: "https://www.compshare.cn",
-    apiKeyUrl:
-      "https://www.compshare.cn/coding-plan?ytag=GPU_YY_YX_git_cc-switch-eco",
+    ...PROVIDER_METADATA.compshareCodingPlan,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "compshare_coding",
@@ -1015,16 +770,9 @@ requires_openai_auth = true`,
       "gpt-5.4",
     ),
     endpointCandidates: ["https://cp.compshare.cn/v1"],
-    category: "aggregator",
-    isPartner: true, // 合作伙伴
-    partnerPromotionKey: "ucloud", // 促销信息 i18n key（复用）
-    icon: "ucloud",
-    iconColor: "#000000",
   },
   {
-    name: "Micu",
-    websiteUrl: "https://www.micuapi.ai",
-    apiKeyUrl: "https://www.micuapi.ai/register?aff=aOYQ",
+    ...PROVIDER_METADATA.micu,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "micu",
@@ -1032,16 +780,9 @@ requires_openai_auth = true`,
       "gpt-5.4",
     ),
     endpointCandidates: ["https://www.micuapi.ai/v1"],
-    category: "third_party",
-    isPartner: true, // 合作伙伴
-    partnerPromotionKey: "micu", // 促销信息 i18n key
-    icon: "micu",
-    iconColor: "#000000",
   },
   {
-    name: "CTok.ai",
-    websiteUrl: "https://ctok.ai",
-    apiKeyUrl: "https://ctok.ai",
+    ...PROVIDER_METADATA.cTok,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "ctok",
@@ -1049,16 +790,9 @@ requires_openai_auth = true`,
       "gpt-5.4",
     ),
     endpointCandidates: ["https://api.ctok.ai/v1"],
-    category: "third_party",
-    isPartner: true, // 合作伙伴
-    partnerPromotionKey: "ctok", // 促销信息 i18n key
-    icon: "ctok",
-    iconColor: "#000000",
   },
   {
-    name: "E-FlowCode",
-    websiteUrl: "https://e-flowcode.cc",
-    apiKeyUrl: "https://e-flowcode.cc",
+    ...PROVIDER_METADATA.eFlowCode,
     auth: {
       OPENAI_API_KEY: "",
     },
@@ -1075,16 +809,10 @@ wire_api = "responses"
 requires_openai_auth = true
 model_context_window = 1000000
 model_auto_compact_token_limit = 9000000`,
-    category: "third_party",
     endpointCandidates: ["https://e-flowcode.cc/v1"],
-    icon: "eflowcode",
-    iconColor: "#000000",
   },
   {
-    name: "LemonData",
-    websiteUrl: "https://lemondata.cc",
-    apiKeyUrl: "https://lemondata.cc/r/FFX1ZDUP",
-    category: "third_party",
+    ...PROVIDER_METADATA.lemonData,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "lemondata",
@@ -1092,14 +820,9 @@ model_auto_compact_token_limit = 9000000`,
       "gpt-5.4",
     ),
     endpointCandidates: ["https://api.lemondata.cc/v1"],
-    isPartner: true,
-    partnerPromotionKey: "lemondata",
-    icon: "lemondata",
   },
   {
-    name: "PIPELLM",
-    websiteUrl: "https://code.pipellm.ai",
-    apiKeyUrl: "https://code.pipellm.ai/login?ref=uvw650za",
+    ...PROVIDER_METADATA.pipellm,
     auth: {
       OPENAI_API_KEY: "",
     },
@@ -1113,28 +836,19 @@ name = "PIPELLM"
 wire_api = "responses"
 requires_openai_auth = true
 base_url = "https://cc-api.pipellm.ai/v1"`,
-    category: "aggregator",
     endpointCandidates: ["https://cc-api.pipellm.ai/v1"],
-    icon: "pipellm",
   },
   {
-    name: "OpenRouter",
-    websiteUrl: "https://openrouter.ai",
-    apiKeyUrl: "https://openrouter.ai/keys",
+    ...PROVIDER_METADATA.openRouter,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "openrouter",
       "https://openrouter.ai/api/v1",
       "gpt-5.4",
     ),
-    category: "aggregator",
-    icon: "openrouter",
-    iconColor: "#6566F1",
   },
   {
-    name: "TheRouter",
-    websiteUrl: "https://therouter.ai",
-    apiKeyUrl: "https://dashboard.therouter.ai",
+    ...PROVIDER_METADATA.theRouter,
     auth: generateThirdPartyAuth(""),
     config: generateThirdPartyConfig(
       "therouter",
@@ -1142,6 +856,5 @@ base_url = "https://cc-api.pipellm.ai/v1"`,
       "openai/gpt-5.3-codex",
     ),
     endpointCandidates: ["https://api.therouter.ai/v1"],
-    category: "aggregator",
   },
 ];

@@ -24,28 +24,21 @@ import {
   type ProviderPreset,
 } from "@/config/claudeProviderPresets";
 import {
-  codexProviderPresets,
   type CodexProviderPreset,
 } from "@/config/codexProviderPresets";
+import type { GeminiProviderPreset } from "@/config/geminiProviderPresets";
+import type { OpenCodeProviderPreset } from "@/config/opencodeProviderPresets";
 import {
-  geminiProviderPresets,
-  type GeminiProviderPreset,
-} from "@/config/geminiProviderPresets";
-import {
-  opencodeProviderPresets,
-  type OpenCodeProviderPreset,
-} from "@/config/opencodeProviderPresets";
-import {
-  openclawProviderPresets,
   rebaseOpenClawSuggestedDefaults,
   type OpenClawProviderPreset,
   type OpenClawSuggestedDefaults,
 } from "@/config/openclawProviderPresets";
-import {
-  hermesProviderPresets,
-  type HermesProviderPreset,
-} from "@/config/hermesProviderPresets";
+import type { HermesProviderPreset } from "@/config/hermesProviderPresets";
 import type { UniversalProviderPreset } from "@/config/universalProviderPresets";
+import {
+  registerAllStrategies,
+  getPresetListStrategy,
+} from "./strategies";
 import {
   applyTemplateValues,
 } from "@/utils/providerConfigUtils";
@@ -248,6 +241,9 @@ function ProviderFormFull({
   const { t } = useTranslation();
   const isEditMode = Boolean(initialData);
   const queryClient = useQueryClient();
+
+  // 注册策略（幂等，多次调用安全）
+  registerAllStrategies();
   const { data: settingsData } = useSettingsQuery();
   const showCommonConfigNotice =
     settingsData != null && settingsData.commonConfigConfirmed !== true;
@@ -588,38 +584,17 @@ function ProviderFormFull({
   );
 
   const presetEntries = useMemo(() => {
-    if (appId === "codex") {
-      return codexProviderPresets.map<PresetEntry>((preset, index) => ({
-        id: `codex-${index}`,
-        preset,
-      }));
-    } else if (appId === "gemini") {
-      return geminiProviderPresets.map<PresetEntry>((preset, index) => ({
-        id: `gemini-${index}`,
-        preset,
-      }));
-    } else if (appId === "opencode") {
-      return opencodeProviderPresets.map<PresetEntry>((preset, index) => ({
-        id: `opencode-${index}`,
-        preset,
-      }));
-    } else if (appId === "openclaw") {
-      return openclawProviderPresets.map<PresetEntry>((preset, index) => ({
-        id: `openclaw-${index}`,
-        preset,
-      }));
-    } else if (appId === "hermes") {
-      return hermesProviderPresets.map<PresetEntry>((preset, index) => ({
-        id: `hermes-${index}`,
-        preset,
-      }));
+    try {
+      return getPresetListStrategy(appId).getPresetEntries();
+    } catch {
+      // Fallback: 如果策略未注册，使用 Claude 预设
+      return providerPresets
+        .filter((p) => !p.hidden)
+        .map<PresetEntry>((preset, index) => ({
+          id: `claude-${index}`,
+          preset,
+        }));
     }
-    return providerPresets
-      .filter((p) => !p.hidden)
-      .map<PresetEntry>((preset, index) => ({
-        id: `claude-${index}`,
-        preset,
-      }));
   }, [appId]);
 
   const {

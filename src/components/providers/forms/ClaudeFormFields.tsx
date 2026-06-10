@@ -60,8 +60,8 @@ import {
 } from "./hooks/useModelState";
 import {
   providerPresets,
-  type TemplateValueConfig,
 } from "@/config/claudeProviderPresets";
+import type { TemplateValueConfig } from "@/config/baseProviderPreset";
 
 interface EndpointCandidate {
   url: string;

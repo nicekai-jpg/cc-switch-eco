@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import type {
-  ProviderPreset,
-  TemplateValueConfig,
-} from "@/config/claudeProviderPresets";
+import type { ProviderPreset } from "@/config/claudeProviderPresets";
+import type { TemplateValueConfig } from "@/config/baseProviderPreset";
 import type { CodexProviderPreset } from "@/config/codexProviderPresets";
 import { applyTemplateValues } from "@/utils/providerConfigUtils";
 import { deepClone } from "@/utils/deepClone";

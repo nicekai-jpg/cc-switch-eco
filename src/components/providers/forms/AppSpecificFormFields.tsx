@@ -27,8 +27,9 @@ import type {
   EndpointCandidate,
   OpenCodeModel,
 } from "@/types";
-import type { TemplateValueConfig } from "@/config/claudeProviderPresets";
+import type { TemplateValueConfig } from "@/config/baseProviderPreset";
 import type { HermesApiMode } from "@/config/hermesProviderPresets";
+import type { ComponentType } from "react";
 
 export interface AppSpecificFormFieldsProps {
   appId: AppId;
@@ -165,210 +166,211 @@ export interface AppSpecificFormFieldsProps {
   };
 }
 
-export function AppSpecificFormFields(props: AppSpecificFormFieldsProps) {
-  const { appId, category, providerId, isEditMode, isAnyOmoCategory } = props;
+/**
+ * 表单字段渲染策略映射表
+ *
+ * 替代 switch(appId) 分发，新增 app 只需在此映射表添加一条。
+ * 每个策略函数接收完整的 props，返回对应的表单字段子组件。
+ */
+type FormFieldsRenderer = (props: AppSpecificFormFieldsProps) => React.ReactNode;
 
-  switch (appId) {
-    case "claude":
-      return (
-        <ClaudeFormFields
-          providerId={providerId}
-          shouldShowApiKey={
-            (category !== "cloud_provider" ||
-              hasApiKeyField(props.settingsConfig, "claude")) &&
-            props.shouldShowApiKey(props.settingsConfig, isEditMode)
-          }
-          apiKey={props.apiKey}
-          onApiKeyChange={props.onClaudeApiKeyChange}
-          category={category!}
-          shouldShowApiKeyLink={props.shouldShowApiKeyLink}
-          websiteUrl={props.websiteUrl}
-          isPartner={props.isPartner}
-          partnerPromotionKey={props.partnerPromotionKey}
-          isCopilotPreset={props.isCopilotPreset}
-          isCodexOauthPreset={props.isCodexOauthPreset}
-          usesOAuth={props.usesOAuth}
-          isCopilotAuthenticated={props.isCopilotAuthenticated}
-          selectedGitHubAccountId={props.selectedGitHubAccountId}
-          onGitHubAccountSelect={props.onGitHubAccountSelect}
-          isCodexOauthAuthenticated={props.isCodexOauthAuthenticated}
-          selectedCodexAccountId={props.selectedCodexAccountId}
-          onCodexAccountSelect={props.onCodexAccountSelect}
-          codexFastMode={props.codexFastMode}
-          onCodexFastModeChange={props.onCodexFastModeChange}
-          templateValueEntries={props.templateValueEntries}
-          templateValues={props.templateValues}
-          templatePresetName={props.templatePresetName}
-          onTemplateValueChange={props.onTemplateValueChange}
-          shouldShowSpeedTest={props.shouldShowSpeedTest}
-          baseUrl={props.baseUrl}
-          onBaseUrlChange={props.onClaudeBaseUrlChange}
-          isEndpointModalOpen={props.isEndpointModalOpen}
-          onEndpointModalToggle={props.onEndpointModalToggle}
-          onCustomEndpointsChange={props.onCustomEndpointsChange}
-          autoSelect={props.autoSelect}
-          onAutoSelectChange={props.onAutoSelectChange}
-          showEndpointTools
-          shouldShowModelSelector={category !== "official"}
-          claudeModel={props.claudeModel}
-          defaultHaikuModel={props.defaultHaikuModel}
-          defaultHaikuModelName={props.defaultHaikuModelName}
-          defaultSonnetModel={props.defaultSonnetModel}
-          defaultSonnetModelName={props.defaultSonnetModelName}
-          defaultOpusModel={props.defaultOpusModel}
-          defaultOpusModelName={props.defaultOpusModelName}
-          onModelChange={props.onClaudeModelChange}
-          speedTestEndpoints={props.speedTestEndpoints}
-          apiFormat={props.apiFormat}
-          onApiFormatChange={props.onApiFormatChange}
-          apiKeyField={props.apiKeyField}
-          onApiKeyFieldChange={props.onApiKeyFieldChange}
-          isFullUrl={props.isFullUrl}
-          onFullUrlChange={props.onFullUrlChange}
-        />
-      );
-
-    case "codex":
-      return (
-        <CodexFormFields
-          providerId={providerId}
-          codexApiKey={props.codexApiKey}
-          onApiKeyChange={props.onCodexApiKeyChange}
-          category={category!}
-          shouldShowApiKeyLink={props.shouldShowApiKeyLink}
-          websiteUrl={props.websiteUrl}
-          isPartner={props.isPartner}
-          partnerPromotionKey={props.partnerPromotionKey}
-          shouldShowSpeedTest={props.shouldShowSpeedTest}
-          codexBaseUrl={props.codexBaseUrl}
-          onBaseUrlChange={props.onCodexBaseUrlChange}
-          isFullUrl={props.isFullUrl}
-          onFullUrlChange={props.onFullUrlChange}
-          isEndpointModalOpen={props.isEndpointModalOpen}
-          onEndpointModalToggle={props.onEndpointModalToggle}
-          onCustomEndpointsChange={props.onCustomEndpointsChange}
-          autoSelect={props.autoSelect}
-          onAutoSelectChange={props.onAutoSelectChange}
-          apiFormat={props.codexApiFormat}
-          onApiFormatChange={props.onCodexApiFormatChange}
-          codexChatReasoning={props.codexChatReasoning}
-          onCodexChatReasoningChange={props.onCodexChatReasoningChange}
-          catalogModels={props.codexCatalogModels}
-          onCatalogModelsChange={props.onCodexCatalogModelsChange}
-          speedTestEndpoints={props.speedTestEndpoints}
-        />
-      );
-
-    case "gemini":
-      return (
-        <GeminiFormFields
-          providerId={providerId}
-          shouldShowApiKey={props.shouldShowApiKey(props.settingsConfig, isEditMode)}
-          apiKey={props.geminiApiKey}
-          onApiKeyChange={props.onGeminiApiKeyChange}
-          category={category!}
-          shouldShowApiKeyLink={props.shouldShowApiKeyLink}
-          websiteUrl={props.websiteUrl}
-          isPartner={props.isPartner}
-          partnerPromotionKey={props.partnerPromotionKey}
-          shouldShowSpeedTest={props.shouldShowSpeedTest}
-          baseUrl={props.geminiBaseUrl}
-          onBaseUrlChange={props.onGeminiBaseUrlChange}
-          isEndpointModalOpen={props.isEndpointModalOpen}
-          onEndpointModalToggle={props.onEndpointModalToggle}
-          onCustomEndpointsChange={props.onCustomEndpointsChange!}
-          autoSelect={props.autoSelect}
-          onAutoSelectChange={props.onAutoSelectChange}
-          shouldShowModelField={true}
-          model={props.geminiModel}
-          onModelChange={props.onGeminiModelChange}
-          speedTestEndpoints={props.speedTestEndpoints}
-        />
-      );
-
-    case "opencode":
-      if (isAnyOmoCategory) {
-        return (
-          <OmoFormFields
-            modelOptions={props.omoModelOptions}
-            modelVariantsMap={props.omoModelVariantsMap}
-            presetMetaMap={props.omoPresetMetaMap}
-            agents={props.omoDraft.omoAgents}
-            onAgentsChange={props.omoDraft.setOmoAgents}
-            categories={category === "omo" ? props.omoDraft.omoCategories : undefined}
-            onCategoriesChange={category === "omo" ? props.omoDraft.setOmoCategories : undefined}
-            otherFieldsStr={props.omoDraft.omoOtherFieldsStr}
-            onOtherFieldsStrChange={props.omoDraft.setOmoOtherFieldsStr}
-            isSlim={category === "omo-slim"}
-          />
-        );
-      } else {
-        return (
-          <OpenCodeFormFields
-            npm={props.opencodeForm.opencodeNpm}
-            onNpmChange={props.opencodeForm.handleOpencodeNpmChange}
-            apiKey={props.opencodeForm.opencodeApiKey}
-            onApiKeyChange={props.opencodeForm.handleOpencodeApiKeyChange}
-            category={category!}
-            shouldShowApiKeyLink={props.shouldShowApiKeyLink}
-            websiteUrl={props.websiteUrl}
-            isPartner={props.isPartner}
-            partnerPromotionKey={props.partnerPromotionKey}
-            baseUrl={props.opencodeForm.opencodeBaseUrl}
-            onBaseUrlChange={props.opencodeForm.handleOpencodeBaseUrlChange}
-            models={props.opencodeForm.opencodeModels}
-            onModelsChange={props.opencodeForm.handleOpencodeModelsChange}
-            extraOptions={props.opencodeForm.opencodeExtraOptions}
-            onExtraOptionsChange={props.opencodeForm.handleOpencodeExtraOptionsChange}
-          />
-        );
+const formFieldsRenderers: Partial<Record<AppId, FormFieldsRenderer>> = {
+  claude: (props) => (
+    <ClaudeFormFields
+      providerId={props.providerId}
+      shouldShowApiKey={
+        (props.category !== "cloud_provider" ||
+          hasApiKeyField(props.settingsConfig, "claude")) &&
+        props.shouldShowApiKey(props.settingsConfig, props.isEditMode)
       }
+      apiKey={props.apiKey}
+      onApiKeyChange={props.onClaudeApiKeyChange}
+      category={props.category!}
+      shouldShowApiKeyLink={props.shouldShowApiKeyLink}
+      websiteUrl={props.websiteUrl}
+      isPartner={props.isPartner}
+      partnerPromotionKey={props.partnerPromotionKey}
+      isCopilotPreset={props.isCopilotPreset}
+      isCodexOauthPreset={props.isCodexOauthPreset}
+      usesOAuth={props.usesOAuth}
+      isCopilotAuthenticated={props.isCopilotAuthenticated}
+      selectedGitHubAccountId={props.selectedGitHubAccountId}
+      onGitHubAccountSelect={props.onGitHubAccountSelect}
+      isCodexOauthAuthenticated={props.isCodexOauthAuthenticated}
+      selectedCodexAccountId={props.selectedCodexAccountId}
+      onCodexAccountSelect={props.onCodexAccountSelect}
+      codexFastMode={props.codexFastMode}
+      onCodexFastModeChange={props.onCodexFastModeChange}
+      templateValueEntries={props.templateValueEntries}
+      templateValues={props.templateValues}
+      templatePresetName={props.templatePresetName}
+      onTemplateValueChange={props.onTemplateValueChange}
+      shouldShowSpeedTest={props.shouldShowSpeedTest}
+      baseUrl={props.baseUrl}
+      onBaseUrlChange={props.onClaudeBaseUrlChange}
+      isEndpointModalOpen={props.isEndpointModalOpen}
+      onEndpointModalToggle={props.onEndpointModalToggle}
+      onCustomEndpointsChange={props.onCustomEndpointsChange}
+      autoSelect={props.autoSelect}
+      onAutoSelectChange={props.onAutoSelectChange}
+      showEndpointTools
+      shouldShowModelSelector={props.category !== "official"}
+      claudeModel={props.claudeModel}
+      defaultHaikuModel={props.defaultHaikuModel}
+      defaultHaikuModelName={props.defaultHaikuModelName}
+      defaultSonnetModel={props.defaultSonnetModel}
+      defaultSonnetModelName={props.defaultSonnetModelName}
+      defaultOpusModel={props.defaultOpusModel}
+      defaultOpusModelName={props.defaultOpusModelName}
+      onModelChange={props.onClaudeModelChange}
+      speedTestEndpoints={props.speedTestEndpoints}
+      apiFormat={props.apiFormat}
+      onApiFormatChange={props.onApiFormatChange}
+      apiKeyField={props.apiKeyField}
+      onApiKeyFieldChange={props.onApiKeyFieldChange}
+      isFullUrl={props.isFullUrl}
+      onFullUrlChange={props.onFullUrlChange}
+    />
+  ),
 
-    case "openclaw":
+  codex: (props) => (
+    <CodexFormFields
+      providerId={props.providerId}
+      codexApiKey={props.codexApiKey}
+      onApiKeyChange={props.onCodexApiKeyChange}
+      category={props.category!}
+      shouldShowApiKeyLink={props.shouldShowApiKeyLink}
+      websiteUrl={props.websiteUrl}
+      isPartner={props.isPartner}
+      partnerPromotionKey={props.partnerPromotionKey}
+      shouldShowSpeedTest={props.shouldShowSpeedTest}
+      codexBaseUrl={props.codexBaseUrl}
+      onBaseUrlChange={props.onCodexBaseUrlChange}
+      isFullUrl={props.isFullUrl}
+      onFullUrlChange={props.onFullUrlChange}
+      isEndpointModalOpen={props.isEndpointModalOpen}
+      onEndpointModalToggle={props.onEndpointModalToggle}
+      onCustomEndpointsChange={props.onCustomEndpointsChange}
+      autoSelect={props.autoSelect}
+      onAutoSelectChange={props.onAutoSelectChange}
+      apiFormat={props.codexApiFormat}
+      onApiFormatChange={props.onCodexApiFormatChange}
+      codexChatReasoning={props.codexChatReasoning}
+      onCodexChatReasoningChange={props.onCodexChatReasoningChange}
+      catalogModels={props.codexCatalogModels}
+      onCatalogModelsChange={props.onCodexCatalogModelsChange}
+      speedTestEndpoints={props.speedTestEndpoints}
+    />
+  ),
+
+  gemini: (props) => (
+    <GeminiFormFields
+      providerId={props.providerId}
+      shouldShowApiKey={props.shouldShowApiKey(props.settingsConfig, props.isEditMode)}
+      apiKey={props.geminiApiKey}
+      onApiKeyChange={props.onGeminiApiKeyChange}
+      category={props.category!}
+      shouldShowApiKeyLink={props.shouldShowApiKeyLink}
+      websiteUrl={props.websiteUrl}
+      isPartner={props.isPartner}
+      partnerPromotionKey={props.partnerPromotionKey}
+      shouldShowSpeedTest={props.shouldShowSpeedTest}
+      baseUrl={props.geminiBaseUrl}
+      onBaseUrlChange={props.onGeminiBaseUrlChange}
+      isEndpointModalOpen={props.isEndpointModalOpen}
+      onEndpointModalToggle={props.onEndpointModalToggle}
+      onCustomEndpointsChange={props.onCustomEndpointsChange!}
+      autoSelect={props.autoSelect}
+      onAutoSelectChange={props.onAutoSelectChange}
+      shouldShowModelField={true}
+      model={props.geminiModel}
+      onModelChange={props.onGeminiModelChange}
+      speedTestEndpoints={props.speedTestEndpoints}
+    />
+  ),
+
+  opencode: (props) => {
+    if (props.isAnyOmoCategory) {
       return (
-        <OpenClawFormFields
-          baseUrl={props.openclawForm.openclawBaseUrl}
-          onBaseUrlChange={props.openclawForm.handleOpenclawBaseUrlChange}
-          apiKey={props.openclawForm.openclawApiKey}
-          onApiKeyChange={props.openclawForm.handleOpenclawApiKeyChange}
-          category={category!}
-          shouldShowApiKeyLink={props.shouldShowApiKeyLink}
-          websiteUrl={props.websiteUrl}
-          isPartner={props.isPartner}
-          partnerPromotionKey={props.partnerPromotionKey}
-          api={props.openclawForm.openclawApi}
-          onApiChange={props.openclawForm.handleOpenclawApiChange}
-          models={props.openclawForm.openclawModels}
-          onModelsChange={props.openclawForm.handleOpenclawModelsChange}
-          userAgent={props.openclawForm.openclawUserAgent}
-          onUserAgentChange={props.openclawForm.handleOpenclawUserAgentChange}
+        <OmoFormFields
+          modelOptions={props.omoModelOptions}
+          modelVariantsMap={props.omoModelVariantsMap}
+          presetMetaMap={props.omoPresetMetaMap}
+          agents={props.omoDraft.omoAgents}
+          onAgentsChange={props.omoDraft.setOmoAgents}
+          categories={props.category === "omo" ? props.omoDraft.omoCategories : undefined}
+          onCategoriesChange={props.category === "omo" ? props.omoDraft.setOmoCategories : undefined}
+          otherFieldsStr={props.omoDraft.omoOtherFieldsStr}
+          onOtherFieldsStrChange={props.omoDraft.setOmoOtherFieldsStr}
+          isSlim={props.category === "omo-slim"}
         />
       );
+    }
+    return (
+      <OpenCodeFormFields
+        npm={props.opencodeForm.opencodeNpm}
+        onNpmChange={props.opencodeForm.handleOpencodeNpmChange}
+        apiKey={props.opencodeForm.opencodeApiKey}
+        onApiKeyChange={props.opencodeForm.handleOpencodeApiKeyChange}
+        category={props.category!}
+        shouldShowApiKeyLink={props.shouldShowApiKeyLink}
+        websiteUrl={props.websiteUrl}
+        isPartner={props.isPartner}
+        partnerPromotionKey={props.partnerPromotionKey}
+        baseUrl={props.opencodeForm.opencodeBaseUrl}
+        onBaseUrlChange={props.opencodeForm.handleOpencodeBaseUrlChange}
+        models={props.opencodeForm.opencodeModels}
+        onModelsChange={props.opencodeForm.handleOpencodeModelsChange}
+        extraOptions={props.opencodeForm.opencodeExtraOptions}
+        onExtraOptionsChange={props.opencodeForm.handleOpencodeExtraOptionsChange}
+      />
+    );
+  },
 
-    case "hermes":
-      return (
-        <HermesFormFields
-          baseUrl={props.hermesForm.hermesBaseUrl}
-          onBaseUrlChange={props.hermesForm.handleHermesBaseUrlChange}
-          apiKey={props.hermesForm.hermesApiKey}
-          onApiKeyChange={props.hermesForm.handleHermesApiKeyChange}
-          category={category!}
-          shouldShowApiKeyLink={props.shouldShowApiKeyLink}
-          websiteUrl={props.websiteUrl}
-          isPartner={props.isPartner}
-          partnerPromotionKey={props.partnerPromotionKey}
-          apiMode={props.hermesForm.hermesApiMode}
-          onApiModeChange={props.hermesForm.handleHermesApiModeChange}
-          models={props.hermesForm.hermesModels}
-          onModelsChange={props.hermesForm.handleHermesModelsChange}
-          rateLimitDelay={props.hermesForm.hermesRateLimitDelay}
-          onRateLimitDelayChange={props.hermesForm.handleHermesRateLimitDelayChange}
-        />
-      );
+  openclaw: (props) => (
+    <OpenClawFormFields
+      baseUrl={props.openclawForm.openclawBaseUrl}
+      onBaseUrlChange={props.openclawForm.handleOpenclawBaseUrlChange}
+      apiKey={props.openclawForm.openclawApiKey}
+      onApiKeyChange={props.openclawForm.handleOpenclawApiKeyChange}
+      category={props.category!}
+      shouldShowApiKeyLink={props.shouldShowApiKeyLink}
+      websiteUrl={props.websiteUrl}
+      isPartner={props.isPartner}
+      partnerPromotionKey={props.partnerPromotionKey}
+      api={props.openclawForm.openclawApi}
+      onApiChange={props.openclawForm.handleOpenclawApiChange}
+      models={props.openclawForm.openclawModels}
+      onModelsChange={props.openclawForm.handleOpenclawModelsChange}
+      userAgent={props.openclawForm.openclawUserAgent}
+      onUserAgentChange={props.openclawForm.handleOpenclawUserAgentChange}
+    />
+  ),
 
-    default:
-      return null;
-  }
+  hermes: (props) => (
+    <HermesFormFields
+      baseUrl={props.hermesForm.hermesBaseUrl}
+      onBaseUrlChange={props.hermesForm.handleHermesBaseUrlChange}
+      apiKey={props.hermesForm.hermesApiKey}
+      onApiKeyChange={props.hermesForm.handleHermesApiKeyChange}
+      category={props.category!}
+      shouldShowApiKeyLink={props.shouldShowApiKeyLink}
+      websiteUrl={props.websiteUrl}
+      isPartner={props.isPartner}
+      partnerPromotionKey={props.partnerPromotionKey}
+      apiMode={props.hermesForm.hermesApiMode}
+      onApiModeChange={props.hermesForm.handleHermesApiModeChange}
+      models={props.hermesForm.hermesModels}
+      onModelsChange={props.hermesForm.handleHermesModelsChange}
+      rateLimitDelay={props.hermesForm.hermesRateLimitDelay}
+      onRateLimitDelayChange={props.hermesForm.handleHermesRateLimitDelayChange}
+    />
+  ),
+};
+
+export function AppSpecificFormFields(props: AppSpecificFormFieldsProps) {
+  const renderer = formFieldsRenderers[props.appId];
+  return renderer ? renderer(props) : null;
 }
 
 export interface AppSpecificConfigEditorProps {

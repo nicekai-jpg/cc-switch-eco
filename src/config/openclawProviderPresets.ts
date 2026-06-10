@@ -3,11 +3,14 @@
  * OpenClaw uses models.providers structure with custom provider configs
  */
 import type {
-  ProviderCategory,
   OpenClawProviderConfig,
   OpenClawDefaultModel,
 } from "../types";
-import type { PresetTheme, TemplateValueConfig } from "./claudeProviderPresets";
+import type {
+  BaseProviderPreset,
+  TemplateValueConfig,
+} from "./baseProviderPreset";
+import { PROVIDER_METADATA } from "./providerMetadata";
 
 /** Suggested default model configuration for a preset */
 export interface OpenClawSuggestedDefaults {
@@ -17,25 +20,11 @@ export interface OpenClawSuggestedDefaults {
   modelCatalog?: Record<string, { alias?: string }>;
 }
 
-export interface OpenClawProviderPreset {
-  name: string;
-  nameKey?: string; // i18n key for localized display name
-  websiteUrl: string;
-  apiKeyUrl?: string;
+export interface OpenClawProviderPreset extends BaseProviderPreset {
   /** OpenClaw settings_config structure */
   settingsConfig: OpenClawProviderConfig;
-  isOfficial?: boolean;
-  isPartner?: boolean;
-  partnerPromotionKey?: string;
-  category?: ProviderCategory;
   /** Template variable definitions */
   templateValues?: Record<string, TemplateValueConfig>;
-  /** Visual theme config */
-  theme?: PresetTheme;
-  /** Icon name */
-  icon?: string;
-  /** Icon color */
-  iconColor?: string;
   /** Mark as custom template (for UI distinction) */
   isCustomTemplate?: boolean;
   /** Suggested default model configuration */
@@ -99,10 +88,7 @@ export const openclawApiProtocols = [
  */
 export const openclawProviderPresets: OpenClawProviderPreset[] = [
   {
-    name: "Shengsuanyun",
-    nameKey: "providerForm.presets.shengsuanyun",
-    websiteUrl: "https://www.shengsuanyun.com",
-    apiKeyUrl: "https://www.shengsuanyun.com/?from=CH_4HHXMRYF",
+    ...PROVIDER_METADATA.shengsuanyun,
     settingsConfig: {
       baseUrl: "https://router.shengsuanyun.com/api",
       apiKey: "",
@@ -122,10 +108,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "shengsuanyun",
-    icon: "shengsuanyun",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -145,11 +127,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "火山Agentplan",
-    websiteUrl:
-      "https://www.volcengine.com/activity/agentplan?utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
-    apiKeyUrl:
-      "https://www.volcengine.com/activity/agentplan?utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
+    ...PROVIDER_METADATA.volcengineAgentplan,
     settingsConfig: {
       baseUrl: "https://ark.cn-beijing.volces.com/api/coding/v3",
       apiKey: "",
@@ -162,11 +140,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "volcengine_agentplan",
-    icon: "huoshan",
-    iconColor: "#3370FF",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -182,11 +155,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "BytePlus",
-    websiteUrl:
-      "https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
-    apiKeyUrl:
-      "https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
+    ...PROVIDER_METADATA.bytePlus,
     settingsConfig: {
       baseUrl: "https://ark.ap-southeast.bytepluses.com/api/coding/v3",
       apiKey: "",
@@ -199,11 +168,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "byteplus",
-    icon: "byteplus",
-    iconColor: "#3370FF",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -219,11 +183,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "DouBaoSeed",
-    websiteUrl:
-      "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey?apikey=%7B%7D&utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
-    apiKeyUrl:
-      "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey?apikey=%7B%7D&utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
+    ...PROVIDER_METADATA.douBaoSeed,
     settingsConfig: {
       baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
       apiKey: "",
@@ -237,11 +197,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "doubaoseed",
-    icon: "doubao",
-    iconColor: "#3370FF",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -258,9 +213,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
   },
   // ========== Chinese Officials ==========
   {
-    name: "DeepSeek",
-    websiteUrl: "https://platform.deepseek.com",
-    apiKeyUrl: "https://platform.deepseek.com/api_keys",
+    ...PROVIDER_METADATA.deepSeek,
     settingsConfig: {
       baseUrl: "https://api.deepseek.com/v1",
       apiKey: "",
@@ -280,9 +233,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    icon: "deepseek",
-    iconColor: "#1E88E5",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -302,9 +252,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "Zhipu GLM",
-    websiteUrl: "https://open.bigmodel.cn",
-    apiKeyUrl: "https://www.bigmodel.cn/claude-code?ic=RRVJPB5SII",
+    ...PROVIDER_METADATA.zhipuGlm,
     settingsConfig: {
       baseUrl: "https://open.bigmodel.cn/api/paas/v4",
       apiKey: "",
@@ -318,9 +266,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    icon: "zhipu",
-    iconColor: "#0F62FE",
     templateValues: {
       baseUrl: {
         label: "Base URL",
@@ -340,9 +285,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "Zhipu GLM en",
-    websiteUrl: "https://z.ai",
-    apiKeyUrl: "https://z.ai/subscribe?ic=8JVLJQFSKB",
+    ...PROVIDER_METADATA.zhipuGlmEn,
     settingsConfig: {
       baseUrl: "https://api.z.ai/v1",
       apiKey: "",
@@ -356,9 +299,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    icon: "zhipu",
-    iconColor: "#0F62FE",
     templateValues: {
       baseUrl: {
         label: "Base URL",
@@ -378,9 +318,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "Qwen Coder",
-    websiteUrl: "https://bailian.console.aliyun.com",
-    apiKeyUrl: "https://bailian.console.aliyun.com/#/api-key",
+    ...PROVIDER_METADATA.qwenCoder,
     settingsConfig: {
       baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
       apiKey: "",
@@ -394,9 +332,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    icon: "qwen",
-    iconColor: "#FF6A00",
     templateValues: {
       baseUrl: {
         label: "Base URL",
@@ -416,9 +351,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "Kimi k2.6",
-    websiteUrl: "https://platform.moonshot.cn/console",
-    apiKeyUrl: "https://platform.moonshot.cn/console/api-keys",
+    ...PROVIDER_METADATA.kimiK26,
     settingsConfig: {
       baseUrl: "https://api.moonshot.cn/v1",
       apiKey: "",
@@ -432,9 +365,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    icon: "kimi",
-    iconColor: "#6366F1",
     templateValues: {
       baseUrl: {
         label: "Base URL",
@@ -454,9 +384,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "Kimi For Coding",
-    websiteUrl: "https://www.kimi.com/code/docs/",
-    apiKeyUrl: "https://platform.moonshot.cn/console/api-keys",
+    ...PROVIDER_METADATA.kimiForCoding,
     settingsConfig: {
       baseUrl: "https://api.kimi.com/v1",
       apiKey: "",
@@ -470,9 +398,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    icon: "kimi",
-    iconColor: "#6366F1",
     templateValues: {
       baseUrl: {
         label: "Base URL",
@@ -492,9 +417,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "StepFun",
-    websiteUrl: "https://platform.stepfun.com/step-plan",
-    apiKeyUrl: "https://platform.stepfun.com/interface-key",
+    ...PROVIDER_METADATA.stepFun,
     settingsConfig: {
       baseUrl: "https://api.stepfun.com/step_plan/v1",
       apiKey: "",
@@ -512,9 +435,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    icon: "stepfun",
-    iconColor: "#16D6D2",
     templateValues: {
       baseUrl: {
         label: "Base URL",
@@ -537,9 +457,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "StepFun en",
-    websiteUrl: "https://platform.stepfun.ai/step-plan",
-    apiKeyUrl: "https://platform.stepfun.ai/interface-key",
+    ...PROVIDER_METADATA.stepFunEn,
     settingsConfig: {
       baseUrl: "https://api.stepfun.ai/step_plan/v1",
       apiKey: "",
@@ -557,9 +475,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    icon: "stepfun",
-    iconColor: "#16D6D2",
     templateValues: {
       baseUrl: {
         label: "Base URL",
@@ -582,9 +497,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "MiniMax",
-    websiteUrl: "https://platform.minimaxi.com",
-    apiKeyUrl: "https://platform.minimaxi.com/subscribe/coding-plan",
+    ...PROVIDER_METADATA.miniMax,
     settingsConfig: {
       baseUrl: "https://api.minimaxi.com/v1",
       apiKey: "",
@@ -598,15 +511,10 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "minimax_cn",
     theme: {
       backgroundColor: "#f64551",
       textColor: "#FFFFFF",
     },
-    icon: "minimax",
-    iconColor: "#FF6B6B",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -620,9 +528,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "MiniMax en",
-    websiteUrl: "https://platform.minimax.io",
-    apiKeyUrl: "https://platform.minimax.io/subscribe/coding-plan",
+    ...PROVIDER_METADATA.miniMaxEn,
     settingsConfig: {
       baseUrl: "https://api.minimax.io/v1",
       apiKey: "",
@@ -636,15 +542,10 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "minimax_en",
     theme: {
       backgroundColor: "#f64551",
       textColor: "#FFFFFF",
     },
-    icon: "minimax",
-    iconColor: "#FF6B6B",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -658,9 +559,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "KAT-Coder",
-    websiteUrl: "https://console.streamlake.ai",
-    apiKeyUrl: "https://console.streamlake.ai/console/api-key",
+    ...PROVIDER_METADATA.katCoder,
     settingsConfig: {
       baseUrl:
         "https://vanchin.streamlake.ai/api/gateway/v1/endpoints/${ENDPOINT_ID}/openai",
@@ -675,8 +574,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    icon: "catcoder",
     templateValues: {
       baseUrl: {
         label: "Base URL",
@@ -703,9 +600,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "Longcat",
-    websiteUrl: "https://longcat.chat/platform",
-    apiKeyUrl: "https://longcat.chat/platform/api_keys",
+    ...PROVIDER_METADATA.longcat,
     settingsConfig: {
       baseUrl: "https://api.longcat.chat/v1",
       apiKey: "",
@@ -720,9 +615,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    icon: "longcat",
-    iconColor: "#29E154",
     templateValues: {
       baseUrl: {
         label: "Base URL",
@@ -742,8 +634,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "BaiLing",
-    websiteUrl: "https://alipaytbox.yuque.com/sxs0ba/ling/get_started",
+    ...PROVIDER_METADATA.baiLing,
     settingsConfig: {
       baseUrl: "https://api.tbox.cn/v1",
       apiKey: "",
@@ -757,7 +648,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -771,9 +661,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "Xiaomi MiMo",
-    websiteUrl: "https://platform.xiaomimimo.com",
-    apiKeyUrl: "https://platform.xiaomimimo.com/#/console/api-keys",
+    ...PROVIDER_METADATA.xiaomiMiMo,
     settingsConfig: {
       baseUrl: "https://api.xiaomimimo.com/v1",
       apiKey: "",
@@ -790,9 +678,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    icon: "xiaomimimo",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -806,9 +691,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "Xiaomi MiMo Token Plan (China)",
-    websiteUrl: "https://platform.xiaomimimo.com/#/token-plan",
-    apiKeyUrl: "https://platform.xiaomimimo.com/#/console/plan-manage",
+    ...PROVIDER_METADATA.xiaomiMiMoTokenPlan,
     settingsConfig: {
       baseUrl: "https://token-plan-cn.xiaomimimo.com/v1",
       apiKey: "",
@@ -832,9 +715,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    icon: "xiaomimimo",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "Token Plan API Key",
@@ -857,9 +737,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
 
   // ========== Aggregators ==========
   {
-    name: "AiHubMix",
-    websiteUrl: "https://aihubmix.com",
-    apiKeyUrl: "https://aihubmix.com",
+    ...PROVIDER_METADATA.aiHubMix,
     settingsConfig: {
       baseUrl: "https://aihubmix.com",
       apiKey: "",
@@ -879,9 +757,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
-    icon: "aihubmix",
-    iconColor: "#006FFB",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -901,9 +776,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "DMXAPI",
-    websiteUrl: "https://www.dmxapi.cn",
-    apiKeyUrl: "https://www.dmxapi.cn",
+    ...PROVIDER_METADATA.dmxapi,
     settingsConfig: {
       baseUrl: "https://www.dmxapi.cn",
       apiKey: "",
@@ -923,9 +796,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "dmxapi",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -945,9 +815,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "ClaudeCN",
-    websiteUrl: "https://claudecn.top",
-    apiKeyUrl: "https://claudecn.top/register?aff=ccswitche",
+    ...PROVIDER_METADATA.claudecn,
     settingsConfig: {
       baseUrl: "https://claudecn.top",
       apiKey: "",
@@ -970,10 +838,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "claudecn",
-    icon: "claudecn",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -993,9 +857,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "RunAPI",
-    websiteUrl: "https://runapi.co",
-    apiKeyUrl: "https://runapi.co",
+    ...PROVIDER_METADATA.runapi,
     settingsConfig: {
       baseUrl: "https://runapi.co",
       apiKey: "",
@@ -1018,10 +880,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "runapi",
-    icon: "runapi",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1041,9 +899,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "OpenRouter",
-    websiteUrl: "https://openrouter.ai",
-    apiKeyUrl: "https://openrouter.ai/keys",
+    ...PROVIDER_METADATA.openRouter,
     settingsConfig: {
       baseUrl: "https://openrouter.ai/api/v1",
       apiKey: "",
@@ -1063,9 +919,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
-    icon: "openrouter",
-    iconColor: "#6566F1",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1085,9 +938,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "TheRouter",
-    websiteUrl: "https://therouter.ai",
-    apiKeyUrl: "https://dashboard.therouter.ai",
+    ...PROVIDER_METADATA.theRouter,
     settingsConfig: {
       baseUrl: "https://api.therouter.ai/v1",
       apiKey: "",
@@ -1125,7 +976,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1151,9 +1001,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "ModelScope",
-    websiteUrl: "https://modelscope.cn",
-    apiKeyUrl: "https://modelscope.cn/my/myaccesstoken",
+    ...PROVIDER_METADATA.modelScope,
     settingsConfig: {
       baseUrl: "https://api-inference.modelscope.cn/v1",
       apiKey: "",
@@ -1167,9 +1015,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
-    icon: "modelscope",
-    iconColor: "#624AFF",
     templateValues: {
       baseUrl: {
         label: "Base URL",
@@ -1189,9 +1034,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "SiliconFlow",
-    websiteUrl: "https://siliconflow.cn",
-    apiKeyUrl: "https://cloud.siliconflow.cn/i/drGuwc9k",
+    ...PROVIDER_METADATA.siliconFlow,
     settingsConfig: {
       baseUrl: "https://api.siliconflow.cn/v1",
       apiKey: "",
@@ -1205,11 +1048,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "siliconflow",
-    icon: "siliconflow",
-    iconColor: "#6E29F6",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1225,9 +1063,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "SiliconFlow en",
-    websiteUrl: "https://siliconflow.com",
-    apiKeyUrl: "https://cloud.siliconflow.cn/i/drGuwc9k",
+    ...PROVIDER_METADATA.siliconFlowEn,
     settingsConfig: {
       baseUrl: "https://api.siliconflow.com/v1",
       apiKey: "",
@@ -1241,11 +1077,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "siliconflow",
-    icon: "siliconflow",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1261,9 +1092,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "Novita AI",
-    websiteUrl: "https://novita.ai",
-    apiKeyUrl: "https://novita.ai",
+    ...PROVIDER_METADATA.novitaAi,
     settingsConfig: {
       baseUrl: "https://api.novita.ai/openai",
       apiKey: "",
@@ -1277,9 +1106,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
-    icon: "novita",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1295,9 +1121,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "Nvidia",
-    websiteUrl: "https://build.nvidia.com",
-    apiKeyUrl: "https://build.nvidia.com/settings/api-keys",
+    ...PROVIDER_METADATA.nvidia,
     settingsConfig: {
       baseUrl: "https://integrate.api.nvidia.com/v1",
       apiKey: "",
@@ -1311,9 +1135,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
-    icon: "nvidia",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1327,9 +1148,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "PIPELLM",
-    websiteUrl: "https://code.pipellm.ai",
-    apiKeyUrl: "https://code.pipellm.ai/login?ref=uvw650za",
+    ...PROVIDER_METADATA.pipellm,
     settingsConfig: {
       baseUrl: "https://cc-api.pipellm.ai",
       apiKey: "",
@@ -1355,8 +1174,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
-    icon: "pipellm",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1379,9 +1196,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
 
   // ========== Third Party Partners ==========
   {
-    name: "PackyCode",
-    websiteUrl: "https://www.packyapi.com",
-    apiKeyUrl: "https://www.packyapi.com/register?aff=cc-switch-eco",
+    ...PROVIDER_METADATA.packyCode,
     settingsConfig: {
       baseUrl: "https://www.packyapi.com",
       apiKey: "",
@@ -1401,10 +1216,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "packycode",
-    icon: "packycode",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1424,9 +1235,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "Cubence",
-    websiteUrl: "https://cubence.com",
-    apiKeyUrl: "https://cubence.com/signup?code=CCSWITCH&source=ccs",
+    ...PROVIDER_METADATA.cubence,
     settingsConfig: {
       baseUrl: "https://api.cubence.com",
       apiKey: "",
@@ -1446,11 +1255,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "cubence",
-    icon: "cubence",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1470,9 +1274,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "AIGoCode",
-    websiteUrl: "https://aigocode.com",
-    apiKeyUrl: "https://aigocode.com/invite/CC-SWITCH",
+    ...PROVIDER_METADATA.aiGoCode,
     settingsConfig: {
       baseUrl: "https://api.aigocode.com",
       apiKey: "",
@@ -1492,11 +1294,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "aigocode",
-    icon: "aigocode",
-    iconColor: "#5B7FFF",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1516,9 +1313,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "RightCode",
-    websiteUrl: "https://www.right.codes",
-    apiKeyUrl: "https://www.right.codes/register?aff=CCSWITCH",
+    ...PROVIDER_METADATA.rightCode,
     settingsConfig: {
       baseUrl: "https://www.right.codes/claude",
       apiKey: "",
@@ -1538,11 +1333,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "rightcode",
-    icon: "rc",
-    iconColor: "#E96B2C",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1562,9 +1352,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "AICodeMirror",
-    websiteUrl: "https://www.aicodemirror.com",
-    apiKeyUrl: "https://www.aicodemirror.com/register?invitecode=9915W3",
+    ...PROVIDER_METADATA.aiCodeMirror,
     settingsConfig: {
       baseUrl: "https://api.aicodemirror.com/api/claudecode",
       apiKey: "",
@@ -1584,11 +1372,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "aicodemirror",
-    icon: "aicodemirror",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1608,10 +1391,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "CrazyRouter",
-    websiteUrl: "https://www.crazyrouter.com",
-    apiKeyUrl:
-      "https://www.crazyrouter.com/register?aff=OZcm&ref=cc-switch-eco",
+    ...PROVIDER_METADATA.crazyRouter,
     settingsConfig: {
       baseUrl: "https://cn.crazyrouter.com/v1",
       apiKey: "",
@@ -1631,11 +1411,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "crazyrouter",
-    icon: "crazyrouter",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1655,9 +1430,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "SSSAiCode",
-    websiteUrl: "https://www.sssaicode.com",
-    apiKeyUrl: "https://www.sssaicode.com/register?ref=DCP0SM",
+    ...PROVIDER_METADATA.sssAiCode,
     settingsConfig: {
       baseUrl: "https://node-hk.sssaicode.com/api",
       apiKey: "",
@@ -1677,11 +1450,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "sssaicode",
-    icon: "sssaicode",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1701,11 +1469,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "Compshare",
-    nameKey: "providerForm.presets.ucloud",
-    websiteUrl: "https://www.compshare.cn",
-    apiKeyUrl:
-      "https://www.compshare.cn/coding-plan?ytag=GPU_YY_YX_git_cc-switch-eco",
+    ...PROVIDER_METADATA.compshare,
     settingsConfig: {
       baseUrl: "https://api.modelverse.cn/v1",
       apiKey: "",
@@ -1719,11 +1483,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
-    isPartner: true, // 合作伙伴
-    partnerPromotionKey: "ucloud", // 促销信息 i18n key
-    icon: "ucloud",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1741,11 +1500,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "Compshare Coding Plan",
-    nameKey: "providerForm.presets.ucloudCoding",
-    websiteUrl: "https://www.compshare.cn",
-    apiKeyUrl:
-      "https://www.compshare.cn/coding-plan?ytag=GPU_YY_YX_git_cc-switch-eco",
+    ...PROVIDER_METADATA.compshareCodingPlan,
     settingsConfig: {
       baseUrl: "https://cp.compshare.cn/v1",
       apiKey: "",
@@ -1759,11 +1514,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
-    isPartner: true, // 合作伙伴
-    partnerPromotionKey: "ucloud", // 促销信息 i18n key（复用）
-    icon: "ucloud",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1781,9 +1531,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "Micu",
-    websiteUrl: "https://www.micuapi.ai",
-    apiKeyUrl: "https://www.micuapi.ai/register?aff=aOYQ",
+    ...PROVIDER_METADATA.micu,
     settingsConfig: {
       baseUrl: "https://www.micuapi.ai",
       apiKey: "",
@@ -1797,11 +1545,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "micu",
-    icon: "micu",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1819,9 +1562,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "CTok.ai",
-    websiteUrl: "https://ctok.ai",
-    apiKeyUrl: "https://ctok.ai",
+    ...PROVIDER_METADATA.cTok,
     settingsConfig: {
       baseUrl: "https://api.ctok.ai",
       apiKey: "",
@@ -1835,11 +1576,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "ctok",
-    icon: "ctok",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1857,9 +1593,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "E-FlowCode",
-    websiteUrl: "https://e-flowcode.cc",
-    apiKeyUrl: "https://e-flowcode.cc",
+    ...PROVIDER_METADATA.eFlowCode,
     settingsConfig: {
       api: "openai-responses",
       apiKey: "",
@@ -1895,9 +1629,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "third_party",
-    icon: "eflowcode",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1919,9 +1650,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
-    name: "LemonData",
-    websiteUrl: "https://lemondata.cc",
-    apiKeyUrl: "https://lemondata.cc/r/FFX1ZDUP",
+    ...PROVIDER_METADATA.lemonData,
     settingsConfig: {
       baseUrl: "https://api.lemondata.cc/v1",
       apiKey: "",
@@ -1934,10 +1663,6 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "lemondata",
-    icon: "lemondata",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1956,8 +1681,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
   },
   // ========== Cloud Providers ==========
   {
-    name: "AWS Bedrock",
-    websiteUrl: "https://aws.amazon.com/bedrock/",
+    ...PROVIDER_METADATA.awsBedrock,
     settingsConfig: {
       // 请将 us-west-2 替换为你的 AWS Region
       baseUrl: "https://bedrock-runtime.us-west-2.amazonaws.com",
@@ -1984,25 +1708,18 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
         },
       ],
     },
-    category: "cloud_provider",
-    icon: "aws",
-    iconColor: "#FF9900",
   },
 
   // ========== Custom Template ==========
   {
-    name: "OpenAI Compatible",
-    websiteUrl: "",
+    ...PROVIDER_METADATA.openaiCompatible,
     settingsConfig: {
       baseUrl: "",
       apiKey: "",
       api: "openai-completions",
       models: [],
     },
-    category: "custom",
     isCustomTemplate: true,
-    icon: "generic",
-    iconColor: "#6B7280",
     templateValues: {
       baseUrl: {
         label: "Base URL",

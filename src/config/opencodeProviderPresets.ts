@@ -1,20 +1,13 @@
-import type { ProviderCategory, OpenCodeProviderConfig } from "../types";
-import type { PresetTheme, TemplateValueConfig } from "./claudeProviderPresets";
+import type { OpenCodeProviderConfig } from "../types";
+import type {
+  BaseProviderPreset,
+  TemplateValueConfig,
+} from "./baseProviderPreset";
+import { PROVIDER_METADATA } from "./providerMetadata";
 
-export interface OpenCodeProviderPreset {
-  name: string;
-  nameKey?: string; // i18n key for localized display name
-  websiteUrl: string;
-  apiKeyUrl?: string;
+export interface OpenCodeProviderPreset extends BaseProviderPreset {
   settingsConfig: OpenCodeProviderConfig;
-  isOfficial?: boolean;
-  isPartner?: boolean;
-  partnerPromotionKey?: string;
-  category?: ProviderCategory;
   templateValues?: Record<string, TemplateValueConfig>;
-  theme?: PresetTheme;
-  icon?: string;
-  iconColor?: string;
   isCustomTemplate?: boolean;
 }
 
@@ -297,10 +290,7 @@ export function getPresetModelDefaults(
 
 export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
   {
-    name: "Shengsuanyun",
-    nameKey: "providerForm.presets.shengsuanyun",
-    websiteUrl: "https://www.shengsuanyun.com",
-    apiKeyUrl: "https://www.shengsuanyun.com/?from=CH_4HHXMRYF",
+    ...PROVIDER_METADATA.shengsuanyun,
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "Shengsuanyun",
@@ -314,10 +304,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "claude-sonnet-4-6": { name: "Claude Sonnet 4.6" },
       },
     },
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "shengsuanyun",
-    icon: "shengsuanyun",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -327,11 +313,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "火山Agentplan",
-    websiteUrl:
-      "https://www.volcengine.com/activity/agentplan?utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
-    apiKeyUrl:
-      "https://www.volcengine.com/activity/agentplan?utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
+    ...PROVIDER_METADATA.volcengineAgentplan,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "火山Agentplan",
@@ -346,11 +328,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         },
       },
     },
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "volcengine_agentplan",
-    icon: "huoshan",
-    iconColor: "#3370FF",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -360,11 +337,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "BytePlus",
-    websiteUrl:
-      "https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
-    apiKeyUrl:
-      "https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
+    ...PROVIDER_METADATA.bytePlus,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "BytePlus",
@@ -379,11 +352,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         },
       },
     },
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "byteplus",
-    icon: "byteplus",
-    iconColor: "#3370FF",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -393,11 +361,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "DouBaoSeed",
-    websiteUrl:
-      "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey?apikey=%7B%7D&utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
-    apiKeyUrl:
-      "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey?apikey=%7B%7D&utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
+    ...PROVIDER_METADATA.douBaoSeed,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "DouBaoSeed",
@@ -412,11 +376,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         },
       },
     },
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "doubaoseed",
-    icon: "doubao",
-    iconColor: "#3370FF",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -426,8 +385,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "DeepSeek",
-    websiteUrl: "https://platform.deepseek.com",
+    ...PROVIDER_METADATA.deepSeek,
     apiKeyUrl: "https://platform.deepseek.com/api_keys",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
@@ -441,9 +399,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "deepseek-v4-flash": { name: "DeepSeek V4 Flash" },
       },
     },
-    category: "cn_official",
-    icon: "deepseek",
-    iconColor: "#1E88E5",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -453,9 +408,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "Zhipu GLM",
-    websiteUrl: "https://open.bigmodel.cn",
-    apiKeyUrl: "https://www.bigmodel.cn/claude-code?ic=RRVJPB5SII",
+    ...PROVIDER_METADATA.zhipuGlm,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "Zhipu GLM",
@@ -468,9 +421,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "glm-5": { name: "GLM-5" },
       },
     },
-    category: "cn_official",
-    icon: "zhipu",
-    iconColor: "#0F62FE",
     templateValues: {
       baseURL: {
         label: "Base URL",
@@ -486,9 +436,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "Zhipu GLM en",
-    websiteUrl: "https://z.ai",
-    apiKeyUrl: "https://z.ai/subscribe?ic=8JVLJQFSKB",
+    ...PROVIDER_METADATA.zhipuGlmEn,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "Zhipu GLM en",
@@ -501,9 +449,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "glm-5": { name: "GLM-5" },
       },
     },
-    category: "cn_official",
-    icon: "zhipu",
-    iconColor: "#0F62FE",
     templateValues: {
       baseURL: {
         label: "Base URL",
@@ -519,8 +464,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "Bailian",
-    websiteUrl: "https://bailian.console.aliyun.com",
+    ...PROVIDER_METADATA.bailian,
     apiKeyUrl: "https://bailian.console.aliyun.com/#/api-key",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
@@ -532,9 +476,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
       },
       models: {},
     },
-    category: "cn_official",
-    icon: "bailian",
-    iconColor: "#624AFF",
     templateValues: {
       baseURL: {
         label: "Base URL",
@@ -550,9 +491,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "Kimi k2.6",
-    websiteUrl: "https://platform.moonshot.cn/console",
-    apiKeyUrl: "https://platform.moonshot.cn/console/api-keys",
+    ...PROVIDER_METADATA.kimiK26,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "Kimi k2.6",
@@ -565,9 +504,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "kimi-k2.6": { name: "Kimi K2.6" },
       },
     },
-    category: "cn_official",
-    icon: "kimi",
-    iconColor: "#6366F1",
     templateValues: {
       baseURL: {
         label: "Base URL",
@@ -583,8 +519,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "Kimi For Coding",
-    websiteUrl: "https://www.kimi.com/code/docs/",
+    ...PROVIDER_METADATA.kimiForCoding,
     apiKeyUrl: "https://platform.moonshot.cn/console/api-keys",
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
@@ -598,9 +533,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "kimi-for-coding": { name: "Kimi For Coding" },
       },
     },
-    category: "cn_official",
-    icon: "kimi",
-    iconColor: "#6366F1",
     templateValues: {
       baseURL: {
         label: "Base URL",
@@ -616,9 +548,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "StepFun",
-    websiteUrl: "https://platform.stepfun.com/step-plan",
-    apiKeyUrl: "https://platform.stepfun.com/interface-key",
+    ...PROVIDER_METADATA.stepFun,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "StepFun",
@@ -632,9 +562,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "step-3.5-flash": { name: "Step 3.5 Flash" },
       },
     },
-    category: "cn_official",
-    icon: "stepfun",
-    iconColor: "#16D6D2",
     templateValues: {
       baseURL: {
         label: "Base URL",
@@ -650,9 +577,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "StepFun en",
-    websiteUrl: "https://platform.stepfun.ai/step-plan",
-    apiKeyUrl: "https://platform.stepfun.ai/interface-key",
+    ...PROVIDER_METADATA.stepFunEn,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "StepFun en",
@@ -665,9 +590,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "step-3.5-flash": { name: "Step 3.5 Flash" },
       },
     },
-    category: "cn_official",
-    icon: "stepfun",
-    iconColor: "#16D6D2",
     templateValues: {
       baseURL: {
         label: "Base URL",
@@ -683,9 +605,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "StepFun Step Plan",
-    websiteUrl: "https://platform.stepfun.com/docs/zh/step-plan/overview",
-    apiKeyUrl: "https://platform.stepfun.com/interface-key",
+    ...PROVIDER_METADATA.stepFunStepPlan,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "StepFun Step Plan",
@@ -698,9 +618,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "step-3.5-flash": { name: "Step 3.5 Flash" },
       },
     },
-    category: "cn_official",
-    icon: "stepfun",
-    iconColor: "#005AFF",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -710,8 +627,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "ModelScope",
-    websiteUrl: "https://modelscope.cn",
+    ...PROVIDER_METADATA.modelScope,
     apiKeyUrl: "https://modelscope.cn/my/myaccesstoken",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
@@ -725,9 +641,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "ZhipuAI/GLM-5": { name: "GLM-5" },
       },
     },
-    category: "aggregator",
-    icon: "modelscope",
-    iconColor: "#624AFF",
     templateValues: {
       baseURL: {
         label: "Base URL",
@@ -743,9 +656,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "KAT-Coder",
-    websiteUrl: "https://console.streamlake.ai",
-    apiKeyUrl: "https://console.streamlake.ai/console/api-key",
+    ...PROVIDER_METADATA.katCoder,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "KAT-Coder",
@@ -759,7 +670,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "KAT-Coder-Pro": { name: "KAT-Coder Pro" },
       },
     },
-    category: "cn_official",
     templateValues: {
       baseURL: {
         label: "Base URL",
@@ -781,12 +691,9 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         editorValue: "",
       },
     },
-    icon: "catcoder",
   },
   {
-    name: "Longcat",
-    websiteUrl: "https://longcat.chat/platform",
-    apiKeyUrl: "https://longcat.chat/platform/api_keys",
+    ...PROVIDER_METADATA.longcat,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "Longcat",
@@ -799,9 +706,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "LongCat-Flash-Chat": { name: "LongCat Flash Chat" },
       },
     },
-    category: "cn_official",
-    icon: "longcat",
-    iconColor: "#29E154",
     templateValues: {
       baseURL: {
         label: "Base URL",
@@ -817,9 +721,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "MiniMax",
-    websiteUrl: "https://platform.minimaxi.com",
-    apiKeyUrl: "https://platform.minimaxi.com/subscribe/coding-plan",
+    ...PROVIDER_METADATA.miniMax,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "MiniMax",
@@ -832,15 +734,10 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "MiniMax-M2.7": { name: "MiniMax M2.7" },
       },
     },
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "minimax_cn",
     theme: {
       backgroundColor: "#f64551",
       textColor: "#FFFFFF",
     },
-    icon: "minimax",
-    iconColor: "#FF6B6B",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -850,9 +747,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "MiniMax en",
-    websiteUrl: "https://platform.minimax.io",
-    apiKeyUrl: "https://platform.minimax.io/subscribe/coding-plan",
+    ...PROVIDER_METADATA.miniMaxEn,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "MiniMax en",
@@ -865,15 +760,10 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "MiniMax-M2.7": { name: "MiniMax M2.7" },
       },
     },
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "minimax_en",
     theme: {
       backgroundColor: "#f64551",
       textColor: "#FFFFFF",
     },
-    icon: "minimax",
-    iconColor: "#FF6B6B",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -883,8 +773,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "BaiLing",
-    websiteUrl: "https://alipaytbox.yuque.com/sxs0ba/ling/get_started",
+    ...PROVIDER_METADATA.baiLing,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "BaiLing",
@@ -897,7 +786,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "Ling-2.5-1T": { name: "Ling 2.5-1T" },
       },
     },
-    category: "cn_official",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -907,9 +795,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "Xiaomi MiMo",
-    websiteUrl: "https://platform.xiaomimimo.com",
-    apiKeyUrl: "https://platform.xiaomimimo.com/#/console/api-keys",
+    ...PROVIDER_METADATA.xiaomiMiMo,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "Xiaomi MiMo",
@@ -931,9 +817,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         },
       },
     },
-    category: "cn_official",
-    icon: "xiaomimimo",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -943,9 +826,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "Xiaomi MiMo Token Plan (China)",
-    websiteUrl: "https://platform.xiaomimimo.com/#/token-plan",
-    apiKeyUrl: "https://platform.xiaomimimo.com/#/console/plan-manage",
+    ...PROVIDER_METADATA.xiaomiMiMoTokenPlan,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "Xiaomi MiMo Token Plan (China)",
@@ -967,9 +848,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         },
       },
     },
-    category: "cn_official",
-    icon: "xiaomimimo",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "Token Plan API Key",
@@ -980,9 +858,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
   },
 
   {
-    name: "AiHubMix",
-    websiteUrl: "https://aihubmix.com",
-    apiKeyUrl: "https://aihubmix.com",
+    ...PROVIDER_METADATA.aiHubMix,
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "AiHubMix",
@@ -996,9 +872,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "claude-opus-4-7": { name: "Claude Opus 4.7" },
       },
     },
-    category: "aggregator",
-    icon: "aihubmix",
-    iconColor: "#006FFB",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1008,9 +881,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "DMXAPI",
-    websiteUrl: "https://www.dmxapi.cn",
-    apiKeyUrl: "https://www.dmxapi.cn",
+    ...PROVIDER_METADATA.dmxapi,
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "DMXAPI",
@@ -1024,9 +895,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "claude-opus-4-7": { name: "Claude Opus 4.7" },
       },
     },
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "dmxapi",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1036,9 +904,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "OpenRouter",
-    websiteUrl: "https://openrouter.ai",
-    apiKeyUrl: "https://openrouter.ai/keys",
+    ...PROVIDER_METADATA.openRouter,
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "OpenRouter",
@@ -1052,9 +918,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "anthropic/claude-opus-4.7": { name: "Claude Opus 4.7" },
       },
     },
-    category: "aggregator",
-    icon: "openrouter",
-    iconColor: "#6566F1",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1064,9 +927,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "TheRouter",
-    websiteUrl: "https://therouter.ai",
-    apiKeyUrl: "https://dashboard.therouter.ai",
+    ...PROVIDER_METADATA.theRouter,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "TheRouter",
@@ -1085,7 +946,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "qwen/qwen3-coder-480b": { name: "Qwen3 Coder 480B" },
       },
     },
-    category: "aggregator",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1095,9 +955,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "Novita AI",
-    websiteUrl: "https://novita.ai",
-    apiKeyUrl: "https://novita.ai",
+    ...PROVIDER_METADATA.novitaAi,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "Novita AI",
@@ -1110,9 +968,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "zai-org/glm-5": { name: "GLM-5" },
       },
     },
-    category: "aggregator",
-    icon: "novita",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1122,9 +977,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "Nvidia",
-    websiteUrl: "https://build.nvidia.com",
-    apiKeyUrl: "https://build.nvidia.com/settings/api-keys",
+    ...PROVIDER_METADATA.nvidia,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "Nvidia",
@@ -1137,9 +990,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "moonshotai/kimi-k2.5": { name: "Kimi K2.5" },
       },
     },
-    category: "aggregator",
-    icon: "nvidia",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1149,9 +999,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "PIPELLM",
-    websiteUrl: "https://code.pipellm.ai",
-    apiKeyUrl: "https://code.pipellm.ai/login?ref=uvw650za",
+    ...PROVIDER_METADATA.pipellm,
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "PIPELLM",
@@ -1166,8 +1014,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "claude-haiku-4-5-20251001": { name: "claude-haiku-4-5-20251001" },
       },
     },
-    category: "aggregator",
-    icon: "pipellm",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1178,9 +1024,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
   },
 
   {
-    name: "PackyCode",
-    websiteUrl: "https://www.packyapi.com",
-    apiKeyUrl: "https://www.packyapi.com/register?aff=cc-switch-eco",
+    ...PROVIDER_METADATA.packyCode,
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "PackyCode",
@@ -1194,10 +1038,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "claude-opus-4-7": { name: "Claude Opus 4.7" },
       },
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "packycode",
-    icon: "packycode",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1207,9 +1047,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "Cubence",
-    websiteUrl: "https://cubence.com",
-    apiKeyUrl: "https://cubence.com/signup?code=CCSWITCH&source=ccs",
+    ...PROVIDER_METADATA.cubence,
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "Cubence",
@@ -1223,11 +1061,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "claude-opus-4-7": { name: "Claude Opus 4.7" },
       },
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "cubence",
-    icon: "cubence",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1237,9 +1070,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "AIGoCode",
-    websiteUrl: "https://aigocode.com",
-    apiKeyUrl: "https://aigocode.com/invite/CC-SWITCH",
+    ...PROVIDER_METADATA.aiGoCode,
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "AIGoCode",
@@ -1253,11 +1084,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "claude-opus-4-7": { name: "Claude Opus 4.7" },
       },
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "aigocode",
-    icon: "aigocode",
-    iconColor: "#5B7FFF",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1267,9 +1093,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "RightCode",
-    websiteUrl: "https://www.right.codes",
-    apiKeyUrl: "https://www.right.codes/register?aff=CCSWITCH",
+    ...PROVIDER_METADATA.rightCode,
     settingsConfig: {
       npm: "@ai-sdk/openai",
       name: "RightCode",
@@ -1282,11 +1106,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "gpt-5.4": { name: "GPT-5.4" },
       },
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "rightcode",
-    icon: "rc",
-    iconColor: "#E96B2C",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1296,9 +1115,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "AICodeMirror",
-    websiteUrl: "https://www.aicodemirror.com",
-    apiKeyUrl: "https://www.aicodemirror.com/register?invitecode=9915W3",
+    ...PROVIDER_METADATA.aiCodeMirror,
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "AICodeMirror",
@@ -1312,11 +1129,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "claude-opus-4.7": { name: "Claude Opus 4.7" },
       },
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "aicodemirror",
-    icon: "aicodemirror",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1326,9 +1138,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "ClaudeCN",
-    websiteUrl: "https://claudecn.top",
-    apiKeyUrl: "https://claudecn.top/register?aff=ccswitche",
+    ...PROVIDER_METADATA.claudecn,
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "ClaudeCN",
@@ -1343,10 +1153,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "claude-haiku-4-5": { name: "Claude Haiku 4.5" },
       },
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "claudecn",
-    icon: "claudecn",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1356,9 +1162,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "RunAPI",
-    websiteUrl: "https://runapi.co",
-    apiKeyUrl: "https://runapi.co",
+    ...PROVIDER_METADATA.runapi,
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "RunAPI",
@@ -1373,10 +1177,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "claude-haiku-4-5": { name: "Claude Haiku 4.5" },
       },
     },
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "runapi",
-    icon: "runapi",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1386,10 +1186,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "CrazyRouter",
-    websiteUrl: "https://www.crazyrouter.com",
-    apiKeyUrl:
-      "https://www.crazyrouter.com/register?aff=OZcm&ref=cc-switch-eco",
+    ...PROVIDER_METADATA.crazyRouter,
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "CrazyRouter",
@@ -1403,11 +1200,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "claude-opus-4-7": { name: "Claude Opus 4.7" },
       },
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "crazyrouter",
-    icon: "crazyrouter",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1417,9 +1209,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "SSSAiCode",
-    websiteUrl: "https://www.sssaicode.com",
-    apiKeyUrl: "https://www.sssaicode.com/register?ref=DCP0SM",
+    ...PROVIDER_METADATA.sssAiCode,
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "SSSAiCode",
@@ -1433,11 +1223,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "claude-opus-4-7": { name: "Claude Opus 4.7" },
       },
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "sssaicode",
-    icon: "sssaicode",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1447,9 +1232,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "Micu",
-    websiteUrl: "https://www.micuapi.ai",
-    apiKeyUrl: "https://www.micuapi.ai/register?aff=aOYQ",
+    ...PROVIDER_METADATA.micu,
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "Micu",
@@ -1463,11 +1246,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "claude-sonnet-4-6": { name: "Claude Sonnet 4.6" },
       },
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "micu",
-    icon: "micu",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1477,9 +1255,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "CTok.ai",
-    websiteUrl: "https://ctok.ai",
-    apiKeyUrl: "https://ctok.ai",
+    ...PROVIDER_METADATA.cTok,
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "CTok",
@@ -1493,11 +1269,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "claude-sonnet-4-6": { name: "Claude Sonnet 4.6" },
       },
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "ctok",
-    icon: "ctok",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1507,9 +1278,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "E-FlowCode",
-    websiteUrl: "https://e-flowcode.cc",
-    apiKeyUrl: "https://e-flowcode.cc",
+    ...PROVIDER_METADATA.eFlowCode,
     settingsConfig: {
       npm: "@ai-sdk/openai",
       options: {
@@ -1525,9 +1294,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         },
       },
     },
-    category: "third_party",
-    icon: "eflowcode",
-    iconColor: "#000000",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1537,9 +1303,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "LemonData",
-    websiteUrl: "https://lemondata.cc",
-    apiKeyUrl: "https://lemondata.cc/r/FFX1ZDUP",
+    ...PROVIDER_METADATA.lemonData,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "LemonData",
@@ -1552,10 +1316,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "gpt-5.4": { name: "GPT-5.4" },
       },
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "lemondata",
-    icon: "lemondata",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -1565,8 +1325,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "AWS Bedrock",
-    websiteUrl: "https://aws.amazon.com/bedrock/",
+    ...PROVIDER_METADATA.awsBedrock,
     settingsConfig: {
       npm: "@ai-sdk/amazon-bedrock",
       name: "AWS Bedrock",
@@ -1591,9 +1350,6 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
         "us.deepseek.r1-v1:0": { name: "DeepSeek R1" },
       },
     },
-    category: "cloud_provider",
-    icon: "aws",
-    iconColor: "#FF9900",
     templateValues: {
       region: {
         label: "AWS Region",
@@ -1614,8 +1370,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
-    name: "OpenAI Compatible",
-    websiteUrl: "",
+    ...PROVIDER_METADATA.openaiCompatible,
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       options: {
@@ -1625,10 +1380,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
       },
       models: {},
     },
-    category: "custom",
     isCustomTemplate: true,
-    icon: "generic",
-    iconColor: "#6B7280",
     templateValues: {
       baseURL: {
         label: "Base URL",
@@ -1644,29 +1396,21 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
   },
 
   {
-    name: "Oh My OpenCode",
-    websiteUrl: "https://github.com/code-yeongyu/oh-my-openagent",
+    ...PROVIDER_METADATA.ohMyOpenCode,
     settingsConfig: {
       npm: "",
       options: {},
       models: {},
     },
-    category: "omo" as ProviderCategory,
-    icon: "opencode",
-    iconColor: "#8B5CF6",
     isCustomTemplate: true,
   },
   {
-    name: "Oh My OpenCode Slim",
-    websiteUrl: "https://github.com/alvinunreal/oh-my-opencode-slim",
+    ...PROVIDER_METADATA.ohMyOpenCodeSlim,
     settingsConfig: {
       npm: "",
       options: {},
       models: {},
     },
-    category: "omo-slim" as ProviderCategory,
-    icon: "opencode",
-    iconColor: "#6366F1",
     isCustomTemplate: true,
   },
 ];

@@ -2,8 +2,11 @@
  * Hermes Agent provider presets configuration
  * Hermes uses custom_providers array in config.yaml
  */
-import type { ProviderCategory } from "../types";
-import type { PresetTheme, TemplateValueConfig } from "./claudeProviderPresets";
+import type {
+  BaseProviderPreset,
+  TemplateValueConfig,
+} from "./baseProviderPreset";
+import { PROVIDER_METADATA } from "./providerMetadata";
 
 /**
  * Marker field and source values that `hermes_config.rs::get_providers`
@@ -96,20 +99,9 @@ export const hermesApiModes: Array<{
   },
 ];
 
-export interface HermesProviderPreset {
-  name: string;
-  nameKey?: string;
-  websiteUrl: string;
-  apiKeyUrl?: string;
+export interface HermesProviderPreset extends BaseProviderPreset {
   settingsConfig: HermesProviderSettingsConfig;
-  isOfficial?: boolean;
-  isPartner?: boolean;
-  partnerPromotionKey?: string;
-  category?: ProviderCategory;
   templateValues?: Record<string, TemplateValueConfig>;
-  theme?: PresetTheme;
-  icon?: string;
-  iconColor?: string;
   isCustomTemplate?: boolean;
   /** Optional top-level `model:` defaults written on switch. */
   suggestedDefaults?: HermesSuggestedDefaults;
@@ -129,10 +121,7 @@ export interface HermesProviderSettingsConfig {
 
 export const hermesProviderPresets: HermesProviderPreset[] = [
   {
-    name: "Shengsuanyun",
-    nameKey: "providerForm.presets.shengsuanyun",
-    websiteUrl: "https://www.shengsuanyun.com",
-    apiKeyUrl: "https://www.shengsuanyun.com/?from=CH_4HHXMRYF",
+    ...PROVIDER_METADATA.shengsuanyun,
     settingsConfig: {
       name: "shengsuanyun",
       base_url: "https://router.shengsuanyun.com/api/v1",
@@ -140,20 +129,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "openai/gpt-5.4", name: "GPT-5.4" }],
     },
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "shengsuanyun",
-    icon: "shengsuanyun",
     suggestedDefaults: {
       model: { default: "openai/gpt-5.4", provider: "shengsuanyun" },
     },
   },
   {
-    name: "火山Agentplan",
-    websiteUrl:
-      "https://www.volcengine.com/activity/agentplan?utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
-    apiKeyUrl:
-      "https://www.volcengine.com/activity/agentplan?utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
+    ...PROVIDER_METADATA.volcengineAgentplan,
     settingsConfig: {
       name: "ark_agentplan",
       base_url: "https://ark.cn-beijing.volces.com/api/coding",
@@ -166,11 +147,6 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "volcengine_agentplan",
-    icon: "huoshan",
-    iconColor: "#3370FF",
     suggestedDefaults: {
       model: {
         default: "ark-code-latest",
@@ -179,11 +155,7 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
     },
   },
   {
-    name: "BytePlus",
-    websiteUrl:
-      "https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
-    apiKeyUrl:
-      "https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
+    ...PROVIDER_METADATA.bytePlus,
     settingsConfig: {
       name: "byteplus",
       base_url: "https://ark.ap-southeast.bytepluses.com/api/coding",
@@ -196,11 +168,6 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "byteplus",
-    icon: "byteplus",
-    iconColor: "#3370FF",
     suggestedDefaults: {
       model: {
         default: "ark-code-latest",
@@ -209,11 +176,7 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
     },
   },
   {
-    name: "DouBaoSeed",
-    websiteUrl:
-      "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey?apikey=%7B%7D&utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
-    apiKeyUrl:
-      "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey?apikey=%7B%7D&utm_campaign=hw&utm_content=ccswitche&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitche",
+    ...PROVIDER_METADATA.douBaoSeed,
     settingsConfig: {
       name: "doubao_seed",
       base_url: "https://ark.cn-beijing.volces.com/api/compatible",
@@ -226,11 +189,6 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "doubaoseed",
-    icon: "doubao",
-    iconColor: "#3370FF",
     suggestedDefaults: {
       model: {
         default: "doubao-seed-2-0-code-preview-latest",
@@ -239,10 +197,7 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
     },
   },
   {
-    name: "OpenRouter",
-    nameKey: "providerForm.presets.openrouter",
-    websiteUrl: "https://openrouter.ai",
-    apiKeyUrl: "https://openrouter.ai/keys",
+    ...PROVIDER_METADATA.openRouter,
     settingsConfig: {
       name: "openrouter",
       base_url: "https://openrouter.ai/api/v1",
@@ -276,18 +231,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
-    icon: "openrouter",
-    iconColor: "#6366F1",
     suggestedDefaults: {
       model: { default: "anthropic/claude-opus-4-7", provider: "openrouter" },
     },
   },
   {
-    name: "DeepSeek",
-    nameKey: "providerForm.presets.deepseek",
-    websiteUrl: "https://platform.deepseek.com",
-    apiKeyUrl: "https://platform.deepseek.com/api_keys",
+    ...PROVIDER_METADATA.deepSeek,
     settingsConfig: {
       name: "deepseek",
       base_url: "https://api.deepseek.com",
@@ -306,18 +255,13 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         },
       ],
     },
-    category: "cn_official",
-    icon: "deepseek",
     iconColor: "#4D6BFE",
     suggestedDefaults: {
       model: { default: "deepseek-v4-flash", provider: "deepseek" },
     },
   },
   {
-    name: "Together AI",
-    nameKey: "providerForm.presets.together",
-    websiteUrl: "https://together.ai",
-    apiKeyUrl: "https://api.together.ai/settings/api-keys",
+    ...PROVIDER_METADATA.togetherAi,
     settingsConfig: {
       name: "together",
       base_url: "https://api.together.xyz/v1",
@@ -341,9 +285,6 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
-    icon: "together",
-    iconColor: "#0F6FFF",
     suggestedDefaults: {
       model: {
         default: "Qwen/Qwen3-Coder-480B-A35B-Instruct",
@@ -352,9 +293,7 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
     },
   },
   {
-    name: "Nous Research",
-    websiteUrl: "https://nousresearch.com",
-    apiKeyUrl: "https://portal.nousresearch.com/",
+    ...PROVIDER_METADATA.nousResearch,
     settingsConfig: {
       name: "nous",
       base_url: "https://inference-api.nousresearch.com/v1",
@@ -374,9 +313,6 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       ],
     },
     isOfficial: true,
-    category: "official",
-    icon: "hermes",
-    iconColor: "#7C3AED",
     suggestedDefaults: {
       model: { default: "Hermes-4-405B", provider: "nous" },
     },
@@ -388,9 +324,7 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
   // apiFormat "openai_chat" → api_mode "chat_completions"；
   // ANTHROPIC_MODEL / DEFAULT_HAIKU / SONNET / OPUS_MODEL 去重后塞进 models[]。
   {
-    name: "Zhipu GLM",
-    websiteUrl: "https://open.bigmodel.cn",
-    apiKeyUrl: "https://www.bigmodel.cn/claude-code?ic=RRVJPB5SII",
+    ...PROVIDER_METADATA.zhipuGlm,
     settingsConfig: {
       name: "zhipu_glm",
       base_url: "https://open.bigmodel.cn/api/paas/v4",
@@ -398,17 +332,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "glm-5", name: "GLM-5" }],
     },
-    category: "cn_official",
-    icon: "zhipu",
-    iconColor: "#0F62FE",
     suggestedDefaults: {
       model: { default: "glm-5", provider: "zhipu_glm" },
     },
   },
   {
-    name: "Zhipu GLM en",
-    websiteUrl: "https://z.ai",
-    apiKeyUrl: "https://z.ai/subscribe?ic=8JVLJQFSKB",
+    ...PROVIDER_METADATA.zhipuGlmEn,
     settingsConfig: {
       name: "zhipu_glm_en",
       base_url: "https://api.z.ai/api/paas/v4",
@@ -416,16 +345,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "glm-5", name: "GLM-5" }],
     },
-    category: "cn_official",
-    icon: "zhipu",
-    iconColor: "#0F62FE",
     suggestedDefaults: {
       model: { default: "glm-5", provider: "zhipu_glm_en" },
     },
   },
   {
-    name: "Bailian",
-    websiteUrl: "https://bailian.console.aliyun.com",
+    ...PROVIDER_METADATA.bailian,
     settingsConfig: {
       name: "bailian",
       base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -436,16 +361,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         { id: "qwen3-max", name: "Qwen3 Max" },
       ],
     },
-    category: "cn_official",
-    icon: "bailian",
-    iconColor: "#624AFF",
     suggestedDefaults: {
       model: { default: "qwen3-coder-plus", provider: "bailian" },
     },
   },
   {
-    name: "Bailian For Coding",
-    websiteUrl: "https://bailian.console.aliyun.com",
+    ...PROVIDER_METADATA.bailianForCoding,
     settingsConfig: {
       name: "bailian_coding",
       base_url: "https://coding.dashscope.aliyuncs.com/apps/anthropic",
@@ -456,16 +377,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         { id: "qwen3-max", name: "Qwen3 Max" },
       ],
     },
-    category: "cn_official",
-    icon: "bailian",
-    iconColor: "#624AFF",
     suggestedDefaults: {
       model: { default: "qwen3-coder-plus", provider: "bailian_coding" },
     },
   },
   {
-    name: "Kimi",
-    websiteUrl: "https://platform.moonshot.cn/console",
+    ...PROVIDER_METADATA.kimi,
     settingsConfig: {
       name: "kimi",
       base_url: "https://api.moonshot.cn/v1",
@@ -473,16 +390,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "kimi-k2.6", name: "Kimi K2.6" }],
     },
-    category: "cn_official",
-    icon: "kimi",
-    iconColor: "#6366F1",
     suggestedDefaults: {
       model: { default: "kimi-k2.6", provider: "kimi" },
     },
   },
   {
-    name: "Kimi For Coding",
-    websiteUrl: "https://www.kimi.com/code/docs/",
+    ...PROVIDER_METADATA.kimiForCoding,
     settingsConfig: {
       name: "kimi_coding",
       base_url: "https://api.kimi.com/coding/",
@@ -490,17 +403,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "anthropic_messages",
       models: [{ id: "kimi-for-coding", name: "Kimi For Coding" }],
     },
-    category: "cn_official",
-    icon: "kimi",
-    iconColor: "#6366F1",
     suggestedDefaults: {
       model: { default: "kimi-for-coding", provider: "kimi_coding" },
     },
   },
   {
-    name: "StepFun",
-    websiteUrl: "https://platform.stepfun.ai",
-    apiKeyUrl: "https://platform.stepfun.ai/interface-key",
+    ...PROVIDER_METADATA.stepFunEn,
     settingsConfig: {
       name: "stepfun",
       base_url: "https://api.stepfun.ai/v1",
@@ -508,16 +416,13 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "step-3.5-flash", name: "Step 3.5 Flash" }],
     },
-    category: "cn_official",
-    icon: "stepfun",
     iconColor: "#005AFF",
     suggestedDefaults: {
       model: { default: "step-3.5-flash", provider: "stepfun" },
     },
   },
   {
-    name: "ModelScope",
-    websiteUrl: "https://modelscope.cn",
+    ...PROVIDER_METADATA.modelScope,
     settingsConfig: {
       name: "modelscope",
       base_url: "https://api-inference.modelscope.cn/v1",
@@ -525,17 +430,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "ZhipuAI/GLM-5", name: "ZhipuAI / GLM-5" }],
     },
-    category: "aggregator",
-    icon: "modelscope",
-    iconColor: "#624AFF",
     suggestedDefaults: {
       model: { default: "ZhipuAI/GLM-5", provider: "modelscope" },
     },
   },
   {
-    name: "KAT-Coder",
-    websiteUrl: "https://console.streamlake.ai",
-    apiKeyUrl: "https://console.streamlake.ai/console/api-key",
+    ...PROVIDER_METADATA.katCoder,
     settingsConfig: {
       name: "kat_coder",
       base_url:
@@ -547,7 +447,6 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         { id: "KAT-Coder-Air V1", name: "KAT-Coder Air V1" },
       ],
     },
-    category: "cn_official",
     templateValues: {
       ENDPOINT_ID: {
         label: "Vanchin Endpoint ID",
@@ -556,15 +455,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         editorValue: "",
       },
     },
-    icon: "catcoder",
     suggestedDefaults: {
       model: { default: "KAT-Coder-Pro V1", provider: "kat_coder" },
     },
   },
   {
-    name: "Longcat",
-    websiteUrl: "https://longcat.chat/platform",
-    apiKeyUrl: "https://longcat.chat/platform/api_keys",
+    ...PROVIDER_METADATA.longcat,
     settingsConfig: {
       name: "longcat",
       base_url: "https://api.longcat.chat/openai/v1",
@@ -572,17 +468,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "LongCat-Flash-Chat", name: "LongCat Flash Chat" }],
     },
-    category: "cn_official",
-    icon: "longcat",
-    iconColor: "#29E154",
     suggestedDefaults: {
       model: { default: "LongCat-Flash-Chat", provider: "longcat" },
     },
   },
   {
-    name: "MiniMax",
-    websiteUrl: "https://platform.minimaxi.com",
-    apiKeyUrl: "https://platform.minimaxi.com/subscribe/coding-plan",
+    ...PROVIDER_METADATA.miniMax,
     settingsConfig: {
       name: "minimax",
       base_url: "https://api.minimaxi.com/v1",
@@ -590,20 +481,13 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "MiniMax-M2.7", name: "MiniMax M2.7" }],
     },
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "minimax_cn",
     theme: { backgroundColor: "#f64551", textColor: "#FFFFFF" },
-    icon: "minimax",
-    iconColor: "#FF6B6B",
     suggestedDefaults: {
       model: { default: "MiniMax-M2.7", provider: "minimax" },
     },
   },
   {
-    name: "MiniMax en",
-    websiteUrl: "https://platform.minimax.io",
-    apiKeyUrl: "https://platform.minimax.io/subscribe/coding-plan",
+    ...PROVIDER_METADATA.miniMaxEn,
     settingsConfig: {
       name: "minimax_en",
       base_url: "https://api.minimax.io/v1",
@@ -611,19 +495,13 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "MiniMax-M2.7", name: "MiniMax M2.7" }],
     },
-    category: "cn_official",
-    isPartner: true,
-    partnerPromotionKey: "minimax_en",
     theme: { backgroundColor: "#f64551", textColor: "#FFFFFF" },
-    icon: "minimax",
-    iconColor: "#FF6B6B",
     suggestedDefaults: {
       model: { default: "MiniMax-M2.7", provider: "minimax_en" },
     },
   },
   {
-    name: "BaiLing",
-    websiteUrl: "https://alipaytbox.yuque.com/sxs0ba/ling/get_started",
+    ...PROVIDER_METADATA.baiLing,
     settingsConfig: {
       name: "bailing",
       base_url: "https://api.tbox.cn/api/anthropic",
@@ -631,15 +509,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "anthropic_messages",
       models: [{ id: "Ling-2.5-1T", name: "Ling 2.5 1T" }],
     },
-    category: "cn_official",
     suggestedDefaults: {
       model: { default: "Ling-2.5-1T", provider: "bailing" },
     },
   },
   {
-    name: "AiHubMix",
-    websiteUrl: "https://aihubmix.com",
-    apiKeyUrl: "https://aihubmix.com",
+    ...PROVIDER_METADATA.aiHubMix,
     settingsConfig: {
       name: "aihubmix",
       base_url: "https://aihubmix.com/v1",
@@ -647,17 +522,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "gpt-5.4", name: "GPT-5.4" }],
     },
-    category: "aggregator",
-    icon: "aihubmix",
-    iconColor: "#006FFB",
     suggestedDefaults: {
       model: { default: "gpt-5.4", provider: "aihubmix" },
     },
   },
   {
-    name: "SiliconFlow",
-    websiteUrl: "https://siliconflow.cn",
-    apiKeyUrl: "https://cloud.siliconflow.cn/i/drGuwc9k",
+    ...PROVIDER_METADATA.siliconFlow,
     settingsConfig: {
       name: "siliconflow",
       base_url: "https://api.siliconflow.cn/v1",
@@ -670,11 +540,6 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "siliconflow",
-    icon: "siliconflow",
-    iconColor: "#6E29F6",
     suggestedDefaults: {
       model: {
         default: "Pro/MiniMaxAI/MiniMax-M2.7",
@@ -683,9 +548,7 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
     },
   },
   {
-    name: "SiliconFlow en",
-    websiteUrl: "https://siliconflow.com",
-    apiKeyUrl: "https://cloud.siliconflow.cn/i/drGuwc9k",
+    ...PROVIDER_METADATA.siliconFlowEn,
     settingsConfig: {
       name: "siliconflow_en",
       base_url: "https://api.siliconflow.com/v1",
@@ -693,11 +556,6 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "MiniMaxAI/MiniMax-M2.7", name: "MiniMax M2.7" }],
     },
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "siliconflow",
-    icon: "siliconflow",
-    iconColor: "#000000",
     suggestedDefaults: {
       model: {
         default: "MiniMaxAI/MiniMax-M2.7",
@@ -706,9 +564,7 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
     },
   },
   {
-    name: "DMXAPI",
-    websiteUrl: "https://www.dmxapi.cn",
-    apiKeyUrl: "https://www.dmxapi.cn",
+    ...PROVIDER_METADATA.dmxapi,
     settingsConfig: {
       name: "dmxapi",
       base_url: "https://www.dmxapi.cn/v1",
@@ -716,17 +572,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "gpt-5.4", name: "GPT-5.4" }],
     },
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "dmxapi",
     suggestedDefaults: {
       model: { default: "gpt-5.4", provider: "dmxapi" },
     },
   },
   {
-    name: "PackyCode",
-    websiteUrl: "https://www.packyapi.com",
-    apiKeyUrl: "https://www.packyapi.com/register?aff=cc-switch-eco",
+    ...PROVIDER_METADATA.packyCode,
     settingsConfig: {
       name: "packycode",
       base_url: "https://www.packyapi.com",
@@ -738,18 +589,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5" },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "packycode",
-    icon: "packycode",
     suggestedDefaults: {
       model: { default: "claude-opus-4-7", provider: "packycode" },
     },
   },
   {
-    name: "Cubence",
-    websiteUrl: "https://cubence.com",
-    apiKeyUrl: "https://cubence.com/signup?code=CCSWITCH&source=ccs",
+    ...PROVIDER_METADATA.cubence,
     settingsConfig: {
       name: "cubence",
       base_url: "https://api.cubence.com",
@@ -761,19 +606,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5" },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "cubence",
-    icon: "cubence",
-    iconColor: "#000000",
     suggestedDefaults: {
       model: { default: "claude-opus-4-7", provider: "cubence" },
     },
   },
   {
-    name: "ClaudeCN",
-    websiteUrl: "https://claudecn.top",
-    apiKeyUrl: "https://claudecn.top/register?aff=ccswitche",
+    ...PROVIDER_METADATA.claudecn,
     settingsConfig: {
       name: "claudecn",
       base_url: "https://claudecn.top",
@@ -785,10 +623,6 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         { id: "claude-haiku-4-5", name: "Claude Haiku 4.5" },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "claudecn",
-    icon: "claudecn",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -801,9 +635,7 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
     },
   },
   {
-    name: "RunAPI",
-    websiteUrl: "https://runapi.co",
-    apiKeyUrl: "https://runapi.co",
+    ...PROVIDER_METADATA.runapi,
     settingsConfig: {
       name: "runapi",
       base_url: "https://runapi.co",
@@ -815,10 +647,6 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         { id: "claude-haiku-4-5", name: "Claude Haiku 4.5" },
       ],
     },
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "runapi",
-    icon: "runapi",
     templateValues: {
       apiKey: {
         label: "API Key",
@@ -831,9 +659,7 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
     },
   },
   {
-    name: "AIGoCode",
-    websiteUrl: "https://aigocode.com",
-    apiKeyUrl: "https://aigocode.com/invite/CC-SWITCH",
+    ...PROVIDER_METADATA.aiGoCode,
     settingsConfig: {
       name: "aigocode",
       base_url: "https://api.aigocode.com",
@@ -845,19 +671,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5" },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "aigocode",
-    icon: "aigocode",
-    iconColor: "#5B7FFF",
     suggestedDefaults: {
       model: { default: "claude-opus-4-7", provider: "aigocode" },
     },
   },
   {
-    name: "RightCode",
-    websiteUrl: "https://www.right.codes",
-    apiKeyUrl: "https://www.right.codes/register?aff=CCSWITCH",
+    ...PROVIDER_METADATA.rightCode,
     settingsConfig: {
       name: "rightcode",
       base_url: "https://www.right.codes/claude",
@@ -869,19 +688,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5" },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "rightcode",
-    icon: "rc",
-    iconColor: "#E96B2C",
     suggestedDefaults: {
       model: { default: "claude-opus-4-7", provider: "rightcode" },
     },
   },
   {
-    name: "AICodeMirror",
-    websiteUrl: "https://www.aicodemirror.com",
-    apiKeyUrl: "https://www.aicodemirror.com/register?invitecode=9915W3",
+    ...PROVIDER_METADATA.aiCodeMirror,
     settingsConfig: {
       name: "aicodemirror",
       base_url: "https://api.aicodemirror.com/api/claudecode",
@@ -893,20 +705,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5" },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "aicodemirror",
-    icon: "aicodemirror",
-    iconColor: "#000000",
     suggestedDefaults: {
       model: { default: "claude-opus-4-7", provider: "aicodemirror" },
     },
   },
   {
-    name: "CrazyRouter",
-    websiteUrl: "https://www.crazyrouter.com",
-    apiKeyUrl:
-      "https://www.crazyrouter.com/register?aff=OZcm&ref=cc-switch-eco",
+    ...PROVIDER_METADATA.crazyRouter,
     settingsConfig: {
       name: "crazyrouter",
       base_url: "https://cn.crazyrouter.com",
@@ -918,19 +722,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5" },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "crazyrouter",
-    icon: "crazyrouter",
-    iconColor: "#000000",
     suggestedDefaults: {
       model: { default: "claude-opus-4-7", provider: "crazyrouter" },
     },
   },
   {
-    name: "SSSAiCode",
-    websiteUrl: "https://www.sssaicode.com",
-    apiKeyUrl: "https://www.sssaicode.com/register?ref=DCP0SM",
+    ...PROVIDER_METADATA.sssAiCode,
     settingsConfig: {
       name: "sssaicode",
       base_url: "https://node-hk.sssaicode.com/api",
@@ -942,21 +739,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5" },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "sssaicode",
-    icon: "sssaicode",
-    iconColor: "#000000",
     suggestedDefaults: {
       model: { default: "claude-opus-4-7", provider: "sssaicode" },
     },
   },
   {
-    name: "Compshare",
-    nameKey: "providerForm.presets.ucloud",
-    websiteUrl: "https://www.compshare.cn",
-    apiKeyUrl:
-      "https://www.compshare.cn/coding-plan?ytag=GPU_YY_YX_git_cc-switch-eco",
+    ...PROVIDER_METADATA.compshare,
     settingsConfig: {
       name: "compshare",
       base_url: "https://api.modelverse.cn/v1",
@@ -964,21 +752,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "gpt-5.4", name: "GPT-5.4" }],
     },
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "ucloud",
-    icon: "ucloud",
-    iconColor: "#000000",
     suggestedDefaults: {
       model: { default: "gpt-5.4", provider: "compshare" },
     },
   },
   {
-    name: "Compshare Coding Plan",
-    nameKey: "providerForm.presets.ucloudCoding",
-    websiteUrl: "https://www.compshare.cn",
-    apiKeyUrl:
-      "https://www.compshare.cn/coding-plan?ytag=GPU_YY_YX_git_cc-switch-eco",
+    ...PROVIDER_METADATA.compshareCodingPlan,
     settingsConfig: {
       name: "compshare_coding",
       base_url: "https://cp.compshare.cn/v1",
@@ -986,19 +765,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "gpt-5.4", name: "GPT-5.4" }],
     },
-    category: "aggregator",
-    isPartner: true,
-    partnerPromotionKey: "ucloud",
-    icon: "ucloud",
-    iconColor: "#000000",
     suggestedDefaults: {
       model: { default: "gpt-5.4", provider: "compshare_coding" },
     },
   },
   {
-    name: "Micu",
-    websiteUrl: "https://www.micuapi.ai",
-    apiKeyUrl: "https://www.micuapi.ai/register?aff=aOYQ",
+    ...PROVIDER_METADATA.micu,
     settingsConfig: {
       name: "micu",
       base_url: "https://www.micuapi.ai",
@@ -1010,19 +782,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5" },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "micu",
-    icon: "micu",
-    iconColor: "#000000",
     suggestedDefaults: {
       model: { default: "claude-opus-4-7", provider: "micu" },
     },
   },
   {
-    name: "CTok.ai",
-    websiteUrl: "https://ctok.ai",
-    apiKeyUrl: "https://ctok.ai",
+    ...PROVIDER_METADATA.cTok,
     settingsConfig: {
       name: "ctok",
       base_url: "https://api.ctok.ai",
@@ -1034,19 +799,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5" },
       ],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "ctok",
-    icon: "ctok",
-    iconColor: "#000000",
     suggestedDefaults: {
       model: { default: "claude-opus-4-7", provider: "ctok" },
     },
   },
   {
-    name: "E-FlowCode",
-    websiteUrl: "https://e-flowcode.cc",
-    apiKeyUrl: "https://e-flowcode.cc",
+    ...PROVIDER_METADATA.eFlowCode,
     settingsConfig: {
       name: "eflowcode",
       base_url: "https://e-flowcode.cc",
@@ -1058,17 +816,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5" },
       ],
     },
-    category: "third_party",
-    icon: "eflowcode",
-    iconColor: "#000000",
     suggestedDefaults: {
       model: { default: "claude-opus-4-7", provider: "eflowcode" },
     },
   },
   {
-    name: "LemonData",
-    websiteUrl: "https://lemondata.cc",
-    apiKeyUrl: "https://lemondata.cc/r/FFX1ZDUP",
+    ...PROVIDER_METADATA.lemonData,
     settingsConfig: {
       name: "lemondata",
       base_url: "https://api.lemondata.cc/v1",
@@ -1076,18 +829,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "gpt-5.4", name: "GPT-5.4" }],
     },
-    category: "third_party",
-    isPartner: true,
-    partnerPromotionKey: "lemondata",
-    icon: "lemondata",
     suggestedDefaults: {
       model: { default: "gpt-5.4", provider: "lemondata" },
     },
   },
   {
-    name: "TheRouter",
-    websiteUrl: "https://therouter.ai",
-    apiKeyUrl: "https://dashboard.therouter.ai",
+    ...PROVIDER_METADATA.theRouter,
     settingsConfig: {
       name: "therouter",
       base_url: "https://api.therouter.ai/v1",
@@ -1099,7 +846,6 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         { id: "openai/gpt-5.4-nano", name: "GPT-5.4 nano" },
       ],
     },
-    category: "aggregator",
     suggestedDefaults: {
       model: {
         default: "openai/gpt-5.4",
@@ -1108,9 +854,7 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
     },
   },
   {
-    name: "Novita AI",
-    websiteUrl: "https://novita.ai",
-    apiKeyUrl: "https://novita.ai",
+    ...PROVIDER_METADATA.novitaAi,
     settingsConfig: {
       name: "novita",
       base_url: "https://api.novita.ai/v3/openai",
@@ -1118,17 +862,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "zai-org/glm-5", name: "Zai-Org / GLM-5" }],
     },
-    category: "aggregator",
-    icon: "novita",
-    iconColor: "#000000",
     suggestedDefaults: {
       model: { default: "zai-org/glm-5", provider: "novita" },
     },
   },
   {
-    name: "Nvidia",
-    websiteUrl: "https://build.nvidia.com",
-    apiKeyUrl: "https://build.nvidia.com/settings/api-keys",
+    ...PROVIDER_METADATA.nvidia,
     settingsConfig: {
       name: "nvidia",
       base_url: "https://integrate.api.nvidia.com",
@@ -1136,17 +875,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "moonshotai/kimi-k2.5", name: "Moonshot Kimi K2.5" }],
     },
-    category: "aggregator",
-    icon: "nvidia",
-    iconColor: "#000000",
     suggestedDefaults: {
       model: { default: "moonshotai/kimi-k2.5", provider: "nvidia" },
     },
   },
   {
-    name: "PIPELLM",
-    websiteUrl: "https://code.pipellm.ai",
-    apiKeyUrl: "https://code.pipellm.ai/login?ref=uvw650za",
+    ...PROVIDER_METADATA.pipellm,
     settingsConfig: {
       name: "pipellm",
       base_url: "https://cc-api.pipellm.ai",
@@ -1161,16 +895,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         },
       ],
     },
-    category: "aggregator",
-    icon: "pipellm",
     suggestedDefaults: {
       model: { default: "claude-opus-4-7", provider: "pipellm" },
     },
   },
   {
-    name: "Xiaomi MiMo",
-    websiteUrl: "https://platform.xiaomimimo.com",
-    apiKeyUrl: "https://platform.xiaomimimo.com/#/console/api-keys",
+    ...PROVIDER_METADATA.xiaomiMiMo,
     settingsConfig: {
       name: "xiaomi_mimo",
       base_url: "https://api.xiaomimimo.com/v1",
@@ -1178,17 +908,12 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "chat_completions",
       models: [{ id: "mimo-v2.5-pro", name: "MiMo v2.5 Pro" }],
     },
-    category: "cn_official",
-    icon: "xiaomimimo",
-    iconColor: "#000000",
     suggestedDefaults: {
       model: { default: "mimo-v2.5-pro", provider: "xiaomi_mimo" },
     },
   },
   {
-    name: "Xiaomi MiMo Token Plan (China)",
-    websiteUrl: "https://platform.xiaomimimo.com/#/token-plan",
-    apiKeyUrl: "https://platform.xiaomimimo.com/#/console/plan-manage",
+    ...PROVIDER_METADATA.xiaomiMiMoTokenPlan,
     settingsConfig: {
       name: "xiaomi_mimo_token_plan",
       base_url: "https://token-plan-cn.xiaomimimo.com/v1",
@@ -1199,9 +924,6 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
         { id: "mimo-v2.5", name: "MiMo v2.5" },
       ],
     },
-    category: "cn_official",
-    icon: "xiaomimimo",
-    iconColor: "#000000",
     suggestedDefaults: {
       model: { default: "mimo-v2.5-pro", provider: "xiaomi_mimo_token_plan" },
     },
