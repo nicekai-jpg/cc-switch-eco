@@ -29,7 +29,6 @@ import type {
 } from "@/types";
 import type { TemplateValueConfig } from "@/config/baseProviderPreset";
 import type { HermesApiMode } from "@/config/hermesProviderPresets";
-import type { ComponentType } from "react";
 
 export interface AppSpecificFormFieldsProps {
   appId: AppId;
