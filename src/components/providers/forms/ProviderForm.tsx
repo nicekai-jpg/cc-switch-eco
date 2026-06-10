@@ -86,6 +86,14 @@ import {
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useSettingsQuery } from "@/lib/query";
 import { normalizePricingSource } from "./helpers/opencodeFormUtils";
+import {
+  codexApiFormatFromWireApi,
+  normalizeCodexCatalogModelsForSave,
+  normalizeCodexChatReasoningForSave,
+} from "./helpers/codexNormalizeUtils";
+
+// Re-export 供测试文件导入
+export { normalizeCodexCatalogModelsForSave } from "./helpers/codexNormalizeUtils";
 import { resolveManagedAccountId } from "@/lib/authBinding";
 import { useOpenClawLiveProviderIds } from "@/hooks/useOpenClaw";
 import { useHermesLiveProviderIds } from "@/hooks/useHermes";
@@ -99,90 +107,6 @@ type PresetEntry = {
     | OpenCodeProviderPreset
     | OpenClawProviderPreset
     | HermesProviderPreset;
-};
-
-const codexApiFormatFromWireApi = (
-  wireApi: string | undefined,
-): CodexApiFormat | undefined => {
-  switch (wireApi?.trim().toLowerCase()) {
-    case "chat":
-    case "chat_completions":
-    case "chat-completions":
-    case "openai_chat":
-    case "openai-chat":
-      return "openai_chat";
-    case "responses":
-    case "openai_responses":
-    case "openai-responses":
-      return "openai_responses";
-    default:
-      return undefined;
-  }
-};
-
-export const normalizeCodexCatalogModelsForSave = (
-  models: CodexCatalogModel[],
-): CodexCatalogModel[] => {
-  const seen = new Set<string>();
-  const normalized: CodexCatalogModel[] = [];
-
-  for (const item of models) {
-    const model = item.model.trim();
-    if (!model || seen.has(model)) continue;
-    seen.add(model);
-
-    const displayName = item.displayName?.trim();
-    const rawContextWindow = String(item.contextWindow ?? "").replace(
-      /[^\d]/g,
-      "",
-    );
-    const contextWindow = rawContextWindow
-      ? Number.parseInt(rawContextWindow, 10)
-      : undefined;
-
-    normalized.push({
-      model,
-      ...(displayName ? { displayName } : {}),
-      ...(contextWindow && contextWindow > 0 ? { contextWindow } : {}),
-    });
-  }
-
-  return normalized;
-};
-
-const normalizeCodexChatReasoningForSave = (
-  value?: CodexChatReasoning,
-): CodexChatReasoning | undefined => {
-  const supportsEffort = value?.supportsEffort === true;
-  const supportsThinking = value?.supportsThinking === true || supportsEffort;
-  const hasExplicitConfig = value && Object.keys(value).length > 0;
-
-  if (!supportsThinking && !supportsEffort) {
-    return hasExplicitConfig
-      ? {
-          supportsThinking: false,
-          supportsEffort: false,
-          thinkingParam: "none",
-          effortParam: "none",
-          outputFormat: value?.outputFormat ?? "auto",
-        }
-      : undefined;
-  }
-
-  return {
-    supportsThinking,
-    supportsEffort,
-    thinkingParam: supportsThinking
-      ? (value?.thinkingParam ?? "thinking")
-      : "none",
-    effortParam: supportsEffort
-      ? (value?.effortParam ?? "reasoning_effort")
-      : "none",
-    effortValueMode: supportsEffort
-      ? (value?.effortValueMode ?? "passthrough")
-      : undefined,
-    outputFormat: value?.outputFormat ?? "auto",
-  };
 };
 
 export interface ProviderFormProps {
