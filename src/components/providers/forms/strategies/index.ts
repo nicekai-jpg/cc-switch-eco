@@ -7,13 +7,14 @@
 import type { AppId } from "@/lib/api";
 import {
   registerPresetListStrategy,
+  registerProviderFormStrategy,
 } from "./types";
-import { claudePresetListStrategy } from "./claudeStrategy";
-import { codexPresetListStrategy } from "./codexStrategy";
-import { geminiPresetListStrategy } from "./geminiStrategy";
-import { opencodePresetListStrategy } from "./opencodeStrategy";
-import { openclawPresetListStrategy } from "./openclawStrategy";
-import { hermesPresetListStrategy } from "./hermesStrategy";
+import { claudePresetListStrategy, claudeFormStrategy } from "./claudeStrategy";
+import { codexPresetListStrategy, codexFormStrategy } from "./codexStrategy";
+import { geminiPresetListStrategy, geminiFormStrategy } from "./geminiStrategy";
+import { opencodePresetListStrategy, opencodeFormStrategy } from "./opencodeStrategy";
+import { openclawPresetListStrategy, openclawFormStrategy } from "./openclawStrategy";
+import { hermesPresetListStrategy, hermesFormStrategy } from "./hermesStrategy";
 
 let registered = false;
 
@@ -30,12 +31,21 @@ export function registerAllStrategies(): void {
   registerPresetListStrategy("openclaw" as AppId, openclawPresetListStrategy);
   registerPresetListStrategy("hermes" as AppId, hermesPresetListStrategy);
 
+  // ProviderForm 策略
+  registerProviderFormStrategy("claude" as AppId, claudeFormStrategy);
+  registerProviderFormStrategy("codex" as AppId, codexFormStrategy);
+  registerProviderFormStrategy("gemini" as AppId, geminiFormStrategy);
+  registerProviderFormStrategy("opencode" as AppId, opencodeFormStrategy);
+  registerProviderFormStrategy("openclaw" as AppId, openclawFormStrategy);
+  registerProviderFormStrategy("hermes" as AppId, hermesFormStrategy);
+
   // 表单字段策略（Phase 3 后续步骤注册）
 }
 
 // 导出类型供外部使用
-export type { PresetEntry, PresetListStrategy, FormFieldsStrategy } from "./types";
+export type { PresetEntry, PresetListStrategy, ProviderFormStrategy, FormFieldsStrategy } from "./types";
 export {
   getPresetListStrategy,
+  getProviderFormStrategy,
   getFormFieldsStrategy,
 } from "./types";

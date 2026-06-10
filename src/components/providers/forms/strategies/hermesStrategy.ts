@@ -1,8 +1,9 @@
 /**
- * Hermes 预设列表策略
+ * Hermes 策略
  */
 import { hermesProviderPresets } from "@/config/hermesProviderPresets";
-import type { PresetEntry, PresetListStrategy } from "./types";
+import { HERMES_DEFAULT_CONFIG } from "@/components/providers/forms/hooks/useHermesFormState";
+import type { PresetEntry, PresetListStrategy, ProviderFormStrategy } from "./types";
 
 export const hermesPresetListStrategy: PresetListStrategy = {
   getPresetEntries(): PresetEntry[] {
@@ -10,5 +11,17 @@ export const hermesPresetListStrategy: PresetListStrategy = {
       id: `hermes-${index}`,
       preset,
     }));
+  },
+};
+
+export const hermesFormStrategy: ProviderFormStrategy = {
+  getDefaultConfig(): string {
+    return HERMES_DEFAULT_CONFIG;
+  },
+  supportsFullUrl(): boolean {
+    return false;
+  },
+  hasProviderKey(): boolean {
+    return true;
   },
 };

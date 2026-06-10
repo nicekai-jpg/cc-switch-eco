@@ -1,8 +1,9 @@
 /**
- * Gemini 预设列表策略
+ * Gemini 策略
  */
 import { geminiProviderPresets } from "@/config/geminiProviderPresets";
-import type { PresetEntry, PresetListStrategy } from "./types";
+import { GEMINI_DEFAULT_CONFIG } from "@/components/providers/forms/helpers/opencodeFormUtils";
+import type { PresetEntry, PresetListStrategy, ProviderFormStrategy } from "./types";
 
 export const geminiPresetListStrategy: PresetListStrategy = {
   getPresetEntries(): PresetEntry[] {
@@ -10,5 +11,17 @@ export const geminiPresetListStrategy: PresetListStrategy = {
       id: `gemini-${index}`,
       preset,
     }));
+  },
+};
+
+export const geminiFormStrategy: ProviderFormStrategy = {
+  getDefaultConfig(): string {
+    return GEMINI_DEFAULT_CONFIG;
+  },
+  supportsFullUrl(): boolean {
+    return false;
+  },
+  hasProviderKey(): boolean {
+    return false;
   },
 };

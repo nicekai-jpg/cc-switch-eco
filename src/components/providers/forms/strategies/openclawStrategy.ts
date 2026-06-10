@@ -1,8 +1,9 @@
 /**
- * OpenClaw 预设列表策略
+ * OpenClaw 策略
  */
 import { openclawProviderPresets } from "@/config/openclawProviderPresets";
-import type { PresetEntry, PresetListStrategy } from "./types";
+import { OPENCLAW_DEFAULT_CONFIG } from "@/components/providers/forms/helpers/opencodeFormUtils";
+import type { PresetEntry, PresetListStrategy, ProviderFormStrategy } from "./types";
 
 export const openclawPresetListStrategy: PresetListStrategy = {
   getPresetEntries(): PresetEntry[] {
@@ -10,5 +11,17 @@ export const openclawPresetListStrategy: PresetListStrategy = {
       id: `openclaw-${index}`,
       preset,
     }));
+  },
+};
+
+export const openclawFormStrategy: ProviderFormStrategy = {
+  getDefaultConfig(): string {
+    return OPENCLAW_DEFAULT_CONFIG;
+  },
+  supportsFullUrl(): boolean {
+    return false;
+  },
+  hasProviderKey(): boolean {
+    return true;
   },
 };

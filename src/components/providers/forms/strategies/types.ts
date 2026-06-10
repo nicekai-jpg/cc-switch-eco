@@ -18,11 +18,25 @@ export interface PresetEntry {
  * 预设列表策略
  *
  * 负责根据 appId 返回对应的预设列表。
- * 这是策略模式的第一步提取，后续可逐步扩展 validate/buildPayload 等方法。
  */
 export interface PresetListStrategy {
   /** 获取该 app 的预设条目列表 */
   getPresetEntries(): PresetEntry[];
+}
+
+/**
+ * ProviderForm 策略
+ *
+ * 聚合 ProviderForm 中按 appId 分发的配置和行为。
+ * 逐步扩展：defaultConfig / supportsFullUrl / providerKey 验证等。
+ */
+export interface ProviderFormStrategy {
+  /** 新建自定义预设时的默认 settingsConfig 字符串 */
+  getDefaultConfig(): string;
+  /** 是否支持 Full URL 模式 */
+  supportsFullUrl(): boolean;
+  /** 是否有 providerKey（opencode/openclaw/hermes） */
+  hasProviderKey(): boolean;
 }
 
 /**
@@ -52,6 +66,7 @@ export interface ConfigEditorProps {
 
 /** 策略注册表 */
 const presetListStrategies = new Map<AppId, PresetListStrategy>();
+const providerFormStrategies = new Map<AppId, ProviderFormStrategy>();
 const formFieldsStrategies = new Map<AppId, FormFieldsStrategy>();
 
 /** 注册预设列表策略 */
@@ -67,6 +82,23 @@ export function getPresetListStrategy(appId: AppId): PresetListStrategy {
   const strategy = presetListStrategies.get(appId);
   if (!strategy) {
     throw new Error(`No PresetListStrategy registered for app: ${appId}`);
+  }
+  return strategy;
+}
+
+/** 注册 ProviderForm 策略 */
+export function registerProviderFormStrategy(
+  appId: AppId,
+  strategy: ProviderFormStrategy,
+): void {
+  providerFormStrategies.set(appId, strategy);
+}
+
+/** 获取 ProviderForm 策略 */
+export function getProviderFormStrategy(appId: AppId): ProviderFormStrategy {
+  const strategy = providerFormStrategies.get(appId);
+  if (!strategy) {
+    throw new Error(`No ProviderFormStrategy registered for app: ${appId}`);
   }
   return strategy;
 }

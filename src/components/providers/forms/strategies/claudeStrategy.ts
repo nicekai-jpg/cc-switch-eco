@@ -1,8 +1,9 @@
 /**
- * Claude 预设列表策略
+ * Claude 策略
  */
 import { providerPresets } from "@/config/claudeProviderPresets";
-import type { PresetEntry, PresetListStrategy } from "./types";
+import { CLAUDE_DEFAULT_CONFIG } from "@/components/providers/forms/helpers/opencodeFormUtils";
+import type { PresetEntry, PresetListStrategy, ProviderFormStrategy } from "./types";
 
 export const claudePresetListStrategy: PresetListStrategy = {
   getPresetEntries(): PresetEntry[] {
@@ -12,5 +13,17 @@ export const claudePresetListStrategy: PresetListStrategy = {
         id: `claude-${index}`,
         preset,
       }));
+  },
+};
+
+export const claudeFormStrategy: ProviderFormStrategy = {
+  getDefaultConfig(): string {
+    return CLAUDE_DEFAULT_CONFIG;
+  },
+  supportsFullUrl(): boolean {
+    return true;
+  },
+  hasProviderKey(): boolean {
+    return false;
   },
 };
