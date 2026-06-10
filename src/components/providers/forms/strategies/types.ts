@@ -1,121 +1,62 @@
 /**
- * ProviderForm 策略模式 — 类型定义
+ * 统一应用策略 — 类型定义与注册表
  *
- * 每个 app 实现独立的策略，通过注册表获取。
- * 新增 app 只需新增策略文件 + 注册，无需修改 ProviderForm.tsx。
+ * 合并原 PresetListStrategy + ProviderFormStrategy 为单一 AppStrategy。
+ * 常量方法改为声明式字段，删除未使用的 FormFieldsStrategy。
  */
-import type { ComponentType } from "react";
 import type { AppId } from "@/lib/api";
+import type { ProviderPreset } from "@/config/claudeProviderPresets";
+import type { CodexProviderPreset } from "@/config/codexProviderPresets";
+import type { GeminiProviderPreset } from "@/config/geminiProviderPresets";
+import type { OpenCodeProviderPreset } from "@/config/opencodeProviderPresets";
+import type { OpenClawProviderPreset } from "@/config/openclawProviderPresets";
+import type { HermesProviderPreset } from "@/config/hermesProviderPresets";
 
-/** 预设条目（供 presetEntries 使用） */
+/** 所有 app 预设类型的联合（替代 any） */
+export type AnyProviderPreset =
+  | ProviderPreset
+  | CodexProviderPreset
+  | GeminiProviderPreset
+  | OpenCodeProviderPreset
+  | OpenClawProviderPreset
+  | HermesProviderPreset;
+
+/** 预设条目（preset 类型安全） */
 export interface PresetEntry {
   id: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  preset: any; // 各 app 的 preset 类型不同，用 any 统一
+  preset: AnyProviderPreset;
 }
 
 /**
- * 预设列表策略
+ * 统一应用策略 — 声明式配置
  *
- * 负责根据 appId 返回对应的预设列表。
+ * 合并原 PresetListStrategy + ProviderFormStrategy。
+ * 原策略方法全是常量，改为声明式字段更简洁。
  */
-export interface PresetListStrategy {
-  /** 获取该 app 的预设条目列表 */
-  getPresetEntries(): PresetEntry[];
-}
-
-/**
- * ProviderForm 策略
- *
- * 聚合 ProviderForm 中按 appId 分发的配置和行为。
- * 逐步扩展：defaultConfig / supportsFullUrl / providerKey 验证等。
- */
-export interface ProviderFormStrategy {
+export interface AppStrategy {
+  /** 预设条目列表 */
+  presetEntries: PresetEntry[];
   /** 新建自定义预设时的默认 settingsConfig 字符串 */
-  getDefaultConfig(): string;
+  defaultConfig: string;
   /** 是否支持 Full URL 模式 */
-  supportsFullUrl(): boolean;
+  supportsFullUrl: boolean;
   /** 是否有 providerKey（opencode/openclaw/hermes） */
-  hasProviderKey(): boolean;
-}
-
-/**
- * 表单字段子组件策略
- *
- * 负责根据 appId 渲染对应的表单字段组件。
- * 替代 AppSpecificFormFields 中的 switch(appId) 分发。
- */
-export interface FormFieldsStrategy {
-  /** 该 app 的表单字段子组件 */
-  FormFields: ComponentType<FormFieldsProps>;
-  /** 该 app 的配置编辑器子组件 */
-  ConfigEditor: ComponentType<ConfigEditorProps>;
-}
-
-/** 表单字段子组件的通用 props */
-export interface FormFieldsProps {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any; // 各 app 的 props 不同，用通用签名
-}
-
-/** 配置编辑器子组件的通用 props */
-export interface ConfigEditorProps {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
+  hasProviderKey: boolean;
 }
 
 /** 策略注册表 */
-const presetListStrategies = new Map<AppId, PresetListStrategy>();
-const providerFormStrategies = new Map<AppId, ProviderFormStrategy>();
-const formFieldsStrategies = new Map<AppId, FormFieldsStrategy>();
+const strategies = new Map<AppId, AppStrategy>();
 
-/** 注册预设列表策略 */
-export function registerPresetListStrategy(
-  appId: AppId,
-  strategy: PresetListStrategy,
-): void {
-  presetListStrategies.set(appId, strategy);
+/** 注册策略 */
+export function registerStrategy(appId: AppId, strategy: AppStrategy): void {
+  strategies.set(appId, strategy);
 }
 
-/** 获取预设列表策略 */
-export function getPresetListStrategy(appId: AppId): PresetListStrategy {
-  const strategy = presetListStrategies.get(appId);
+/** 获取策略 */
+export function getStrategy(appId: AppId): AppStrategy {
+  const strategy = strategies.get(appId);
   if (!strategy) {
-    throw new Error(`No PresetListStrategy registered for app: ${appId}`);
-  }
-  return strategy;
-}
-
-/** 注册 ProviderForm 策略 */
-export function registerProviderFormStrategy(
-  appId: AppId,
-  strategy: ProviderFormStrategy,
-): void {
-  providerFormStrategies.set(appId, strategy);
-}
-
-/** 获取 ProviderForm 策略 */
-export function getProviderFormStrategy(appId: AppId): ProviderFormStrategy {
-  const strategy = providerFormStrategies.get(appId);
-  if (!strategy) {
-    throw new Error(`No ProviderFormStrategy registered for app: ${appId}`);
-  }
-  return strategy;
-}
-
-/** 注册表单字段策略 */
-export function registerFormFieldsStrategy(
-  appId: AppId,
-  strategy: FormFieldsStrategy,
-): void {
-  formFieldsStrategies.set(appId, strategy);
-}
-
-/** 获取表单字段策略 */
-export function getFormFieldsStrategy(appId: AppId): FormFieldsStrategy {
-  const strategy = formFieldsStrategies.get(appId);
-  if (!strategy) {
-    throw new Error(`No FormFieldsStrategy registered for app: ${appId}`);
+    throw new Error(`No AppStrategy registered for app: ${appId}`);
   }
   return strategy;
 }

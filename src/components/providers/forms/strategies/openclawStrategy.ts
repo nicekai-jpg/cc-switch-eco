@@ -3,25 +3,14 @@
  */
 import { openclawProviderPresets } from "@/config/openclawProviderPresets";
 import { OPENCLAW_DEFAULT_CONFIG } from "@/components/providers/forms/helpers/opencodeFormUtils";
-import type { PresetEntry, PresetListStrategy, ProviderFormStrategy } from "./types";
+import type { AppStrategy } from "./types";
 
-export const openclawPresetListStrategy: PresetListStrategy = {
-  getPresetEntries(): PresetEntry[] {
-    return openclawProviderPresets.map<PresetEntry>((preset, index) => ({
-      id: `openclaw-${index}`,
-      preset,
-    }));
-  },
-};
-
-export const openclawFormStrategy: ProviderFormStrategy = {
-  getDefaultConfig(): string {
-    return OPENCLAW_DEFAULT_CONFIG;
-  },
-  supportsFullUrl(): boolean {
-    return false;
-  },
-  hasProviderKey(): boolean {
-    return true;
-  },
+export const openclawStrategy: AppStrategy = {
+  presetEntries: openclawProviderPresets.map((preset, index) => ({
+    id: `openclaw-${index}`,
+    preset,
+  })),
+  defaultConfig: OPENCLAW_DEFAULT_CONFIG,
+  supportsFullUrl: false,
+  hasProviderKey: true,
 };

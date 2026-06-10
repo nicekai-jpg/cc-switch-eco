@@ -1,51 +1,36 @@
 /**
  * 策略注册入口
  *
- * 在应用启动时调用 registerAllStrategies() 注册所有策略。
- * 新增 app 只需在此文件添加注册调用。
+ * 模块加载时立即执行注册（副作用在顶层 import，不在组件渲染路径中）。
+ * 新增 app 只需在此文件添加注册条目。
  */
 import type { AppId } from "@/lib/api";
-import {
-  registerPresetListStrategy,
-  registerProviderFormStrategy,
-} from "./types";
-import { claudePresetListStrategy, claudeFormStrategy } from "./claudeStrategy";
-import { codexPresetListStrategy, codexFormStrategy } from "./codexStrategy";
-import { geminiPresetListStrategy, geminiFormStrategy } from "./geminiStrategy";
-import { opencodePresetListStrategy, opencodeFormStrategy } from "./opencodeStrategy";
-import { openclawPresetListStrategy, openclawFormStrategy } from "./openclawStrategy";
-import { hermesPresetListStrategy, hermesFormStrategy } from "./hermesStrategy";
+import { registerStrategy } from "./types";
+import { claudeStrategy } from "./claudeStrategy";
+import { codexStrategy } from "./codexStrategy";
+import { geminiStrategy } from "./geminiStrategy";
+import { opencodeStrategy } from "./opencodeStrategy";
+import { openclawStrategy } from "./openclawStrategy";
+import { hermesStrategy } from "./hermesStrategy";
 
-let registered = false;
+/**
+ * 声明式策略注册表
+ *
+ * key 类型为 AppId 字面量，TypeScript 自动收窄，无需 as AppId。
+ */
+const strategyRegistrations: Record<AppId, () => void> = {
+  claude: () => registerStrategy("claude", claudeStrategy),
+  "claude-desktop": () => {}, // claude-desktop 走独立表单，不注册策略
+  codex: () => registerStrategy("codex", codexStrategy),
+  gemini: () => registerStrategy("gemini", geminiStrategy),
+  opencode: () => registerStrategy("opencode", opencodeStrategy),
+  openclaw: () => registerStrategy("openclaw", openclawStrategy),
+  hermes: () => registerStrategy("hermes", hermesStrategy),
+};
 
-/** 注册所有策略（幂等，多次调用安全） */
-export function registerAllStrategies(): void {
-  if (registered) return;
-  registered = true;
+// 模块初始化时注册所有策略
+Object.values(strategyRegistrations).forEach((register) => register());
 
-  // 预设列表策略
-  registerPresetListStrategy("claude" as AppId, claudePresetListStrategy);
-  registerPresetListStrategy("codex" as AppId, codexPresetListStrategy);
-  registerPresetListStrategy("gemini" as AppId, geminiPresetListStrategy);
-  registerPresetListStrategy("opencode" as AppId, opencodePresetListStrategy);
-  registerPresetListStrategy("openclaw" as AppId, openclawPresetListStrategy);
-  registerPresetListStrategy("hermes" as AppId, hermesPresetListStrategy);
-
-  // ProviderForm 策略
-  registerProviderFormStrategy("claude" as AppId, claudeFormStrategy);
-  registerProviderFormStrategy("codex" as AppId, codexFormStrategy);
-  registerProviderFormStrategy("gemini" as AppId, geminiFormStrategy);
-  registerProviderFormStrategy("opencode" as AppId, opencodeFormStrategy);
-  registerProviderFormStrategy("openclaw" as AppId, openclawFormStrategy);
-  registerProviderFormStrategy("hermes" as AppId, hermesFormStrategy);
-
-  // 表单字段策略（Phase 3 后续步骤注册）
-}
-
-// 导出类型供外部使用
-export type { PresetEntry, PresetListStrategy, ProviderFormStrategy, FormFieldsStrategy } from "./types";
-export {
-  getPresetListStrategy,
-  getProviderFormStrategy,
-  getFormFieldsStrategy,
-} from "./types";
+// 导出
+export type { PresetEntry, AppStrategy, AnyProviderPreset } from "./types";
+export { getStrategy } from "./types";

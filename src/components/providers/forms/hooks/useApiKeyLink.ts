@@ -1,19 +1,7 @@
 import { useMemo } from "react";
 import type { AppId } from "@/lib/api";
 import type { ProviderCategory } from "@/types";
-import type { ProviderPreset } from "@/config/claudeProviderPresets";
-import type { CodexProviderPreset } from "@/config/codexProviderPresets";
-import type { GeminiProviderPreset } from "@/config/geminiProviderPresets";
-import type { OpenCodeProviderPreset } from "@/config/opencodeProviderPresets";
-
-type PresetEntry = {
-  id: string;
-  preset:
-    | ProviderPreset
-    | CodexProviderPreset
-    | GeminiProviderPreset
-    | OpenCodeProviderPreset;
-};
+import type { PresetEntry } from "../strategies/types";
 
 interface UseApiKeyLinkProps {
   appId: AppId;

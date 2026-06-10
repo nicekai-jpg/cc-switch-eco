@@ -34,11 +34,7 @@ import {
 } from "@/config/openclawProviderPresets";
 import type { HermesProviderPreset } from "@/config/hermesProviderPresets";
 import type { UniversalProviderPreset } from "@/config/universalProviderPresets";
-import {
-  registerAllStrategies,
-  getPresetListStrategy,
-  getProviderFormStrategy,
-} from "./strategies";
+import { getStrategy } from "./strategies";
 import {
   applyTemplateValues,
 } from "@/utils/providerConfigUtils";
@@ -98,17 +94,6 @@ import { resolveManagedAccountId } from "@/lib/authBinding";
 import { useOpenClawLiveProviderIds } from "@/hooks/useOpenClaw";
 import { useHermesLiveProviderIds } from "@/hooks/useHermes";
 
-type PresetEntry = {
-  id: string;
-  preset:
-    | ProviderPreset
-    | CodexProviderPreset
-    | GeminiProviderPreset
-    | OpenCodeProviderPreset
-    | OpenClawProviderPreset
-    | HermesProviderPreset;
-};
-
 export interface ProviderFormProps {
   appId: AppId;
   providerId?: string;
@@ -159,9 +144,7 @@ function ProviderFormFull({
   const isEditMode = Boolean(initialData);
   const queryClient = useQueryClient();
 
-  // 注册策略（幂等，多次调用安全）
-  registerAllStrategies();
-  const formStrategy = getProviderFormStrategy(appId);
+  const strategy = getStrategy(appId);
   const { data: settingsData } = useSettingsQuery();
   const showCommonConfigNotice =
     settingsData != null && settingsData.commonConfigConfirmed !== true;
@@ -201,7 +184,7 @@ function ProviderFormFull({
   const [endpointAutoSelect, setEndpointAutoSelect] = useState<boolean>(
     () => initialData?.meta?.endpointAutoSelect ?? true,
   );
-  const supportsFullUrl = formStrategy.supportsFullUrl();
+  const supportsFullUrl = strategy.supportsFullUrl;
   const [localIsFullUrl, setLocalIsFullUrl] = useState<boolean>(() => {
     if (!supportsFullUrl) return false;
     return initialData?.meta?.isFullUrl ?? false;
@@ -265,11 +248,11 @@ function ProviderFormFull({
       notes: initialData?.notes ?? "",
       settingsConfig: initialData?.settingsConfig
         ? JSON.stringify(initialData.settingsConfig, null, 2)
-        : formStrategy.getDefaultConfig(),
+        : strategy.defaultConfig,
       icon: initialData?.icon ?? "",
       iconColor: initialData?.iconColor ?? "",
     }),
-    [initialData, formStrategy],
+    [initialData, strategy],
   );
 
   const form = useForm<ProviderFormData>({
@@ -493,12 +476,12 @@ function ProviderFormFull({
 
   const presetEntries = useMemo(() => {
     try {
-      return getPresetListStrategy(appId).getPresetEntries();
+      return getStrategy(appId).presetEntries;
     } catch {
       // Fallback: 如果策略未注册，使用 Claude 预设
       return providerPresets
         .filter((p) => !p.hidden)
-        .map<PresetEntry>((preset, index) => ({
+        .map((preset, index) => ({
           id: `claude-${index}`,
           preset,
         }));
@@ -1755,7 +1738,7 @@ function ProviderFormFull({
             isClaudeExtracting={isClaudeExtracting}
           />
 
-          {!isAnyOmoCategory && !formStrategy.hasProviderKey() && (
+          {!isAnyOmoCategory && !strategy.hasProviderKey && (
               <ProviderAdvancedConfig
                 testConfig={testConfig}
                 pricingConfig={pricingConfig}

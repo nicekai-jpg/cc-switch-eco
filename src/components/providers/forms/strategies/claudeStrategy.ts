@@ -3,27 +3,16 @@
  */
 import { providerPresets } from "@/config/claudeProviderPresets";
 import { CLAUDE_DEFAULT_CONFIG } from "@/components/providers/forms/helpers/opencodeFormUtils";
-import type { PresetEntry, PresetListStrategy, ProviderFormStrategy } from "./types";
+import type { AppStrategy } from "./types";
 
-export const claudePresetListStrategy: PresetListStrategy = {
-  getPresetEntries(): PresetEntry[] {
-    return providerPresets
-      .filter((p) => !p.hidden)
-      .map<PresetEntry>((preset, index) => ({
-        id: `claude-${index}`,
-        preset,
-      }));
-  },
-};
-
-export const claudeFormStrategy: ProviderFormStrategy = {
-  getDefaultConfig(): string {
-    return CLAUDE_DEFAULT_CONFIG;
-  },
-  supportsFullUrl(): boolean {
-    return true;
-  },
-  hasProviderKey(): boolean {
-    return false;
-  },
+export const claudeStrategy: AppStrategy = {
+  presetEntries: providerPresets
+    .filter((p) => !p.hidden)
+    .map((preset, index) => ({
+      id: `claude-${index}`,
+      preset,
+    })),
+  defaultConfig: CLAUDE_DEFAULT_CONFIG,
+  supportsFullUrl: true,
+  hasProviderKey: false,
 };
