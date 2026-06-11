@@ -686,93 +686,51 @@ function ProviderFormFull({
     isLoading: isHermesLiveProviderIdsLoading,
   } = useHermesLiveProviderIds(appId === "hermes");
 
+  // providerKey 相关状态：数据驱动映射
+  const providerKeyStateMap: Partial<Record<AppId, {
+    existingKeys: string[];
+    liveIds: string[];
+    isLoading: boolean;
+  }>> = {
+    opencode: !isAnyOmoCategory ? {
+      existingKeys: existingOpencodeKeys,
+      liveIds: opencodeLiveProviderIds,
+      isLoading: isOpencodeLiveProviderIdsLoading,
+    } : undefined,
+    openclaw: {
+      existingKeys: openclawForm.existingOpenclawKeys,
+      liveIds: openclawLiveProviderIds,
+      isLoading: isOpenclawLiveProviderIdsLoading,
+    },
+    hermes: {
+      existingKeys: hermesForm.existingHermesKeys,
+      liveIds: hermesLiveProviderIds,
+      isLoading: isHermesLiveProviderIdsLoading,
+    },
+  };
+
+  const currentKeyState = providerKeyStateMap[appId];
+
   const additiveExistingProviderKeys = useMemo(() => {
-    if (appId === "opencode" && !isAnyOmoCategory) {
-      return Array.from(
-        new Set(
-          [...existingOpencodeKeys, ...opencodeLiveProviderIds].filter(
-            (key) => key !== providerId,
-          ),
+    if (!currentKeyState) return [];
+    return Array.from(
+      new Set(
+        [...currentKeyState.existingKeys, ...currentKeyState.liveIds].filter(
+          (key) => key !== providerId,
         ),
-      );
-    }
-
-    if (appId === "openclaw") {
-      return Array.from(
-        new Set(
-          [
-            ...openclawForm.existingOpenclawKeys,
-            ...openclawLiveProviderIds,
-          ].filter((key) => key !== providerId),
-        ),
-      );
-    }
-
-    if (appId === "hermes") {
-      return Array.from(
-        new Set(
-          [...hermesForm.existingHermesKeys, ...hermesLiveProviderIds].filter(
-            (key) => key !== providerId,
-          ),
-        ),
-      );
-    }
-
-    return [];
-  }, [
-    appId,
-    existingOpencodeKeys,
-    hermesForm.existingHermesKeys,
-    hermesLiveProviderIds,
-    isAnyOmoCategory,
-    openclawForm.existingOpenclawKeys,
-    openclawLiveProviderIds,
-    opencodeLiveProviderIds,
-    providerId,
-  ]);
+      ),
+    );
+  }, [currentKeyState, providerId]);
 
   const isProviderKeyLockStateLoading = useMemo(() => {
     if (!isEditMode) return false;
-    if (appId === "opencode" && !isAnyOmoCategory) {
-      return isOpencodeLiveProviderIdsLoading;
-    }
-    if (appId === "openclaw") {
-      return isOpenclawLiveProviderIdsLoading;
-    }
-    if (appId === "hermes") {
-      return isHermesLiveProviderIdsLoading;
-    }
-    return false;
-  }, [
-    appId,
-    isAnyOmoCategory,
-    isEditMode,
-    isHermesLiveProviderIdsLoading,
-    isOpenclawLiveProviderIdsLoading,
-    isOpencodeLiveProviderIdsLoading,
-  ]);
+    return currentKeyState?.isLoading ?? false;
+  }, [isEditMode, currentKeyState]);
 
   const isProviderKeyLocked = useMemo(() => {
     if (!isEditMode || !providerId) return false;
-    if (appId === "opencode" && !isAnyOmoCategory) {
-      return opencodeLiveProviderIds.includes(providerId);
-    }
-    if (appId === "openclaw") {
-      return openclawLiveProviderIds.includes(providerId);
-    }
-    if (appId === "hermes") {
-      return hermesLiveProviderIds.includes(providerId);
-    }
-    return false;
-  }, [
-    appId,
-    hermesLiveProviderIds,
-    isAnyOmoCategory,
-    isEditMode,
-    openclawLiveProviderIds,
-    opencodeLiveProviderIds,
-    providerId,
-  ]);
+    return currentKeyState?.liveIds.includes(providerId) ?? false;
+  }, [isEditMode, providerId, currentKeyState]);
 
   const [isCommonConfigModalOpen, setIsCommonConfigModalOpen] = useState(false);
 
@@ -1137,16 +1095,15 @@ function ProviderFormFull({
     const providerType =
       templatePreset?.providerType || initialData?.meta?.providerType;
 
+    const commonConfigMap: Partial<Record<AppId, boolean>> = {
+      claude: useCommonConfig,
+      codex: useCodexCommonConfigFlag,
+      gemini: useGeminiCommonConfigFlag,
+    };
+
     const nextMeta: ProviderMeta = {
       ...(baseMeta ?? {}),
-      commonConfigEnabled:
-        appId === "claude"
-          ? useCommonConfig
-          : appId === "codex"
-            ? useCodexCommonConfigFlag
-            : appId === "gemini"
-              ? useGeminiCommonConfigFlag
-              : undefined,
+      commonConfigEnabled: commonConfigMap[appId],
       endpointAutoSelect,
       claudeDesktopMode: undefined,
       // 保存 providerType（用于识别 Copilot / Codex OAuth 等特殊供应商）
@@ -1184,12 +1141,14 @@ function ProviderFormFull({
         pricingConfig.enabled && pricingConfig.pricingModelSource !== "inherit"
           ? pricingConfig.pricingModelSource
           : undefined,
-      apiFormat:
-        appId === "claude" && category !== "official"
-          ? localApiFormat
-          : appId === "codex" && category !== "official"
-            ? localCodexApiFormat
-            : undefined,
+      apiFormat: (() => {
+        if (category === "official") return undefined;
+        const apiFormatMap: Partial<Record<AppId, ClaudeApiFormat | CodexApiFormat>> = {
+          claude: localApiFormat,
+          codex: localCodexApiFormat,
+        };
+        return apiFormatMap[appId];
+      })(),
       apiKeyField:
         appId === "claude" &&
         category !== "official" &&
