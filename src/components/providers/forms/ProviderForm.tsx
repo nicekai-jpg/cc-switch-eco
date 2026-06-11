@@ -76,8 +76,7 @@ import {
   useHermesFormState,
   useCopilotAuth,
   useCodexOauth,
-  useApiKeyLinkMap,
-  getApiKeyLinkForApp,
+  useApiKeyLinkForApp,
 } from "./hooks";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useSettingsQuery } from "@/lib/query";
@@ -1277,13 +1276,13 @@ function ProviderFormFull({
   const shouldShowSpeedTest =
     category !== "official" && category !== "cloud_provider";
 
-  const apiKeyLinkMap = useApiKeyLinkMap({
+  const currentApiKeyLink = useApiKeyLinkForApp({
+    appId,
     category,
     selectedPresetId,
     presetEntries,
     formWebsiteUrl: form.watch("websiteUrl") || "",
   });
-  const currentApiKeyLink = getApiKeyLinkForApp(apiKeyLinkMap, appId);
 
   // 使用端点测速候选 hook
   const speedTestEndpoints = useSpeedTestEndpoints({
@@ -1364,8 +1363,8 @@ function ProviderFormFull({
 
     if (appId === "gemini") {
       const preset = entry.preset as GeminiProviderPreset;
-      const env = (preset.settingsConfig as any)?.env ?? {};
-      const config = (preset.settingsConfig as any)?.config ?? {};
+      const env = preset.settingsConfig.env ?? {};
+      const config = preset.settingsConfig.config ?? {};
 
       resetGeminiConfig(env, config);
 

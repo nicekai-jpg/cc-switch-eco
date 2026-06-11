@@ -2,7 +2,7 @@ import type { BaseProviderPreset } from "./baseProviderPreset";
 import { PROVIDER_METADATA } from "./providerMetadata";
 
 export interface GeminiProviderPreset extends BaseProviderPreset {
-  settingsConfig: object;
+  settingsConfig: { env?: Record<string, unknown>; config?: Record<string, unknown> };
   baseURL?: string;
   model?: string;
   description?: string;

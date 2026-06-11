@@ -1,67 +1,40 @@
-import { useMemo } from "react";
 import type { AppId } from "@/lib/api";
 import type { ProviderCategory } from "@/types";
 import type { PresetEntry } from "../strategies/types";
-import { useApiKeyLink } from "./useApiKeyLink";
+import { useApiKeyLinkCore, type ApiKeyLinkInfo } from "./useApiKeyLinkCore";
 
 interface UseApiKeyLinkMapProps {
+  appId: AppId;
   category?: ProviderCategory;
   selectedPresetId: string | null;
   presetEntries: PresetEntry[];
   formWebsiteUrl: string;
 }
 
-export interface ApiKeyLinkInfo {
-  shouldShowApiKeyLink: boolean;
-  websiteUrl: string;
-  isPartner: boolean;
-  partnerPromotionKey?: string;
-}
-
-const EMPTY_LINK: ApiKeyLinkInfo = {
-  shouldShowApiKeyLink: false,
-  websiteUrl: "",
-  isPartner: false,
-  partnerPromotionKey: undefined,
-};
+/** 支持 API Key 链接显示的 appId 集合 */
+const API_KEY_LINK_APPS = new Set<AppId>(["claude", "codex", "gemini", "opencode"]);
 
 /**
- * 聚合所有 app 的 useApiKeyLink 结果为映射表
+ * 获取当前 appId 的 API Key 链接信息
  *
- * 替代 ProviderForm.tsx 中 6 次独立调用 + 三元链传参。
+ * 替代原 6 次 useApiKeyLink 独立调用。核心逻辑只执行 1 次，
+ * shouldShowApiKeyLink 由 appId 集合决定。
  */
-export function useApiKeyLinkMap({
+export function useApiKeyLinkForApp({
+  appId,
   category,
   selectedPresetId,
   presetEntries,
   formWebsiteUrl,
-}: UseApiKeyLinkMapProps): Record<string, ApiKeyLinkInfo> {
-  const claudeLink = useApiKeyLink({ appId: "claude", category, selectedPresetId, presetEntries, formWebsiteUrl });
-  const codexLink = useApiKeyLink({ appId: "codex", category, selectedPresetId, presetEntries, formWebsiteUrl });
-  const geminiLink = useApiKeyLink({ appId: "gemini", category, selectedPresetId, presetEntries, formWebsiteUrl });
-  const opencodeLink = useApiKeyLink({ appId: "opencode", category, selectedPresetId, presetEntries, formWebsiteUrl });
-  const openclawLink = useApiKeyLink({ appId: "openclaw", category, selectedPresetId, presetEntries, formWebsiteUrl });
-  const hermesLink = useApiKeyLink({ appId: "hermes", category, selectedPresetId, presetEntries, formWebsiteUrl });
+}: UseApiKeyLinkMapProps): ApiKeyLinkInfo {
+  const core = useApiKeyLinkCore({ category, selectedPresetId, presetEntries, formWebsiteUrl });
 
-  return useMemo(
-    () => ({
-      claude: claudeLink,
-      codex: codexLink,
-      gemini: geminiLink,
-      opencode: opencodeLink,
-      openclaw: openclawLink,
-      hermes: hermesLink,
-    }),
-    [claudeLink, codexLink, geminiLink, opencodeLink, openclawLink, hermesLink],
-  );
+  return {
+    shouldShowApiKeyLink: API_KEY_LINK_APPS.has(appId) && core.categoryAllowsApiKeyLink,
+    websiteUrl: core.websiteUrl,
+    isPartner: core.isPartner,
+    partnerPromotionKey: core.partnerPromotionKey,
+  };
 }
 
-/**
- * 从映射表中获取当前 appId 的 ApiKeyLinkInfo
- */
-export function getApiKeyLinkForApp(
-  map: Record<string, ApiKeyLinkInfo>,
-  appId: AppId,
-): ApiKeyLinkInfo {
-  return map[appId] ?? EMPTY_LINK;
-}
+export type { ApiKeyLinkInfo };

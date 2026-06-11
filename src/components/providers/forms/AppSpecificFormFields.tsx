@@ -26,7 +26,9 @@ import type {
   CodexCatalogModel,
   EndpointCandidate,
   OpenCodeModel,
+  OpenClawModel,
 } from "@/types";
+import type { HermesModel } from "@/config/hermesProviderPresets";
 import type { TemplateValueConfig } from "@/config/baseProviderPreset";
 import type { HermesApiMode } from "@/config/hermesProviderPresets";
 
@@ -119,19 +121,19 @@ export interface AppSpecificFormFieldsProps {
     handleOpencodeBaseUrlChange: (val: string) => void;
     opencodeModels: Record<string, OpenCodeModel>;
     handleOpencodeModelsChange: (val: Record<string, OpenCodeModel>) => void;
-    opencodeExtraOptions: Record<string, any>;
-    handleOpencodeExtraOptionsChange: (val: Record<string, any>) => void;
+    opencodeExtraOptions: Record<string, string>;
+    handleOpencodeExtraOptionsChange: (val: Record<string, string>) => void;
   };
 
   // OMO specific
-  omoModelOptions: any[];
-  omoModelVariantsMap: Record<string, any>;
-  omoPresetMetaMap: Record<string, any>;
+  omoModelOptions: Array<{ value: string; label: string }>;
+  omoModelVariantsMap: Record<string, string[]>;
+  omoPresetMetaMap: Record<string, { options?: Record<string, unknown>; limit?: { context?: number; output?: number } }>;
   omoDraft: {
-    omoAgents: Record<string, any>;
-    setOmoAgents: (val: Record<string, any>) => void;
-    omoCategories?: Record<string, any>;
-    setOmoCategories?: (val: Record<string, any>) => void;
+    omoAgents: Record<string, Record<string, unknown>>;
+    setOmoAgents: (val: Record<string, Record<string, unknown>>) => void;
+    omoCategories?: Record<string, Record<string, unknown>>;
+    setOmoCategories?: (val: Record<string, Record<string, unknown>>) => void;
     omoOtherFieldsStr: string;
     setOmoOtherFieldsStr: (val: string) => void;
   };
@@ -144,8 +146,8 @@ export interface AppSpecificFormFieldsProps {
     handleOpenclawApiKeyChange: (val: string) => void;
     openclawApi: string;
     handleOpenclawApiChange: (val: string) => void;
-    openclawModels: any[];
-    handleOpenclawModelsChange: (val: any[]) => void;
+    openclawModels: OpenClawModel[];
+    handleOpenclawModelsChange: (val: OpenClawModel[]) => void;
     openclawUserAgent: boolean;
     handleOpenclawUserAgentChange: (val: boolean) => void;
   };
@@ -158,8 +160,8 @@ export interface AppSpecificFormFieldsProps {
     handleHermesApiKeyChange: (val: string) => void;
     hermesApiMode: HermesApiMode;
     handleHermesApiModeChange: (val: HermesApiMode) => void;
-    hermesModels: any[];
-    handleHermesModelsChange: (val: any[]) => void;
+    hermesModels: HermesModel[];
+    handleHermesModelsChange: (val: HermesModel[]) => void;
     hermesRateLimitDelay: number | undefined;
     handleHermesRateLimitDelayChange: (val: number | undefined) => void;
   };

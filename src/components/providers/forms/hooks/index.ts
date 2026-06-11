@@ -4,7 +4,7 @@ export { useBaseUrlState } from "./useBaseUrlState";
 export { useModelState } from "./useModelState";
 export { useCodexConfigState } from "./useCodexConfigState";
 export { useApiKeyLink } from "./useApiKeyLink";
-export { useApiKeyLinkMap, getApiKeyLinkForApp, type ApiKeyLinkInfo } from "./useApiKeyLinkMap";
+export { useApiKeyLinkForApp, type ApiKeyLinkInfo } from "./useApiKeyLinkMap";
 export { useCustomEndpoints } from "./useCustomEndpoints";
 export { useTemplateValues } from "./useTemplateValues";
 export { useCommonConfigSnippet } from "./useCommonConfigSnippet";
