@@ -81,6 +81,7 @@ import {
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useSettingsQuery } from "@/lib/query";
 import { normalizePricingSource } from "./helpers/opencodeFormUtils";
+import { validateProviderKey } from "./helpers/validateProviderKey";
 import {
   codexApiFormatFromWireApi,
   normalizeCodexCatalogModelsForSave,
@@ -815,90 +816,27 @@ function ProviderFormFull({
       return;
     }
 
-    // opencode / openclaw / hermes: providerKey 相关
-    // A 类（空）归到 issues；B 类（正则不合法 / 重复 / 状态加载中）仍硬拒绝
-    const keyPattern = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-
-    if (appId === "opencode" && !isAnyOmoCategory) {
-      // providerKey 是 opencode / openclaw / hermes 的主键 ID，空或格式不合法
-      // 都属于完整性约束，保留硬拒绝（mutations 层也会 throw，软化只会让错误更晦涩）
-      if (!opencodeForm.opencodeProviderKey.trim()) {
-        toast.error(t("opencode.providerKeyRequired"));
+    // opencode / openclaw / hermes: providerKey 验证
+    const providerKeyMap: Partial<Record<AppId, string>> = {
+      opencode: !isAnyOmoCategory ? opencodeForm.opencodeProviderKey : undefined,
+      openclaw: openclawForm.openclawProviderKey,
+      hermes: hermesForm.hermesProviderKey,
+    };
+    const currentProviderKey = providerKeyMap[appId];
+    if (currentProviderKey !== undefined) {
+      if (!validateProviderKey({
+        appId,
+        providerKey: currentProviderKey,
+        isProviderKeyLocked,
+        isProviderKeyLockStateLoading,
+        additiveExistingProviderKeys,
+        t,
+      })) {
         return;
       }
-      if (!keyPattern.test(opencodeForm.opencodeProviderKey)) {
-        toast.error(t("opencode.providerKeyInvalid"));
-        return;
-      }
-      if (isProviderKeyLockStateLoading) {
-        toast.error(
-          t("providerForm.providerKeyStatusLoading", {
-            defaultValue: "正在加载供应商标识状态，请稍后再试",
-          }),
-        );
-        return;
-      }
-      if (
-        !isProviderKeyLocked &&
-        additiveExistingProviderKeys.includes(opencodeForm.opencodeProviderKey)
-      ) {
-        toast.error(t("opencode.providerKeyDuplicate"));
-        return;
-      }
-      if (Object.keys(opencodeForm.opencodeModels).length === 0) {
+      // opencode 特有：模型不能为空
+      if (appId === "opencode" && Object.keys(opencodeForm.opencodeModels).length === 0) {
         issues.push(t("opencode.modelsRequired"));
-      }
-    }
-
-    if (appId === "openclaw") {
-      if (!openclawForm.openclawProviderKey.trim()) {
-        toast.error(t("openclaw.providerKeyRequired"));
-        return;
-      }
-      if (!keyPattern.test(openclawForm.openclawProviderKey)) {
-        toast.error(t("openclaw.providerKeyInvalid"));
-        return;
-      }
-      if (isProviderKeyLockStateLoading) {
-        toast.error(
-          t("providerForm.providerKeyStatusLoading", {
-            defaultValue: "正在加载供应商标识状态，请稍后再试",
-          }),
-        );
-        return;
-      }
-      if (
-        !isProviderKeyLocked &&
-        additiveExistingProviderKeys.includes(openclawForm.openclawProviderKey)
-      ) {
-        toast.error(t("openclaw.providerKeyDuplicate"));
-        return;
-      }
-    }
-
-    if (appId === "hermes") {
-      if (!hermesForm.hermesProviderKey.trim()) {
-        toast.error(t("hermes.form.providerKeyRequired"));
-        return;
-      }
-      if (!keyPattern.test(hermesForm.hermesProviderKey)) {
-        toast.error(t("hermes.form.providerKeyInvalid"));
-        return;
-      }
-      if (isProviderKeyLockStateLoading) {
-        toast.error(
-          t("providerForm.providerKeyStatusLoading", {
-            defaultValue: "正在加载供应商标识状态，请稍后再试",
-          }),
-        );
-        return;
-      }
-      if (
-        !isProviderKeyLocked &&
-        additiveExistingProviderKeys.includes(hermesForm.hermesProviderKey)
-      ) {
-        toast.error(t("hermes.form.providerKeyDuplicate"));
-        return;
       }
     }
 
@@ -1300,6 +1238,7 @@ function ProviderFormFull({
       setActivePreset(null);
       form.reset(defaultValues);
 
+      // 各 app 自定义模式重置
       if (appId === "codex") {
         const template = getCodexCustomTemplate();
         resetCodexConfig(template.auth, template.config);
@@ -1308,19 +1247,14 @@ function ProviderFormFull({
           codexApiFormatFromWireApi(extractCodexWireApi(template.config)) ??
             "openai_responses",
         );
-      }
-      if (appId === "gemini") {
+      } else if (appId === "gemini") {
         resetGeminiConfig({}, {});
-      }
-      if (appId === "opencode") {
+      } else if (appId === "opencode") {
         opencodeForm.resetOpencodeState();
         omoDraft.resetOmoDraftState();
-      }
-      // OpenClaw 自定义模式：重置为空配置
-      if (appId === "openclaw") {
+      } else if (appId === "openclaw") {
         openclawForm.resetOpenclawState();
-      }
-      if (appId === "hermes") {
+      } else if (appId === "hermes") {
         hermesForm.resetHermesState();
       }
       return;
@@ -1339,6 +1273,7 @@ function ProviderFormFull({
     });
 
     if (appId === "codex") {
+      // Safe: presetEntries for appId="codex" always contains CodexProviderPreset
       const preset = entry.preset as CodexProviderPreset;
       const auth = preset.auth ?? {};
       const config = preset.config ?? "";
@@ -1362,6 +1297,7 @@ function ProviderFormFull({
     }
 
     if (appId === "gemini") {
+      // Safe: presetEntries for appId="gemini" always contains GeminiProviderPreset
       const preset = entry.preset as GeminiProviderPreset;
       const env = preset.settingsConfig.env ?? {};
       const config = preset.settingsConfig.config ?? {};
@@ -1379,6 +1315,7 @@ function ProviderFormFull({
     }
 
     if (appId === "opencode") {
+      // Safe: presetEntries for appId="opencode" always contains OpenCodeProviderPreset
       const preset = entry.preset as OpenCodeProviderPreset;
       const config = preset.settingsConfig;
 
@@ -1408,6 +1345,7 @@ function ProviderFormFull({
 
     // OpenClaw preset handling
     if (appId === "openclaw") {
+      // Safe: presetEntries for appId="openclaw" always contains OpenClawProviderPreset
       const preset = entry.preset as OpenClawProviderPreset;
       const config = preset.settingsConfig;
 
@@ -1435,6 +1373,7 @@ function ProviderFormFull({
 
     // Hermes preset handling
     if (appId === "hermes") {
+      // Safe: presetEntries for appId="hermes" always contains HermesProviderPreset
       const preset = entry.preset as HermesProviderPreset;
       const config = preset.settingsConfig;
 
@@ -1450,6 +1389,7 @@ function ProviderFormFull({
       return;
     }
 
+    // Safe: presetEntries for appId="claude" always contains ProviderPreset
     const preset = entry.preset as ProviderPreset;
     const config = applyTemplateValues(
       preset.settingsConfig,
