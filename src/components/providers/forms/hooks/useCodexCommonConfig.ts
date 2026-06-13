@@ -319,6 +319,7 @@ export function useCodexCommonConfig({
             );
             if (removeResult.error) {
               setCommonConfigError(removeResult.error);
+              setUseCommonConfig(false);
               return false;
             }
             updatedConfig = removeResult.updatedConfig;

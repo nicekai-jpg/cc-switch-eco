@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import type { ProviderCategory } from "@/types";
 import {
   getApiKeyFromConfig,
@@ -34,6 +34,10 @@ export function useApiKeyState({
     return "";
   });
 
+  // 用 ref 跟踪当前 apiKey，避免将其放入 effect 依赖导致自引用循环
+  const apiKeyRef = useRef(apiKey);
+  apiKeyRef.current = apiKey;
+
   // 当外部通过 form.reset / 读取 live 等方式更新配置时，同步回 API Key 状态
   // - 仅在 JSON 可解析时同步，避免用户编辑 JSON 过程中因临时无效导致输入框闪烁
   useEffect(() => {
@@ -47,10 +51,10 @@ export function useApiKeyState({
 
     // 从配置中提取 API Key（如果不存在则返回空字符串）
     const extracted = getApiKeyFromConfig(initialConfig, appType);
-    if (extracted !== apiKey) {
+    if (extracted !== apiKeyRef.current) {
       setApiKey(extracted);
     }
-  }, [initialConfig, appType, apiKey]);
+  }, [initialConfig, appType]);
 
   const handleApiKeyChange = useCallback(
     (key: string) => {

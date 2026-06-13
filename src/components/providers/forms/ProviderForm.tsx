@@ -1095,15 +1095,19 @@ function ProviderFormFull({
     const providerType =
       templatePreset?.providerType || initialData?.meta?.providerType;
 
-    const commonConfigMap: Partial<Record<AppId, boolean>> = {
+    const commonConfigMap: Partial<Record<AppId, boolean | undefined>> = {
       claude: useCommonConfig,
       codex: useCodexCommonConfigFlag,
       gemini: useGeminiCommonConfigFlag,
+      openclaw: undefined,
+      hermes: undefined,
     };
+
+    const commonConfigEnabled = commonConfigMap[appId];
 
     const nextMeta: ProviderMeta = {
       ...(baseMeta ?? {}),
-      commonConfigEnabled: commonConfigMap[appId],
+      ...(commonConfigEnabled !== undefined ? { commonConfigEnabled } : {}),
       endpointAutoSelect,
       claudeDesktopMode: undefined,
       // 保存 providerType（用于识别 Copilot / Codex OAuth 等特殊供应商）
@@ -1191,6 +1195,18 @@ function ProviderFormFull({
     initialData,
   });
 
+  /** 构建预设切换时 form.reset 的通用参数 */
+  const buildPresetResetValues = useCallback(
+    (preset: { nameKey?: string; name: string; websiteUrl?: string; icon?: string; iconColor?: string }, settingsConfig: unknown) => ({
+      name: preset.nameKey ? t(preset.nameKey) : preset.name,
+      websiteUrl: preset.websiteUrl ?? "",
+      settingsConfig: typeof settingsConfig === "string" ? settingsConfig : JSON.stringify(settingsConfig, null, 2),
+      icon: preset.icon ?? "",
+      iconColor: preset.iconColor ?? "",
+    }),
+    [t],
+  );
+
   const handlePresetChange = (value: string) => {
     setSelectedPresetId(value);
     if (value === "custom") {
@@ -1206,15 +1222,14 @@ function ProviderFormFull({
           codexApiFormatFromWireApi(extractCodexWireApi(template.config)) ??
             "openai_responses",
         );
-      } else if (appId === "gemini") {
-        resetGeminiConfig({}, {});
-      } else if (appId === "opencode") {
-        opencodeForm.resetOpencodeState();
-        omoDraft.resetOmoDraftState();
-      } else if (appId === "openclaw") {
-        openclawForm.resetOpenclawState();
-      } else if (appId === "hermes") {
-        hermesForm.resetHermesState();
+      } else {
+        const customResetMap: Partial<Record<AppId, () => void>> = {
+          gemini: () => resetGeminiConfig({}, {}),
+          opencode: () => { opencodeForm.resetOpencodeState(); omoDraft.resetOmoDraftState(); },
+          openclaw: () => openclawForm.resetOpenclawState(),
+          hermes: () => hermesForm.resetHermesState(),
+        };
+        customResetMap[appId]?.();
       }
       return;
     }
@@ -1245,13 +1260,7 @@ function ProviderFormFull({
           "openai_responses",
       );
 
-      form.reset({
-        name: preset.nameKey ? t(preset.nameKey) : preset.name,
-        websiteUrl: preset.websiteUrl ?? "",
-        settingsConfig: JSON.stringify({ auth, config }, null, 2),
-        icon: preset.icon ?? "",
-        iconColor: preset.iconColor ?? "",
-      });
+      form.reset(buildPresetResetValues(preset, { auth, config }));
       return;
     }
 
@@ -1263,13 +1272,7 @@ function ProviderFormFull({
 
       resetGeminiConfig(env, config);
 
-      form.reset({
-        name: preset.nameKey ? t(preset.nameKey) : preset.name,
-        websiteUrl: preset.websiteUrl ?? "",
-        settingsConfig: JSON.stringify(preset.settingsConfig, null, 2),
-        icon: preset.icon ?? "",
-        iconColor: preset.iconColor ?? "",
-      });
+      form.reset(buildPresetResetValues(preset, preset.settingsConfig));
       return;
     }
 
@@ -1280,25 +1283,16 @@ function ProviderFormFull({
 
       if (preset.category === "omo" || preset.category === "omo-slim") {
         omoDraft.resetOmoDraftState();
-        form.reset({
-          name: preset.category === "omo" ? "OMO" : "OMO Slim",
-          websiteUrl: preset.websiteUrl ?? "",
-          settingsConfig: JSON.stringify({}, null, 2),
-          icon: preset.icon ?? "",
-          iconColor: preset.iconColor ?? "",
-        });
+        form.reset(buildPresetResetValues(
+          { ...preset, name: preset.category === "omo" ? "OMO" : "OMO Slim", nameKey: undefined },
+          {},
+        ));
         return;
       }
 
       opencodeForm.resetOpencodeState(config);
 
-      form.reset({
-        name: preset.nameKey ? t(preset.nameKey) : preset.name,
-        websiteUrl: preset.websiteUrl ?? "",
-        settingsConfig: JSON.stringify(config, null, 2),
-        icon: preset.icon ?? "",
-        iconColor: preset.iconColor ?? "",
-      });
+      form.reset(buildPresetResetValues(preset, config));
       return;
     }
 
@@ -1319,14 +1313,7 @@ function ProviderFormFull({
 
       openclawForm.resetOpenclawState(config);
 
-      // Update form fields
-      form.reset({
-        name: preset.nameKey ? t(preset.nameKey) : preset.name,
-        websiteUrl: preset.websiteUrl ?? "",
-        settingsConfig: JSON.stringify(config, null, 2),
-        icon: preset.icon ?? "",
-        iconColor: preset.iconColor ?? "",
-      });
+      form.reset(buildPresetResetValues(preset, config));
       return;
     }
 
@@ -1338,13 +1325,7 @@ function ProviderFormFull({
 
       hermesForm.resetHermesState(config);
 
-      form.reset({
-        name: preset.nameKey ? t(preset.nameKey) : preset.name,
-        websiteUrl: preset.websiteUrl ?? "",
-        settingsConfig: JSON.stringify(config, null, 2),
-        icon: preset.icon ?? "",
-        iconColor: preset.iconColor ?? "",
-      });
+      form.reset(buildPresetResetValues(preset, config));
       return;
     }
 
@@ -1364,13 +1345,7 @@ function ProviderFormFull({
     setLocalApiKeyField(preset.apiKeyField ?? "ANTHROPIC_AUTH_TOKEN");
     setLocalIsFullUrl(false);
 
-    form.reset({
-      name: preset.nameKey ? t(preset.nameKey) : preset.name,
-      websiteUrl: preset.websiteUrl ?? "",
-      settingsConfig: JSON.stringify(config, null, 2),
-      icon: preset.icon ?? "",
-      iconColor: preset.iconColor ?? "",
-    });
+    form.reset(buildPresetResetValues(preset, config));
   };
 
   const settingsConfigErrorField = (

@@ -31,7 +31,18 @@ export function useCopilotQuota(
         ? await copilotGetUsageForAccount(accountId)
         : await copilotGetUsage();
 
-      const premium = usage.quota_snapshots.premium_interactions;
+      const premium = usage?.quota_snapshots?.premium_interactions;
+      if (!premium) {
+        return {
+          success: false,
+          plan: null,
+          resetDate: null,
+          tiers: [],
+          error: "Invalid quota data",
+          queriedAt: Date.now(),
+        };
+      }
+
       const utilization =
         premium.entitlement > 0
           ? ((premium.entitlement - premium.remaining) / premium.entitlement) *

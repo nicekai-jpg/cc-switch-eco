@@ -49,7 +49,7 @@ describe("mergeProviderMeta", () => {
     });
   });
 
-  it("removes custom endpoints when result is empty but keeps other meta", () => {
+  it("preserves custom endpoints when customEndpoints is null (no modification)", () => {
     const initial: ProviderMeta = {
       usage_script: {
         enabled: true,
@@ -61,20 +61,55 @@ describe("mergeProviderMeta", () => {
       },
     };
 
+    // null 表示"不修改端点"，保留原有端点
     const result = mergeProviderMeta(initial, null);
+
+    expect(result).toEqual(initial);
+  });
+
+  it("removes custom endpoints when explicitly cleared with empty object", () => {
+    const initial: ProviderMeta = {
+      usage_script: {
+        enabled: true,
+        language: "javascript",
+        code: "console.log(1);",
+      },
+      custom_endpoints: {
+        "https://example.com": buildEndpoint("https://example.com"),
+      },
+    };
+
+    // 空对象 {} 表示"明确清空端点"
+    const result = mergeProviderMeta(initial, {});
 
     expect(result).toEqual({
       usage_script: initial.usage_script,
     });
   });
 
-  it("returns undefined when removing last field", () => {
+  it("returns empty object when removing last field via explicit clear", () => {
     const initial: ProviderMeta = {
       custom_endpoints: {
         "https://example.com": buildEndpoint("https://example.com"),
       },
     };
 
-    expect(mergeProviderMeta(initial, null)).toBeUndefined();
+    // 空对象明确清空，只剩空 meta
+    const result = mergeProviderMeta(initial, {});
+
+    expect(result).toEqual({});
+  });
+
+  it("preserves custom endpoints when customEndpoints is undefined", () => {
+    const initial: ProviderMeta = {
+      custom_endpoints: {
+        "https://example.com": buildEndpoint("https://example.com"),
+      },
+    };
+
+    // undefined 也表示"不修改端点"
+    const result = mergeProviderMeta(initial, undefined);
+
+    expect(result).toEqual(initial);
   });
 });

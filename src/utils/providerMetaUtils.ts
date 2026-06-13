@@ -50,10 +50,5 @@ export function mergeProviderMeta(
     return undefined;
   }
 
-  if ("custom_endpoints" in initialMeta) {
-    const { custom_endpoints, ...rest } = initialMeta;
-    return Object.keys(rest).length > 0 ? rest : undefined;
-  }
-
   return { ...initialMeta };
 }

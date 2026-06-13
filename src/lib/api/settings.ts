@@ -153,14 +153,15 @@ export const settingsApi = {
   },
 
   async openExternal(url: string): Promise<void> {
+    let scheme: string;
     try {
       const u = new URL(url);
-      const scheme = u.protocol.replace(":", "").toLowerCase();
-      if (scheme !== "http" && scheme !== "https") {
-        throw new Error("Unsupported URL scheme");
-      }
+      scheme = u.protocol.replace(":", "").toLowerCase();
     } catch {
       throw new Error("Invalid URL");
+    }
+    if (scheme !== "http" && scheme !== "https") {
+      throw new Error("Unsupported URL scheme");
     }
     await invoke("open_external", { url });
   },

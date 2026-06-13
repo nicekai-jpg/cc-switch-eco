@@ -45,7 +45,7 @@ function parseOpenclawField<T>(
         ? JSON.stringify(initialData.settingsConfig)
         : OPENCLAW_DEFAULT_CONFIG,
     );
-    return (config[field] as T) || fallback;
+    return (config[field] as T) ?? fallback;
   } catch {
     return fallback;
   }

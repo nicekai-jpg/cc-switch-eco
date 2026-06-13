@@ -142,12 +142,14 @@ export function useGeminiConfigState({
   // 设置 config (支持函数更新)
   const setGeminiConfig = useCallback(
     (value: string | ((prev: string) => string)) => {
-      const newValue =
-        typeof value === "function" ? value(geminiConfig) : value;
-      setGeminiConfigState(newValue);
-      setConfigError(validateGeminiConfig(newValue));
+      setGeminiConfigState((prev) => {
+        const newValue =
+          typeof value === "function" ? value(prev) : value;
+        setConfigError(validateGeminiConfig(newValue));
+        return newValue;
+      });
     },
-    [geminiConfig, validateGeminiConfig],
+    [validateGeminiConfig],
   );
 
   // 处理 Gemini API Key 输入并写回 env

@@ -54,10 +54,10 @@ function parseHermesField<T>(
 ): T {
   try {
     if (initialData?.settingsConfig) {
-      return (initialData.settingsConfig[field] as T) || fallback;
+      return (initialData.settingsConfig[field] as T) ?? fallback;
     }
     return (
-      ((HERMES_DEFAULT_CONFIG_OBJ as Record<string, unknown>)[field] as T) ||
+      ((HERMES_DEFAULT_CONFIG_OBJ as Record<string, unknown>)[field] as T) ??
       fallback
     );
   } catch {
