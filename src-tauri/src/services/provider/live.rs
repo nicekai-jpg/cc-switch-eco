@@ -45,6 +45,61 @@ pub(crate) fn sanitize_claude_settings_for_live(settings: &Value) -> Value {
     v
 }
 
+fn extract_claude_provider_fragment(settings: &Value) -> Value {
+    let sanitized = sanitize_claude_settings_for_live(settings);
+    let mut fragment = json!({});
+
+    if let Some(obj) = sanitized.as_object() {
+        let target = fragment.as_object_mut().expect("fragment object");
+        for key in crate::services::ecosystem::fragment::CLAUDE_PROVIDER_MANAGED_SETTINGS_KEYS {
+            if let Some(value) = obj.get(*key) {
+                target.insert(key.to_string(), value.clone());
+            }
+        }
+    }
+
+    fragment
+}
+
+/// 供应商切换后，将 env/model 持久化到当前生态的 ccs-fragment。
+fn sync_claude_provider_settings_fragment(
+    db: &Database,
+    settings: &Value,
+) -> Result<(), AppError> {
+    let current_eco = match db.get_current_ecosystem()? {
+        Some(eco) => eco,
+        None => return Ok(()),
+    };
+
+    let eco_dir = crate::services::ecosystem::ecosystem_dir(&current_eco.id);
+    let isolation = crate::services::ecosystem::fragment::collect_eco_isolation(&eco_dir);
+    if !isolation.files.iter().any(|f| f == "settings.json") {
+        return Ok(());
+    }
+
+    let fragment = extract_claude_provider_fragment(settings);
+    if fragment.as_object().is_some_and(|obj| obj.is_empty()) {
+        return Ok(());
+    }
+
+    let rootfiles_dir = eco_dir.join("rootfiles");
+    fs::create_dir_all(&rootfiles_dir).map_err(|e| AppError::io(&rootfiles_dir, e))?;
+
+    let frag_path = crate::services::ecosystem::fragment::fragment_path(
+        &rootfiles_dir,
+        "settings.json",
+        crate::services::ecosystem::fragment::CCS_PROVIDER_FRAGMENT_PREFIX,
+    );
+    let content = crate::services::ecosystem::fragment::write_json(&fragment)?;
+    fs::write(&frag_path, content).map_err(|e| AppError::io(&frag_path, e))?;
+
+    log::info!(
+        "已同步 Claude 供应商字段到 eco fragment: {}",
+        frag_path.display()
+    );
+    Ok(())
+}
+
 pub(crate) fn provider_exists_in_live_config(
     app_type: &AppType,
     provider_id: &str,
@@ -530,6 +585,13 @@ pub(crate) fn write_live_with_common_config(
     // 合并当前生态的 enabledPlugins 和 hooks
     merge_ecosystem_fields(db, &mut effective_provider.settings_config)?;
 
+    if matches!(app_type, AppType::Claude) {
+        if let Err(e) = sync_claude_provider_settings_fragment(db, &effective_provider.settings_config)
+        {
+            log::warn!("同步 Claude 供应商 fragment 失败: {e}");
+        }
+    }
+
     if matches!(app_type, AppType::ClaudeDesktop) {
         crate::claude_desktop_config::apply_provider(db, &effective_provider)?;
         log::info!(
@@ -662,6 +724,32 @@ fn restore_live_settings_for_provider_backfill(
         );
     }
 
+    // 统一会话开关注入的共享 `custom` 路由只属于 live 配置；切换回填时
+    // 必须剥掉，否则官方供应商的存储配置被污染，关闭开关后无法还原。
+    if provider.category.as_deref() == Some("official") {
+        if let Err(err) =
+            crate::codex_config::strip_codex_unified_session_bucket_from_settings(&mut settings)
+        {
+            log::warn!(
+                "Failed to strip unified session bucket while backfilling '{}': {err}",
+                provider.id
+            );
+        }
+    }
+
+    // `modelCatalog` is a cc-switch–private field whose SSOT is the DB. Live's
+    // `config.toml` only carries a lossy projection (`model_catalog_json` →
+    // generated catalog file) that proxy takeover/restore cycles and Codex.app
+    // config rewrites can drop, so `read_live_settings` may reconstruct it as
+    // absent. Never let a switch-away backfill from Live erase the stored
+    // mapping: prefer the DB provider's `modelCatalog`, falling back to whatever
+    // Live reconstructed only when the DB has none.
+    if let Some(stored_catalog) = provider.settings_config.get("modelCatalog") {
+        if let Some(obj) = settings.as_object_mut() {
+            obj.insert("modelCatalog".to_string(), stored_catalog.clone());
+        }
+    }
+
     settings
 }
 
@@ -782,7 +870,7 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
             let path = get_claude_settings_path();
             let mut settings = sanitize_claude_settings_for_live(&provider.settings_config);
             
-            // 如果已有配置文件，保留其中的 statusLine 等非 Provider 控制的字段
+            // 如果已有配置文件，保留其中的 statusLine、hooks 等非 Provider 控制的字段
             if path.exists() {
                 if let Ok(existing_content) = fs::read_to_string(&path) {
                     if let Ok(existing_json) = serde_json::from_str::<Value>(&existing_content) {
@@ -791,6 +879,19 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
                                 // 保留 statusLine 字段
                                 if let Some(status_line) = existing_obj.get("statusLine") {
                                     settings_obj.insert("statusLine".to_string(), status_line.clone());
+                                }
+                                // 保留生态 fragment 写入的 hooks（供应商配置通常不含 hooks）
+                                if let Some(hooks) = existing_obj.get("hooks") {
+                                    let provider_has_hooks = settings_obj
+                                        .get("hooks")
+                                        .and_then(|h| h.as_object())
+                                        .is_some_and(|o| !o.is_empty());
+                                    let existing_has_hooks = hooks
+                                        .as_object()
+                                        .is_some_and(|o| !o.is_empty());
+                                    if existing_has_hooks && !provider_has_hooks {
+                                        settings_obj.insert("hooks".to_string(), hooks.clone());
+                                    }
                                 }
                             }
                         }
@@ -993,6 +1094,48 @@ pub(crate) fn sync_current_provider_for_app_to_live(
     Ok(())
 }
 
+fn sync_current_provider_for_app_respecting_takeover(
+    state: &AppState,
+    app_type: &AppType,
+) -> Result<(), AppError> {
+    let current_id = match crate::settings::get_effective_current_provider(&state.db, app_type)? {
+        Some(id) => id,
+        None => return Ok(()),
+    };
+
+    let providers = state.db.get_all_providers(app_type.as_str())?;
+    let Some(provider) = providers.get(&current_id) else {
+        return Ok(());
+    };
+
+    let has_live_backup = futures::executor::block_on(state.db.get_live_backup(app_type.as_str()))
+        .ok()
+        .flatten()
+        .is_some();
+    let live_taken_over = state
+        .proxy_service
+        .detect_takeover_in_live_config_for_app(app_type);
+
+    // `enabled` is set only after takeover writes complete. During that
+    // activation window, backup/live placeholders are the authoritative signal
+    // that normal provider sync must not rewrite the managed live file.
+    if has_live_backup || live_taken_over {
+        if matches!(app_type, AppType::ClaudeDesktop) {
+            write_live_with_common_config(state.db.as_ref(), app_type, provider)?;
+        } else {
+            futures::executor::block_on(
+                state
+                    .proxy_service
+                    .update_live_backup_from_provider(app_type.as_str(), provider),
+            )
+            .map_err(|e| AppError::Message(format!("更新 Live 备份失败: {e}")))?;
+        }
+        return Ok(());
+    }
+
+    write_live_with_common_config(state.db.as_ref(), app_type, provider)
+}
+
 /// Sync current provider to live configuration
 ///
 /// 使用有效的当前供应商 ID（验证过存在性）。
@@ -1009,29 +1152,18 @@ pub fn sync_current_to_live(state: &AppState) -> Result<(), AppError> {
                 log::warn!("同步 {:?} 的所有供应商失败: {e}", app_type);
             }
         } else {
-            // Switch mode: sync only current provider
-            let current_id =
-                match crate::settings::get_effective_current_provider(&state.db, &app_type)? {
-                    Some(id) => id,
-                    None => continue,
-                };
-
-            let providers = state.db.get_all_providers(app_type.as_str())?;
-            if let Some(provider) = providers.get(&current_id) {
-                if let Err(e) = write_live_with_common_config(state.db.as_ref(), &app_type, provider) {
-                    log::warn!(
-                        "同步应用 {:?} 的当前供应商 '{}' 到 live 配置失败: {e}",
-                        app_type,
-                        current_id
-                    );
-                    // 如果是 Claude，则视为致命错误需要向上传播，其他应用仅记录警告并继续
-                    if matches!(app_type, AppType::Claude | AppType::ClaudeDesktop) {
-                        return Err(e);
-                    }
+            // Switch mode: sync only current provider. During proxy takeover,
+            // update the restore backup instead of rewriting the taken-over
+            // live file.
+            if let Err(e) = sync_current_provider_for_app_respecting_takeover(state, &app_type) {
+                log::warn!(
+                    "同步应用 {:?} 的当前供应商到 live 配置失败: {e}",
+                    app_type
+                );
+                if matches!(app_type, AppType::Claude | AppType::ClaudeDesktop) {
+                    return Err(e);
                 }
             }
-            // Note: get_effective_current_provider already validates existence,
-            // so providers.get() should always succeed here
         }
     }
 
@@ -1180,6 +1312,22 @@ pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<bool
     // - 用户手动点 ProviderEmptyState 的导入按钮时，与官方 seed 共存而不被阻塞
     if state.db.has_non_official_seed_provider(app_type.as_str())? {
         return Ok(false);
+    }
+
+    // 拒绝把"被代理接管的 Live"导入为供应商：接管期间 Live 里只有
+    // PROXY_MANAGED 占位符和本地代理地址，不是用户的真实配置。一旦导入，
+    // 它会成为 current provider（SSOT），后续"无备份恢复"路径会把占位符
+    // 当真实配置写回 Live，永久卡在已失效的本地代理上。
+    // 典型触发场景：代理接管开启时切换 app_config_dir 并重启，新数据库首启导入。
+    if state
+        .proxy_service
+        .detect_takeover_in_live_config_for_app(&app_type)
+    {
+        return Err(AppError::localized(
+            "provider.import.live_taken_over",
+            "Live 配置当前处于代理接管状态（包含占位符），不能导入为供应商。请先关闭代理接管或恢复 Live 配置后重试。",
+            "The live config is currently taken over by the proxy (contains placeholders) and cannot be imported as a provider. Disable proxy takeover or restore the live config first.",
+        ));
     }
 
     let settings_config = match app_type {
@@ -1741,5 +1889,79 @@ mod tests {
             .map(|value| value.as_str().expect("tool id should be string"))
             .collect();
         assert_eq!(values, vec!["tool2"]);
+    }
+
+    #[test]
+    fn codex_switch_backfill_preserves_stored_model_catalog_when_live_lacks_it() {
+        // Reproduces the data-loss bug: switching away from a Codex provider
+        // backfills the outgoing provider from Live, but Live's config.toml had
+        // already lost its `model_catalog_json` projection (proxy cycle /
+        // Codex.app rewrite), so `read_live_settings` reconstructs no catalog.
+        // The stored mapping must survive the backfill.
+        let mut provider = Provider::with_id(
+            "deepseek".to_string(),
+            "DeepSeek".to_string(),
+            json!({
+                "auth": { "OPENAI_API_KEY": "sk-deepseek" },
+                "config": "model_provider = \"custom\"\nmodel = \"deepseek-v4-pro\"\n",
+                "modelCatalog": {
+                    "models": [
+                        { "model": "deepseek-v4-pro", "contextWindow": 1_000_000 }
+                    ]
+                }
+            }),
+            None,
+        );
+        provider.category = Some("cn_official".to_string());
+
+        // Live snapshot as captured during switch: no `modelCatalog` field.
+        let live_settings = json!({
+            "auth": { "OPENAI_API_KEY": "sk-deepseek" },
+            "config": "model_provider = \"custom\"\nmodel = \"deepseek-v4-pro\"\n"
+        });
+
+        let result =
+            restore_live_settings_for_provider_backfill(&AppType::Codex, &provider, live_settings);
+
+        assert_eq!(
+            result.get("modelCatalog"),
+            provider.settings_config.get("modelCatalog"),
+            "switch-away backfill must keep the DB-stored modelCatalog when Live has none"
+        );
+    }
+
+    #[test]
+    fn codex_switch_backfill_keeps_live_catalog_when_db_has_none() {
+        // When the DB provider has no stored catalog, a catalog reconstructed
+        // from Live (if any) should be left intact — the DB-preference overlay
+        // must not wipe it.
+        let mut provider = Provider::with_id(
+            "deepseek".to_string(),
+            "DeepSeek".to_string(),
+            json!({
+                "auth": { "OPENAI_API_KEY": "sk-deepseek" },
+                "config": "model_provider = \"custom\"\nmodel = \"deepseek-v4-pro\"\n"
+            }),
+            None,
+        );
+        provider.category = Some("cn_official".to_string());
+
+        let live_settings = json!({
+            "auth": { "OPENAI_API_KEY": "sk-deepseek" },
+            "config": "model_provider = \"custom\"\nmodel = \"deepseek-v4-pro\"\n",
+            "modelCatalog": { "models": [ { "model": "deepseek-v4-pro" } ] }
+        });
+
+        let result = restore_live_settings_for_provider_backfill(
+            &AppType::Codex,
+            &provider,
+            live_settings.clone(),
+        );
+
+        assert_eq!(
+            result.get("modelCatalog"),
+            live_settings.get("modelCatalog"),
+            "backfill must keep the Live-reconstructed catalog when the DB has none"
+        );
     }
 }

@@ -151,6 +151,8 @@ impl EcosystemService {
 
         crate::services::provider::ProviderService::sync_current_to_live(state)?;
 
+        crate::claude_settings::reapply_bypass_permissions_if_enabled(&state.db)?;
+
         log::info!("已切换到生态 '{id}'");
         Ok(())
     }

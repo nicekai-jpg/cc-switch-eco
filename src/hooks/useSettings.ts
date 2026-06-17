@@ -262,6 +262,34 @@ export function useSettings(): UseSettingsResult {
           }
         }
 
+        const nextClaudeBypassPermissions = updates.claudeBypassPermissions;
+        if (
+          nextClaudeBypassPermissions !== undefined &&
+          nextClaudeBypassPermissions !== (data?.claudeBypassPermissions ?? false)
+        ) {
+          try {
+            if (nextClaudeBypassPermissions) {
+              await settingsApi.applyClaudeBypassPermissions();
+            } else {
+              await settingsApi.clearClaudeBypassPermissions();
+            }
+          } catch (error) {
+            console.warn(
+              "[useSettings] Failed to sync Claude bypass permissions",
+              error,
+            );
+            toast.error(
+              nextClaudeBypassPermissions
+                ? t("notifications.claudeBypassPermissionsFailed", {
+                    defaultValue: "启用 Claude Code 跳过权限检查失败",
+                  })
+                : t("notifications.clearClaudeBypassPermissionsFailed", {
+                    defaultValue: "关闭 Claude Code 跳过权限检查失败",
+                  }),
+            );
+          }
+        }
+
         await syncClaudePluginIfChanged(
           payload.enableClaudePluginIntegration,
           prevPluginEnabled,
@@ -389,6 +417,32 @@ export function useSettings(): UseSettingsResult {
                   })
                 : t("notifications.clearClaudeOnboardingSkipFailed", {
                     defaultValue: "恢复 Claude Code 初次安装确认失败",
+                  }),
+            );
+          }
+        }
+
+        const prevClaudeBypassPermissions = data?.claudeBypassPermissions ?? false;
+        const nextClaudeBypassPermissions = payload.claudeBypassPermissions ?? false;
+        if (nextClaudeBypassPermissions !== prevClaudeBypassPermissions) {
+          try {
+            if (nextClaudeBypassPermissions) {
+              await settingsApi.applyClaudeBypassPermissions();
+            } else {
+              await settingsApi.clearClaudeBypassPermissions();
+            }
+          } catch (error) {
+            console.warn(
+              "[useSettings] Failed to sync Claude bypass permissions",
+              error,
+            );
+            toast.error(
+              nextClaudeBypassPermissions
+                ? t("notifications.claudeBypassPermissionsFailed", {
+                    defaultValue: "启用 Claude Code 跳过权限检查失败",
+                  })
+                : t("notifications.clearClaudeBypassPermissionsFailed", {
+                    defaultValue: "关闭 Claude Code 跳过权限检查失败",
                   }),
             );
           }

@@ -13,8 +13,11 @@ export const settingsSchema = z.object({
   minimizeToTrayOnClose: z.boolean(),
   enableClaudePluginIntegration: z.boolean().optional(),
   skipClaudeOnboarding: z.boolean().optional(),
+  claudeBypassPermissions: z.boolean().optional(),
   launchOnStartup: z.boolean().optional(),
   enableLocalProxy: z.boolean().optional(),
+  preserveCodexOfficialAuthOnSwitch: z.boolean().optional(),
+  unifyCodexSessionHistory: z.boolean().optional(),
   language: z.enum(["en", "zh", "zh-TW", "ja"]).optional(),
 
   // 设备级目录覆盖
@@ -57,7 +60,7 @@ export const settingsSchema = z.object({
     })
     .optional(),
 
-  // 本机自动迁移状态（后端维护，前端保存设置时应透传）
+  // 本机自动迁移状态（后端维护且保存时后端忽略前端值，仅供读取展示）
   localMigrations: z
     .object({
       codexThirdPartyHistoryProviderBucketV1: z

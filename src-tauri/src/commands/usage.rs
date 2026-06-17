@@ -14,9 +14,16 @@ pub fn get_usage_summary(
     start_date: Option<i64>,
     end_date: Option<i64>,
     app_type: Option<String>,
+    provider_name: Option<String>,
+    model: Option<String>,
 ) -> Result<UsageSummary, AppError> {
-    UsageStatsRepository::new(&state.db)
-        .get_usage_summary(start_date, end_date, app_type.as_deref())
+    state.db.get_usage_summary(
+        start_date,
+        end_date,
+        app_type.as_deref(),
+        provider_name.as_deref(),
+        model.as_deref(),
+    )
 }
 
 /// 获取按 app_type 拆分的使用量汇总
@@ -25,8 +32,15 @@ pub fn get_usage_summary_by_app(
     state: State<'_, AppState>,
     start_date: Option<i64>,
     end_date: Option<i64>,
+    provider_name: Option<String>,
+    model: Option<String>,
 ) -> Result<Vec<UsageSummaryByApp>, AppError> {
-    UsageStatsRepository::new(&state.db).get_usage_summary_by_app(start_date, end_date)
+    state.db.get_usage_summary_by_app(
+        start_date,
+        end_date,
+        provider_name.as_deref(),
+        model.as_deref(),
+    )
 }
 
 /// 获取每日趋势
@@ -36,9 +50,16 @@ pub fn get_usage_trends(
     start_date: Option<i64>,
     end_date: Option<i64>,
     app_type: Option<String>,
+    provider_name: Option<String>,
+    model: Option<String>,
 ) -> Result<Vec<DailyStats>, AppError> {
-    UsageStatsRepository::new(&state.db)
-        .get_daily_trends(start_date, end_date, app_type.as_deref())
+    state.db.get_daily_trends(
+        start_date,
+        end_date,
+        app_type.as_deref(),
+        provider_name.as_deref(),
+        model.as_deref(),
+    )
 }
 
 /// 获取 Provider 统计
@@ -48,9 +69,16 @@ pub fn get_provider_stats(
     start_date: Option<i64>,
     end_date: Option<i64>,
     app_type: Option<String>,
+    provider_name: Option<String>,
+    model: Option<String>,
 ) -> Result<Vec<ProviderStats>, AppError> {
-    UsageStatsRepository::new(&state.db)
-        .get_provider_stats(start_date, end_date, app_type.as_deref())
+    state.db.get_provider_stats(
+        start_date,
+        end_date,
+        app_type.as_deref(),
+        provider_name.as_deref(),
+        model.as_deref(),
+    )
 }
 
 /// 获取模型统计
@@ -60,9 +88,16 @@ pub fn get_model_stats(
     start_date: Option<i64>,
     end_date: Option<i64>,
     app_type: Option<String>,
+    provider_name: Option<String>,
+    model: Option<String>,
 ) -> Result<Vec<ModelStats>, AppError> {
-    UsageStatsRepository::new(&state.db)
-        .get_model_stats(start_date, end_date, app_type.as_deref())
+    state.db.get_model_stats(
+        start_date,
+        end_date,
+        app_type.as_deref(),
+        provider_name.as_deref(),
+        model.as_deref(),
+    )
 }
 
 /// 获取请求日志列表
@@ -73,7 +108,7 @@ pub fn get_request_logs(
     page: u32,
     page_size: u32,
 ) -> Result<PaginatedLogs, AppError> {
-    UsageStatsRepository::new(&state.db).get_request_logs(&filters, page, page_size)
+    state.db.get_request_logs(&filters, page, page_size)
 }
 
 /// 获取单个请求详情
@@ -82,7 +117,7 @@ pub fn get_request_detail(
     state: State<'_, AppState>,
     request_id: String,
 ) -> Result<Option<RequestLogDetail>, AppError> {
-    UsageStatsRepository::new(&state.db).get_request_detail(&request_id)
+    state.db.get_request_detail(&request_id)
 }
 
 /// 获取模型定价列表
@@ -205,7 +240,7 @@ pub fn update_model_pricing(
         .map_err(|e| AppError::Database(format!("更新模型定价失败: {e}")))?;
     }
 
-    if let Err(e) = UsageStatsRepository::new(&db).backfill_missing_usage_costs_for_model(&model_id) {
+    if let Err(e) = db.backfill_missing_usage_costs_for_model(&model_id) {
         log::warn!("模型定价更新后回填历史用量成本失败 (model_id={model_id}): {e}");
     }
 
@@ -219,7 +254,7 @@ pub fn check_provider_limits(
     provider_id: String,
     app_type: String,
 ) -> Result<crate::services::usage_stats::ProviderLimitStatus, AppError> {
-    UsageStatsRepository::new(&state.db).check_provider_limits(&provider_id, &app_type)
+    state.db.check_provider_limits(&provider_id, &app_type)
 }
 
 /// 删除模型定价
@@ -269,6 +304,19 @@ pub fn sync_session_usage(
         }
         Err(e) => {
             result.errors.push(format!("Gemini 同步失败: {e}"));
+        }
+    }
+
+    // 同步 OpenCode 使用数据
+    match crate::services::session_usage_opencode::sync_opencode_usage(&state.db) {
+        Ok(opencode_result) => {
+            result.imported += opencode_result.imported;
+            result.skipped += opencode_result.skipped;
+            result.files_scanned += opencode_result.files_scanned;
+            result.errors.extend(opencode_result.errors);
+        }
+        Err(e) => {
+            result.errors.push(format!("OpenCode 同步失败: {e}"));
         }
     }
 

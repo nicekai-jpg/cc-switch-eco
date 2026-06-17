@@ -1,6 +1,8 @@
 #![allow(non_snake_case)]
 
 use crate::config::ConfigStatus;
+use crate::AppState;
+use tauri::State;
 
 /// Claude 插件：获取 ~/.claude/config.json 状态
 #[tauri::command]
@@ -45,4 +47,26 @@ pub async fn apply_claude_onboarding_skip() -> Result<bool, String> {
 #[tauri::command]
 pub async fn clear_claude_onboarding_skip() -> Result<bool, String> {
     crate::claude_mcp::clear_has_completed_onboarding().map_err(|e| e.to_string())
+}
+
+/// Claude Code：启用 bypassPermissions 默认权限模式（写入 ~/.claude/settings.json）
+#[tauri::command]
+pub async fn apply_claude_bypass_permissions(
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    crate::claude_settings::apply_bypass_permissions().map_err(|e| e.to_string())?;
+    crate::claude_settings::sync_bypass_permissions_to_eco(&state.db, true)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Claude Code：关闭 bypassPermissions 默认权限模式
+#[tauri::command]
+pub async fn clear_claude_bypass_permissions(
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let changed = crate::claude_settings::clear_bypass_permissions().map_err(|e| e.to_string())?;
+    crate::claude_settings::sync_bypass_permissions_to_eco(&state.db, false)
+        .map_err(|e| e.to_string())?;
+    Ok(changed)
 }

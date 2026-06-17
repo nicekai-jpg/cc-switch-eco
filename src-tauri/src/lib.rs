@@ -4,6 +4,7 @@ mod auto_launch;
 mod claude_desktop_config;
 mod claude_mcp;
 mod claude_plugin;
+mod claude_settings;
 mod codex_config;
 mod codex_history_migration;
 mod commands;
@@ -33,6 +34,7 @@ mod settings;
 mod store;
 
 mod tray;
+mod usage_events;
 mod usage_script;
 
 pub use app_config::{AppType, InstalledSkill, McpApps, McpServer, MultiAppConfig, SkillApps};
@@ -69,6 +71,22 @@ use tauri::RunEvent;
 use tauri::{Emitter, Manager};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
+#[cfg(target_os = "windows")]
+fn set_windows_app_user_model_id(app: &tauri::AppHandle) {
+    let app_id = app.config().identifier.clone();
+    let wide_app_id: Vec<u16> = app_id.encode_utf16().chain(std::iter::once(0)).collect();
+
+    let result = unsafe {
+        windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(wide_app_id.as_ptr())
+    };
+
+    if result < 0 {
+        log::warn!("设置 Windows AppUserModelID 失败: 0x{result:08X}");
+    } else {
+        log::debug!("Windows AppUserModelID 已设置为 {app_id}");
+    }
+}
+
 fn redact_url_for_log(url_str: &str) -> String {
     match url::Url::parse(url_str) {
         Ok(url) => {
@@ -100,7 +118,7 @@ fn redact_url_for_log(url_str: &str) -> String {
     }
 }
 
-/// 统一处理 ccswitche:// 深链接 URL
+/// 统一处理 ccswitch:// 深链接 URL
 ///
 /// - 解析 URL
 /// - 向前端发射 `deeplink-import` / `deeplink-error` 事件
@@ -111,7 +129,7 @@ fn handle_deeplink_url(
     focus_main_window: bool,
     source: &str,
 ) -> bool {
-    if !url_str.starts_with("ccswitche://") {
+    if !url_str.starts_with("ccswitch://") {
         return false;
     }
 
@@ -288,6 +306,8 @@ pub fn run() {
             // 预先刷新 Store 覆盖配置，确保后续路径读取正确（日志/数据库等）
             app_store::refresh_app_config_dir_override(app.handle());
             panic_hook::init_app_config_dir(crate::config::get_app_config_dir());
+            #[cfg(target_os = "windows")]
+            set_windows_app_user_model_id(app.handle());
 
             // 注册 Updater 插件（桌面端）
             #[cfg(desktop)]
@@ -300,7 +320,7 @@ pub fn run() {
                     log::warn!("初始化 Updater 插件失败，已跳过：{e}");
                 }
             }
-            // 初始化日志（单文件输出到 <app_config_dir>/logs/cc-switch-eco.log）
+            // 初始化日志（单文件输出到 <app_config_dir>/logs/cc-switch.log）
             {
                 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
@@ -312,7 +332,7 @@ pub fn run() {
                 }
 
                 // 启动时删除旧日志文件，实现单文件覆盖效果
-                let log_file_path = log_dir.join("cc-switch-eco.log");
+                let log_file_path = log_dir.join("cc-switch.log");
                 let _ = std::fs::remove_file(&log_file_path);
 
                 app.handle().plugin(
@@ -323,7 +343,7 @@ pub fn run() {
                             Target::new(TargetKind::Stdout),
                             Target::new(TargetKind::Folder {
                                 path: log_dir,
-                                file_name: Some("cc-switch-eco".into()),
+                                file_name: Some("cc-switch".into()),
                             }),
                         ])
                         // 单文件模式：启动时删除旧文件，达到大小时轮转
@@ -337,9 +357,14 @@ pub fn run() {
                 )?;
             }
 
+            // 注入 AppHandle 给 usage_events，让无 AppHandle 持有的写日志路径
+            // 也能向前端推送 `usage-log-recorded`。
+            // 放在日志系统初始化之后，确保 init 的日志能正常输出。
+            usage_events::init(app.handle().clone());
+
             // 初始化数据库
             let app_config_dir = crate::config::get_app_config_dir();
-            let db_path = app_config_dir.join("cc-switch-eco.db");
+            let db_path = app_config_dir.join("cc-switch.db");
             let json_path = app_config_dir.join("config.json");
 
             // 检查是否需要从 config.json 迁移到 SQLite
@@ -486,7 +511,7 @@ pub fn run() {
             // 落成 "default" provider 设为 current，再追加官方预设（is_current=false）。
             // 这样用户切到官方预设时，回填机制会保护原 live 配置不丢失。
             //
-            // 捕获首次运行快照：所有全新装用户都会看到欢迎弹窗介绍 CC Switch Eco Eco 的工作方式。
+            // 捕获首次运行快照：所有全新装用户都会看到欢迎弹窗介绍 CC Switch 的工作方式。
             // 读失败时默认不弹，宁可漏弹也不要因为故障打扰用户。
             let first_run_already_confirmed = crate::settings::get_settings()
                 .first_run_notice_confirmed
@@ -557,6 +582,43 @@ pub fn run() {
                         }
                         Err(e) => {
                             log::warn!("✗ Codex history provider bucket migration failed: {e}");
+                        }
+                    }
+
+                    match crate::codex_history_migration::maybe_migrate_codex_provider_template_bucket(
+                        &db_for_codex_history_migration,
+                    ) {
+                        Ok(outcome) => {
+                            if let Some(reason) = outcome.skipped_reason {
+                                log::debug!("○ Codex provider template bucket migration skipped: {reason}");
+                            } else if !outcome.migrated_provider_ids.is_empty() {
+                                log::info!(
+                                    "✓ Codex provider template bucket migration completed: providers={}",
+                                    outcome.migrated_provider_ids.len()
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("✗ Codex provider template bucket migration failed: {e}");
+                        }
+                    }
+
+                    // 统一会话开关的官方历史迁移：开关开启但上次未完成（如文件被占用
+                    // 中途失败）时在启动期重试；函数内部自门控，开关关闭时直接跳过。
+                    match crate::codex_history_migration::maybe_migrate_codex_official_history_to_unified_bucket() {
+                        Ok(outcome) => {
+                            if let Some(reason) = outcome.skipped_reason {
+                                log::debug!("○ Codex official history unify migration skipped: {reason}");
+                            } else {
+                                log::info!(
+                                    "✓ Codex official history unify migration completed: jsonl_files={}, state_rows={}",
+                                    outcome.migrated_jsonl_files,
+                                    outcome.migrated_state_rows
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("✗ Codex official history unify migration failed: {e}");
                         }
                     }
                 });
@@ -736,12 +798,12 @@ pub fn run() {
                 #[cfg(target_os = "linux")]
                 {
                     // Use Tauri's path API to get correct path (includes app identifier)
-                    // tauri-plugin-deep-link writes to: ~/.local/share/com.ccswitche.desktop/applications/cc-switch-eco-handler.desktop
+                    // tauri-plugin-deep-link writes to: ~/.local/share/com.ccswitch.desktop/applications/cc-switch-handler.desktop
                     // Only register if .desktop file doesn't exist to avoid overwriting user customizations
                     let should_register = app
                         .path()
                         .data_dir()
-                        .map(|d| !d.join("applications/cc-switch-eco-handler.desktop").exists())
+                        .map(|d| !d.join("applications/cc-switch-handler.desktop").exists())
                         .unwrap_or(true);
 
                     if should_register {
@@ -784,7 +846,7 @@ pub fn run() {
                         log::debug!("  URL[{i}]: {}", redact_url_for_log(url_str));
 
                         if handle_deeplink_url(&app_handle, url_str, true, "on_open_url") {
-                            break; // Process only first ccswitche:// URL
+                            break; // Process only first ccswitch:// URL
                         }
                     }
                 }
@@ -796,7 +858,7 @@ pub fn run() {
 
             // 构建托盘
             let mut tray_builder = TrayIconBuilder::with_id(tray::TRAY_ID)
-                .tooltip("CC Switch Eco Eco Eco") // 鼠标悬停提示
+                .tooltip("CC Switch") // 鼠标悬停提示
                 .on_tray_icon_event(|tray, event| match event {
                     // 鼠标悬停/点击到托盘图标时，后台异步刷新用量缓存，
                     // 让用户下一次（或快速打开菜单的那一刻）看到较新的数字。
@@ -839,6 +901,10 @@ pub fn run() {
 
             let _tray = tray_builder.build(app)?;
             crate::services::webdav_auto_sync::start_worker(
+                app_state.db.clone(),
+                app.handle().clone(),
+            );
+            crate::services::s3_auto_sync::start_worker(
                 app_state.db.clone(),
                 app.handle().clone(),
             );
@@ -984,7 +1050,7 @@ pub fn run() {
                     // 首次同步
                     run_step(
                         "Usage cost startup backfill",
-                        UsageStatsRepository::new(db).backfill_missing_usage_costs(),
+                        db.backfill_missing_usage_costs(),
                     );
                     run_step(
                         "Session usage initial sync",
@@ -997,6 +1063,10 @@ pub fn run() {
                     run_step(
                         "Gemini usage initial sync",
                         crate::services::session_usage_gemini::sync_gemini_usage(db),
+                    );
+                    run_step(
+                        "OpenCode usage initial sync",
+                        crate::services::session_usage_opencode::sync_opencode_usage(db),
                     );
 
                     // 定期同步
@@ -1017,6 +1087,10 @@ pub fn run() {
                         run_step(
                             "Gemini usage periodic sync",
                             crate::services::session_usage_gemini::sync_gemini_usage(db),
+                        );
+                        run_step(
+                            "OpenCode usage periodic sync",
+                            crate::services::session_usage_opencode::sync_opencode_usage(db),
                         );
                     }
                 });
@@ -1082,6 +1156,7 @@ pub fn run() {
             commands::get_claude_desktop_status,
             commands::get_claude_desktop_default_routes,
             commands::import_claude_desktop_providers_from_claude,
+            commands::ensure_claude_desktop_official_provider,
             commands::get_claude_config_status,
             commands::get_config_status,
             commands::get_claude_code_config_path,
@@ -1102,6 +1177,8 @@ pub fn run() {
             commands::read_live_provider_settings,
             commands::get_settings,
             commands::save_settings,
+            commands::has_codex_unify_history_backup,
+            commands::restore_codex_unified_history,
             commands::get_rectifier_config,
             commands::set_rectifier_config,
             commands::get_optimizer_config,
@@ -1111,6 +1188,7 @@ pub fn run() {
             commands::get_log_config,
             commands::set_log_config,
             commands::restart_app,
+            commands::install_update_and_restart,
             commands::check_for_updates,
             commands::is_portable_mode,
             commands::copy_text_to_clipboard,
@@ -1120,6 +1198,8 @@ pub fn run() {
             commands::is_claude_plugin_applied,
             commands::apply_claude_onboarding_skip,
             commands::clear_claude_onboarding_skip,
+            commands::apply_claude_bypass_permissions,
+            commands::clear_claude_bypass_permissions,
             // Claude MCP management
             commands::get_claude_mcp_status,
             commands::read_claude_mcp_config,
@@ -1174,6 +1254,11 @@ pub fn run() {
             commands::webdav_sync_download,
             commands::webdav_sync_save_settings,
             commands::webdav_sync_fetch_remote_info,
+            commands::s3_test_connection,
+            commands::s3_sync_upload,
+            commands::s3_sync_download,
+            commands::s3_sync_save_settings,
+            commands::s3_sync_fetch_remote_info,
             commands::save_file_dialog,
             commands::open_file_dialog,
             commands::open_zip_file_dialog,
@@ -1397,14 +1482,37 @@ pub fn run() {
     app.run(|app_handle, event| {
         // 处理退出请求（所有平台）
         if let RunEvent::ExitRequested { api, code, .. } = &event {
-            // code 为 None 表示运行时自动触发（如隐藏窗口的 WebView 被回收导致无存活窗口），
-            // 此时应仅阻止退出、保持托盘后台运行；
-            // code 为 Some(_) 表示用户主动调用 app.exit() 退出（如托盘菜单"退出"），
-            // 此时执行清理后退出。
-            if code.is_none() {
-                log::info!("运行时触发退出请求（无存活窗口），阻止退出以保持托盘后台运行");
-                api.prevent_exit();
-                return;
+            match classify_exit_request(*code) {
+                // code 为 None 表示运行时自动触发（如隐藏窗口的 WebView 被回收导致无存活窗口），
+                // 此时应仅阻止退出、保持托盘后台运行。
+                ExitRequestAction::StayInTray => {
+                    log::info!("运行时触发退出请求（无存活窗口），阻止退出以保持托盘后台运行");
+                    api.prevent_exit();
+                    return;
+                }
+                // code 为 RESTART_EXIT_CODE：app.restart() / 自更新 relaunch 发起的重启。
+                // 这条路径上 prevent_exit() 会被 Tauri 忽略，事件循环必定退出，随后由
+                // Tauri 在 RunEvent::Exit 后用新二进制 re-exec（macOS 会按更新后的
+                // Info.plist 解析可执行名）。
+                //
+                // 绝不能复用下面的异步清理任务：该任务在 tokio 线程调 save_window_state，
+                // 持有 window-state 插件锁的同时向主线程查询窗口几何；而主线程此刻正在
+                // 退出事件循环，并在插件自带的 RunEvent::Exit 钩子里等待同一把锁——双方
+                // 互等造成进程永久卡死（更新已安装但应用冻结、不再重启，见 #3998）。
+                //
+                // 重启路径交还 Tauri 默认流程即可：
+                //   - 窗口状态：插件 Exit 钩子在主线程保存（同线程读取窗口几何，无死锁）
+                //   - 托盘图标：Tauri 内部 cleanup_before_exit 清理，正常走 Drop
+                //   - 代理/Live 配置：无需恢复，重启后新实例立即接管并恢复代理状态
+                //   - 100ms 落盘等待：重启前的 DB 写入均为命令驱动、此刻已完成，
+                //     与所有 Tauri 应用默认重启路径的行为一致，无需额外等待
+                ExitRequestAction::DeferToTauriRestart => {
+                    log::info!("收到重启请求 (code={code:?})，交由 Tauri 默认重启流程 re-exec");
+                    return;
+                }
+                // 其它 Some(_)：用户主动调用 app.exit() 退出（如托盘菜单"退出"），
+                // 此时执行清理后退出。
+                ExitRequestAction::CleanupAndExit => {}
             }
 
             log::info!("收到用户主动退出请求 (code={code:?})，开始清理...");
@@ -1414,6 +1522,11 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 save_window_state_before_exit(&app_handle);
                 cleanup_before_exit(&app_handle).await;
+                // 先于 std::process::exit 显式移除托盘图标。
+                // 进程直接退出时 Tauri 运行时不走正常 Drop 流程，
+                // 不会向 Windows Shell 发送 NIM_DELETE，导致已退出的进程
+                // 注册的图标仍残留在系统托盘（鼠标悬停 Shell 才会重绘发现进程已死）。
+                remove_tray_icon_before_exit(&app_handle);
                 log::info!("清理完成，退出应用");
 
                 // 短暂等待确保所有 I/O 操作（如数据库写入）刷新到磁盘
@@ -1445,13 +1558,13 @@ pub fn run() {
                         }
                     }
                 }
-                // 处理通过自定义 URL 协议触发的打开事件（例如 ccswitche://...）
+                // 处理通过自定义 URL 协议触发的打开事件（例如 ccswitch://...）
                 RunEvent::Opened { urls } => {
                     if let Some(url) = urls.first() {
                         let url_str = url.to_string();
                         log::info!("RunEvent::Opened with URL: {url_str}");
 
-                        if url_str.starts_with("ccswitche://") {
+                        if url_str.starts_with("ccswitch://") {
                             if crate::lightweight::is_lightweight_mode() {
                                 if let Err(e) = crate::lightweight::exit_lightweight_mode(app_handle)
                                 {
@@ -1557,6 +1670,26 @@ pub async fn cleanup_before_exit(app_handle: &tauri::AppHandle) {
                 log::error!("退出时停止代理失败: {e}");
             }
             log::info!("代理服务器清理完成");
+        }
+    }
+}
+
+/// 主动从系统托盘移除托盘图标。
+///
+/// `std::process::exit` 会绕过 Tauri 运行时，触发不了 `TrayIcon::drop()`，
+/// 也就不会向 Windows Shell 发 `NIM_DELETE`。结果是进程退出后托盘里
+/// 仍保留一个死图标的缓存占位（Shell 不会主动重绘，需要鼠标悬停才刷新）。
+///
+/// 通过 `set_visible(false)` 走 `WM_USER_HIDE_TRAYICON` 消息路径，
+/// 触发 tray-icon 内部的 `remove_tray_icon` → `Shell_NotifyIconW(NIM_DELETE)`，
+/// 在进程结束前干净地把图标摘掉。其它平台 `set_visible(false)` 也是
+/// 正常的隐藏/移除语义，作为跨平台兜底也安全。
+pub(crate) fn remove_tray_icon_before_exit(app_handle: &tauri::AppHandle) {
+    if let Some(tray) = app_handle.tray_by_id(tray::TRAY_ID) {
+        if let Err(e) = tray.set_visible(false) {
+            log::warn!("退出时移除托盘图标失败: {e}");
+        } else {
+            log::info!("已显式从系统托盘移除图标");
         }
     }
 }
@@ -1717,7 +1850,7 @@ fn show_migration_error_dialog(app: &tauri::AppHandle, error: &str) -> bool {
         format!(
             "从旧版本迁移配置时发生错误：\n\n{error}\n\n\
             您的数据尚未丢失，旧配置文件仍然保留。\n\
-            建议回退到旧版本 CC Switch Eco Eco 以保护数据。\n\n\
+            建议回退到旧版本 CC Switch 以保护数据。\n\n\
             点击「重试」重新尝试迁移\n\
             点击「退出」关闭程序（可回退版本后重新打开）"
         )
@@ -1725,7 +1858,7 @@ fn show_migration_error_dialog(app: &tauri::AppHandle, error: &str) -> bool {
         format!(
             "An error occurred while migrating configuration:\n\n{error}\n\n\
             Your data is NOT lost - the old config file is still preserved.\n\
-            Consider rolling back to an older CC Switch Eco Eco version.\n\n\
+            Consider rolling back to an older CC Switch version.\n\n\
             Click 'Retry' to attempt migration again\n\
             Click 'Exit' to close the program"
         )
@@ -1775,7 +1908,7 @@ fn show_database_init_error_dialog(
             您的数据尚未丢失，应用不会自动删除数据库文件。\n\
             常见原因包括：数据库版本过新、文件损坏、权限不足、磁盘空间不足等。\n\n\
             建议：\n\
-            1) 先备份整个配置目录（包含 cc-switch-eco.db）\n\
+            1) 先备份整个配置目录（包含 cc-switch.db）\n\
             2) 如果提示“数据库版本过新”，请升级到更新版本\n\
             3) 如果刚升级出现异常，可回退旧版本导出/备份后再升级\n\n\
             点击「重试」重新尝试初始化\n\
@@ -1789,8 +1922,8 @@ fn show_database_init_error_dialog(
             Your data is NOT lost - the app will not delete the database automatically.\n\
             Common causes include: newer database version, corrupted file, permission issues, or low disk space.\n\n\
             Suggestions:\n\
-            1) Back up the entire config directory (including cc-switch-eco.db)\n\
-            2) If you see “database version is newer”, please upgrade CC Switch Eco Eco\n\
+            1) Back up the entire config directory (including cc-switch.db)\n\
+            2) If you see “database version is newer”, please upgrade CC Switch\n\
             3) If this happened right after upgrading, consider rolling back to export/backup then upgrade again\n\n\
             Click 'Retry' to attempt initialization again\n\
             Click 'Exit' to close the program",
@@ -1821,6 +1954,36 @@ fn show_database_init_error_dialog(
 }
 
 // ============================================================
+// 退出请求分类
+// ============================================================
+
+/// `RunEvent::ExitRequested` 的三类来源，处理方式必须区分。
+///
+/// 关键约束：重启请求（`code == RESTART_EXIT_CODE`）上 `prevent_exit()` 会被
+/// Tauri 静默忽略（见 `ExitRequestApi::prevent_exit` 文档），事件循环必定继续
+/// 退出并触发各插件的 `RunEvent::Exit` 钩子；任何与之并发的自定义清理任务都
+/// 可能与插件退出钩子争用同一状态而死锁。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExitRequestAction {
+    /// `code` 为 `None`：运行时自动触发（如隐藏窗口的 WebView 被回收导致无存活
+    /// 窗口），阻止退出、保持托盘后台运行。
+    StayInTray,
+    /// `code` 为 `RESTART_EXIT_CODE`：`app.restart()` / 自更新 relaunch 发起的
+    /// 重启，不拦截、不做自定义清理，交还 Tauri 默认 re-exec 流程。
+    DeferToTauriRestart,
+    /// 其它 `Some(_)`：用户主动退出（托盘「退出」等），执行完整异步清理后结束进程。
+    CleanupAndExit,
+}
+
+fn classify_exit_request(code: Option<i32>) -> ExitRequestAction {
+    match code {
+        None => ExitRequestAction::StayInTray,
+        Some(tauri::RESTART_EXIT_CODE) => ExitRequestAction::DeferToTauriRestart,
+        Some(_) => ExitRequestAction::CleanupAndExit,
+    }
+}
+
+// ============================================================
 // 在应用主动退出前显式持久化窗口状态
 // ============================================================
 
@@ -1835,5 +1998,61 @@ pub fn save_window_state_before_exit(app_handle: &tauri::AppHandle) {
         log::error!("退出前保存窗口状态失败: {err}");
     } else {
         log::info!("已在退出前保存窗口状态");
+    }
+}
+
+/// 主动释放 single-instance 锁。
+///
+/// macOS single-instance 使用 `/tmp/{identifier}.sock`。我们有若干路径会直接
+/// `std::process::exit(0)`，不会触发插件挂在 `RunEvent::Exit` 上的清理钩子。
+/// 重启前主动 destroy 可以避免新进程误连旧 listener 后自行退出。
+pub fn destroy_single_instance_lock(app_handle: &tauri::AppHandle) {
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    tauri_plugin_single_instance::destroy(app_handle);
+}
+
+/// 清理托盘图标、释放 single-instance 锁后重启当前应用。
+///
+/// 直接走 `tauri::process::restart`（spawn 新进程 + `exit(0)`），不经过事件
+/// 循环退出，因此 Tauri 内部的 `cleanup_before_exit` 和各插件的
+/// `RunEvent::Exit` 钩子都不会执行。需要的清理由调用方与本函数显式补偿：
+/// 窗口状态、代理/Live 恢复（调用方）；托盘图标、single-instance 锁（本函数）。
+///
+/// 有意不调 `AppHandle::cleanup_before_exit()`：它会在调用线程上 Drop 托盘
+/// 图标，而 macOS 的 NSStatusItem 操作要求主线程；`set_visible(false)` 走
+/// `run_item_main_thread` 代理，跨线程安全（见 `remove_tray_icon_before_exit`）。
+pub fn restart_process(app_handle: &tauri::AppHandle) -> ! {
+    remove_tray_icon_before_exit(app_handle);
+    destroy_single_instance_lock(app_handle);
+    tauri::process::restart(&app_handle.env());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{classify_exit_request, ExitRequestAction};
+
+    #[test]
+    fn no_code_keeps_app_alive_in_tray() {
+        assert_eq!(classify_exit_request(None), ExitRequestAction::StayInTray);
+    }
+
+    #[test]
+    fn restart_exit_code_defers_to_tauri_default_restart() {
+        assert_eq!(
+            classify_exit_request(Some(tauri::RESTART_EXIT_CODE)),
+            ExitRequestAction::DeferToTauriRestart
+        );
+    }
+
+    #[test]
+    fn user_exit_codes_run_cleanup_then_exit() {
+        assert_eq!(
+            classify_exit_request(Some(0)),
+            ExitRequestAction::CleanupAndExit
+        );
+        assert_eq!(
+            classify_exit_request(Some(1)),
+            ExitRequestAction::CleanupAndExit
+        );
     }
 }

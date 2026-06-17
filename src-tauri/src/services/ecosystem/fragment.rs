@@ -1,8 +1,15 @@
 use std::fs;
 use std::path::Path;
 
+use serde_json::Value;
+
 use crate::error::AppError;
 use crate::services::ecosystem_framework;
+
+/// `settings.json` 中由 CC Switch 供应商切换写入、不应被 Eco fragment 重建覆盖的顶层字段。
+pub const CLAUDE_PROVIDER_MANAGED_SETTINGS_KEYS: &[&str] = &["env", "model"];
+
+pub const CCS_PROVIDER_FRAGMENT_PREFIX: &str = "ccs-";
 
 /// 解析 JSON 字符串，失败时返回带上下文的错误
 pub fn parse_json(content: &str, context: &str) -> Result<serde_json::Value, AppError> {
@@ -91,9 +98,25 @@ pub fn json_deep_merge_with_array_dedup(
     }
 }
 
+/// 将 live `settings.json` 中由供应商切换写入的字段合并到重建结果，避免被 Eco fragment 覆盖。
+pub fn preserve_claude_provider_fields(target: &mut Value, source: &Value) {
+    let Some(source_obj) = source.as_object() else {
+        return;
+    };
+    let Some(target_obj) = target.as_object_mut() else {
+        return;
+    };
+
+    for key in CLAUDE_PROVIDER_MANAGED_SETTINGS_KEYS {
+        if let Some(value) = source_obj.get(*key) {
+            target_obj.insert(key.to_string(), value.clone());
+        }
+    }
+}
+
 /// 从所有 fragment 重建一个 JSON 根文件
 ///
-/// 合并顺序：框架 fragment（按 eco.json 中 frameworks 安装顺序）→ user-fragment（始终最后）
+/// 合并顺序：框架 fragment（按 eco.json 中 frameworks 安装顺序）→ ccs-fragment（供应商 env/model）→ user-fragment（始终最后）
 /// 用户偏好优先：user-fragment 中的标量值会覆盖框架的值，且不记录为冲突。
 pub fn rebuild_root_file(
     rootfiles_dir: &Path,
@@ -127,6 +150,23 @@ pub fn rebuild_root_file(
 
         json_deep_merge_with_array_dedup(&mut merged, &frag_json, "", prefix, &mut all_conflicts);
         has_any_fragment = true;
+    }
+
+    // 合并 CC Switch 供应商 fragment（env/model），在框架之后、用户偏好之前
+    let ccs_frag_path = fragment_path(rootfiles_dir, file_name, CCS_PROVIDER_FRAGMENT_PREFIX);
+    if ccs_frag_path.exists() {
+        let content =
+            fs::read_to_string(&ccs_frag_path).map_err(|e| AppError::io(&ccs_frag_path, e))?;
+        if let Ok(ccs_json) = serde_json::from_str::<Value>(&content) {
+            json_deep_merge_with_array_dedup(
+                &mut merged,
+                &ccs_json,
+                "",
+                CCS_PROVIDER_FRAGMENT_PREFIX,
+                &mut Vec::new(),
+            );
+            has_any_fragment = true;
+        }
     }
 
     // 最后合并 user-fragment（用户偏好始终优先，不记录为冲突）
@@ -180,7 +220,17 @@ pub fn rebuild_root_file(
         
         // 对于 settings.json，如果是空文件，则不写入 (避免覆盖有用的 live 设置)
         if file_name != "settings.json" || !content.trim().is_empty() {
-            if let Err(e) = fs::write(&live_path, &content) {
+            let mut live_content = merged_clean.clone();
+            if file_name == "settings.json" && live_path.exists() {
+                if let Ok(existing_content) = fs::read_to_string(&live_path) {
+                    if let Ok(existing_json) = serde_json::from_str::<Value>(&existing_content) {
+                        preserve_claude_provider_fields(&mut live_content, &existing_json);
+                    }
+                }
+            }
+
+            let live_payload = write_json(&live_content)?;
+            if let Err(e) = fs::write(&live_path, &live_payload) {
                 log::warn!("同步写入 live 文件失败 {}: {e}", live_path.display());
             } else {
                 log::info!("已同步写入 live 文件: {}", live_path.display());
@@ -813,6 +863,25 @@ mod tests {
         assert_eq!(merged["defaultMode"], "plan");
         assert_eq!(merged["effort"], "max");
         assert_eq!(conflicts.len(), 2);
+    }
+
+    #[test]
+    fn preserve_claude_provider_fields_keeps_env_and_model() {
+        let mut target = json!({
+            "hooks": {},
+            "enabledPlugins": {"claude-hud@claude-hud": true}
+        });
+        let source = json!({
+            "env": {"ANTHROPIC_MODEL": "kimi-k2"},
+            "model": "kimi-k2",
+            "hooks": {"PreCompact": []}
+        });
+
+        super::preserve_claude_provider_fields(&mut target, &source);
+
+        assert_eq!(target["env"]["ANTHROPIC_MODEL"], "kimi-k2");
+        assert_eq!(target["model"], "kimi-k2");
+        assert_eq!(target["enabledPlugins"]["claude-hud@claude-hud"], true);
     }
 
     #[test]

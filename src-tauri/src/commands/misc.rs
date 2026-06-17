@@ -249,8 +249,8 @@ fn finish_lifecycle_output(output: &std::process::Output) -> Result<(), String> 
     if output.status.success() {
         return Ok(());
     }
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = decode_command_output(&output.stderr);
+    let stdout = decode_command_output(&output.stdout);
     let raw = if stderr.trim().is_empty() {
         stdout.trim()
     } else {
@@ -269,6 +269,81 @@ fn last_lines(text: &str, n: usize) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let start = lines.len().saturating_sub(n);
     lines[start..].join("\n")
+}
+
+fn decode_command_output(bytes: &[u8]) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        decode_windows_command_output(bytes)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        String::from_utf8_lossy(bytes).into_owned()
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn decode_windows_command_output(bytes: &[u8]) -> String {
+    if bytes.is_empty() {
+        return String::new();
+    }
+
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return text.to_string();
+    }
+
+    use windows_sys::Win32::Globalization::{GetACP, GetOEMCP, MultiByteToWideChar};
+
+    fn decode_codepage(bytes: &[u8], codepage: u32) -> Option<String> {
+        if codepage == 0 {
+            return None;
+        }
+
+        let input_len = i32::try_from(bytes.len()).ok()?;
+        unsafe {
+            let wide_len = MultiByteToWideChar(
+                codepage,
+                0,
+                bytes.as_ptr(),
+                input_len,
+                std::ptr::null_mut(),
+                0,
+            );
+            if wide_len <= 0 {
+                return None;
+            }
+
+            let mut wide = vec![0u16; wide_len as usize];
+            let written = MultiByteToWideChar(
+                codepage,
+                0,
+                bytes.as_ptr(),
+                input_len,
+                wide.as_mut_ptr(),
+                wide_len,
+            );
+            if written <= 0 {
+                return None;
+            }
+
+            Some(String::from_utf16_lossy(&wide[..written as usize]))
+        }
+    }
+
+    let oem_cp = unsafe { GetOEMCP() };
+    if let Some(decoded) = decode_codepage(bytes, oem_cp) {
+        return decoded;
+    }
+
+    let ansi_cp = unsafe { GetACP() };
+    if ansi_cp != oem_cp {
+        if let Some(decoded) = decode_codepage(bytes, ansi_cp) {
+            return decoded;
+        }
+    }
+
+    String::from_utf8_lossy(bytes).into_owned()
 }
 
 fn normalize_requested_tools(tools: &[String]) -> Vec<&'static str> {
@@ -678,19 +753,25 @@ async fn get_single_tool_version_impl(
         ShellProbe::NotFound(e) => (None, Some(e), false),
     };
 
-    // 2. 获取远程最新版本
+    // 2. 获取远程最新版本（npm 工具在本地领先 latest 时会按预发布通道补查，见
+    //    fetch_npm_latest_for_tool / npm_prerelease_tags）
+    let local = local_version.as_deref();
     let latest_version = match tool {
-        "claude" => fetch_npm_latest_version(&client, "@anthropic-ai/claude-code").await,
-        "codex" => fetch_npm_latest_version(&client, "@openai/codex").await,
-        "gemini" => fetch_npm_latest_version(&client, "@google/gemini-cli").await,
+        "claude" => {
+            fetch_npm_latest_for_tool(&client, "@anthropic-ai/claude-code", tool, local).await
+        }
+        "codex" => fetch_npm_latest_for_tool(&client, "@openai/codex", tool, local).await,
+        "gemini" => fetch_npm_latest_for_tool(&client, "@google/gemini-cli", tool, local).await,
         "opencode" => {
-            if let Some(version) = fetch_npm_latest_version(&client, "opencode-ai").await {
+            if let Some(version) =
+                fetch_npm_latest_for_tool(&client, "opencode-ai", tool, local).await
+            {
                 Some(version)
             } else {
                 fetch_github_latest_version(&client, "anomalyco/opencode").await
             }
         }
-        "openclaw" => fetch_npm_latest_version(&client, "openclaw").await,
+        "openclaw" => fetch_npm_latest_for_tool(&client, "openclaw", tool, local).await,
         "hermes" => fetch_pypi_latest_version(&client, "hermes-agent").await,
         _ => None,
     };
@@ -706,22 +787,133 @@ async fn get_single_tool_version_impl(
     }
 }
 
-/// Helper function to fetch latest version from npm registry
-async fn fetch_npm_latest_version(client: &reqwest::Client, package: &str) -> Option<String> {
-    let url = format!("https://registry.npmjs.org/{package}");
-    match client.get(&url).send().await {
-        Ok(resp) => {
-            if let Ok(json) = resp.json::<serde_json::Value>().await {
-                json.get("dist-tags")
-                    .and_then(|tags| tags.get("latest"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-            } else {
-                None
+/// 该工具在 npm 上的预发布通道 tag(靠前者优先)。仅当本地版本已**严格领先**
+/// `latest` 时才会被补查 —— 让主动在抢先通道的用户(如走 Claude Code 的 `next`)
+/// 看到与所在通道对齐的"最新版本",同时绝不把稳定通道用户暴露给预发布版。
+/// 返回空切片表示该工具只看 `latest`、不补查。
+///
+/// 为何不通用覆盖所有工具:各家预发布 tag 命名互不统一(codex=alpha/beta/native、
+/// gemini=nightly/preview、openclaw=alpha/beta),且 codex 的 beta/native 是
+/// `0.1.x` 时间戳式版本、gemini 有误发的 `false` tag —— 这些脏值虽会被
+/// `pick_latest_version` 的版本比较挡掉,但维护成本与误报风险不值当,故暂只为
+/// Claude Code 启用。
+fn npm_prerelease_tags(tool: &str) -> &'static [&'static str] {
+    match tool {
+        "claude" => &["next"],
+        _ => &[],
+    }
+}
+
+/// 解析 "2.1.156" / "2.1.156-beta.1" → (主版本三段, 预发布段)。无法解析返回 None。
+/// 与前端 `src/lib/version.ts` 的 parseVersion 语义对称(跨语言各实现一份)。
+/// patch 用 u64 以容纳 codex 的 `0.1.2505172116` 时间戳式版本而不溢出。
+fn parse_semver(v: &str) -> Option<([u64; 3], Vec<String>)> {
+    // 忽略 `+build` 元数据,再以首个 `-` 切出预发布段。
+    let core_and_pre = v.trim().split('+').next().unwrap_or("");
+    let (core, pre) = match core_and_pre.split_once('-') {
+        Some((c, p)) => (c, Some(p)),
+        None => (core_and_pre, None),
+    };
+    let mut parts = core.split('.');
+    let major = parts.next()?.parse::<u64>().ok()?;
+    let minor = parts.next()?.parse::<u64>().ok()?;
+    let patch = parts.next()?.parse::<u64>().ok()?;
+    if parts.next().is_some() {
+        return None; // 多于三段,非法
+    }
+    let pre_segments = pre
+        .map(|p| p.split('.').map(|s| s.to_string()).collect())
+        .unwrap_or_default();
+    Some(([major, minor, patch], pre_segments))
+}
+
+/// 比较两个版本号(遵循 semver:主版本三段优先;core 相等时有预发布 < 无预发布;
+/// 预发布段逐段比 —— 数字段按数值、数字段 < 非数字段、非数字段按 ASCII、前缀相同
+/// 则段更多者更大)。任一无法解析返回 None,调用方据此保守处理。
+fn compare_semver(a: &str, b: &str) -> Option<std::cmp::Ordering> {
+    use std::cmp::Ordering;
+    let (ac, ap) = parse_semver(a)?;
+    let (bc, bp) = parse_semver(b)?;
+    for i in 0..3 {
+        match ac[i].cmp(&bc[i]) {
+            Ordering::Equal => continue,
+            other => return Some(other),
+        }
+    }
+    match (ap.is_empty(), bp.is_empty()) {
+        (true, true) => return Some(Ordering::Equal),
+        (true, false) => return Some(Ordering::Greater),
+        (false, true) => return Some(Ordering::Less),
+        (false, false) => {}
+    }
+    for (x, y) in ap.iter().zip(bp.iter()) {
+        let ord = match (x.parse::<u64>(), y.parse::<u64>()) {
+            (Ok(xv), Ok(yv)) => xv.cmp(&yv),
+            (Ok(_), Err(_)) => Ordering::Less, // 数字段 < 非数字段
+            (Err(_), Ok(_)) => Ordering::Greater,
+            (Err(_), Err(_)) => x.as_str().cmp(y.as_str()),
+        };
+        if ord != Ordering::Equal {
+            return Some(ord);
+        }
+    }
+    Some(ap.len().cmp(&bp.len()))
+}
+
+/// 从一次 registry 请求得到的完整 dist-tags 出发,挑选要展示的"最新版本"。
+///
+/// 规则:默认就是 `latest`;仅当本地版本已**严格领先** `latest`(说明用户主动在
+/// 抢先通道)时,才把 `prerelease_tags` 指向的版本纳入比较,取其中能被解析、且
+/// 高于 `latest` 的最高者。无法解析或不高于 latest 的脏 tag 一律落选。
+fn pick_latest_version(
+    dist_tags: &serde_json::Map<String, serde_json::Value>,
+    prerelease_tags: &[&str],
+    local_version: Option<&str>,
+) -> Option<String> {
+    use std::cmp::Ordering;
+    let latest = dist_tags.get("latest").and_then(|v| v.as_str())?;
+
+    // 本地是否严格领先 latest;任一无法解析则按"未领先"保守处理(只看 latest)。
+    let local_ahead = local_version
+        .and_then(|local| compare_semver(local, latest))
+        .map(|ord| ord == Ordering::Greater)
+        .unwrap_or(false);
+    if prerelease_tags.is_empty() || !local_ahead {
+        return Some(latest.to_string());
+    }
+
+    let mut best = latest.to_string();
+    for tag in prerelease_tags {
+        if let Some(candidate) = dist_tags.get(*tag).and_then(|v| v.as_str()) {
+            if compare_semver(candidate, &best) == Some(Ordering::Greater) {
+                best = candidate.to_string();
             }
         }
-        Err(_) => None,
     }
+    Some(best)
+}
+
+/// 拉取 npm 包的完整 dist-tags(单次请求即含 latest/next/beta/...)。
+async fn fetch_npm_dist_tags(
+    client: &reqwest::Client,
+    package: &str,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let url = format!("https://registry.npmjs.org/{package}");
+    let resp = client.get(&url).send().await.ok()?;
+    let json = resp.json::<serde_json::Value>().await.ok()?;
+    json.get("dist-tags")?.as_object().cloned()
+}
+
+/// 查询某 npm 工具要展示的"最新版本":取 `latest`,并在本地版本领先时按工具的
+/// 预发布通道(见 `npm_prerelease_tags`)补查 —— 复用同一次 registry 响应,无额外请求。
+async fn fetch_npm_latest_for_tool(
+    client: &reqwest::Client,
+    package: &str,
+    tool: &str,
+    local_version: Option<&str>,
+) -> Option<String> {
+    let dist_tags = fetch_npm_dist_tags(client, package).await?;
+    pick_latest_version(&dist_tags, npm_prerelease_tags(tool), local_version)
 }
 
 /// Helper function to fetch latest version from GitHub releases
@@ -819,8 +1011,8 @@ fn try_get_version(tool: &str) -> ShellProbe {
 
     match output {
         Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            let stdout = decode_command_output(&out.stdout).trim().to_string();
+            let stderr = decode_command_output(&out.stderr).trim().to_string();
             if out.status.success() {
                 let raw = if stdout.is_empty() { &stderr } else { &stdout };
                 if raw.is_empty() {
@@ -875,6 +1067,111 @@ fn default_flag_for_shell(shell: &str) -> &'static str {
         "fish" => "-lc",
         _ => "-lic",
     }
+}
+
+fn fallback_user_shell() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "/bin/zsh"
+    } else {
+        "/bin/bash"
+    }
+}
+
+fn valid_user_shell_path(shell: &str) -> bool {
+    if shell.is_empty()
+        || !shell.starts_with('/')
+        || !is_valid_shell(shell)
+        || shell.chars().any(char::is_control)
+    {
+        return false;
+    }
+
+    let path = std::path::Path::new(shell);
+    path.is_file() && is_executable_file(path)
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    path.metadata()
+        .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(path: &std::path::Path) -> bool {
+    path.is_file()
+}
+
+/// 获取用户默认 shell 的完整路径；异常或被污染的 SHELL 回退到平台默认值。
+fn get_user_shell() -> String {
+    std::env::var("SHELL")
+        .ok()
+        .filter(|shell| valid_user_shell_path(shell))
+        .unwrap_or_else(|| fallback_user_shell().to_string())
+}
+
+/// 构建 exec 行：引号保护 shell 路径，交还用户 shell 让其按默认规则加载 rc 配置。
+fn build_exec_line(shell: &str, cwd: Option<&Path>) -> String {
+    let quoted_shell = shell_single_quote(shell);
+
+    match shell.rsplit('/').next().unwrap_or(shell) {
+        "zsh" => cwd
+            .map(|dir| {
+                let command = format!(
+                    "cd {} || exit 1; exec {} -i",
+                    shell_single_quote(&dir.to_string_lossy()),
+                    quoted_shell
+                );
+                format!("exec {} -lc {}", quoted_shell, shell_single_quote(&command))
+            })
+            .unwrap_or_else(|| format!("exec {quoted_shell} -l")),
+        _ => format!("exec {quoted_shell}"),
+    }
+}
+
+/// 构建 provider 命令行：通过用户 shell 的交互模式执行，确保 GUI 启动的终端也加载用户 PATH。
+fn build_provider_command_line(shell: &str, config_path: &str, cwd: Option<&Path>) -> String {
+    let claude_command = format!("claude --settings {}", shell_single_quote(config_path));
+    let command = cwd
+        .map(|dir| {
+            format!(
+                "cd {} && {}",
+                shell_single_quote(&dir.to_string_lossy()),
+                claude_command
+            )
+        })
+        .unwrap_or(claude_command);
+
+    format!(
+        "{} {} {}",
+        shell_single_quote(shell),
+        provider_command_flag_for_shell(shell),
+        shell_single_quote(&command)
+    )
+}
+
+fn provider_command_flag_for_shell(shell: &str) -> &'static str {
+    match shell.rsplit('/').next().unwrap_or(shell) {
+        "dash" | "sh" => "-c",
+        "zsh" => "-lic",
+        _ => "-ic",
+    }
+}
+
+fn build_final_shell_cd_command(shell: &str, cwd: Option<&Path>) -> String {
+    if matches!(shell.rsplit('/').next().unwrap_or(shell), "zsh") {
+        return String::new();
+    }
+
+    cwd.map(|dir| {
+        format!(
+            "cd {} || exit 1\n",
+            shell_single_quote(&dir.to_string_lossy())
+        )
+    })
+    .unwrap_or_default()
 }
 
 #[cfg(target_os = "windows")]
@@ -934,8 +1231,8 @@ fn try_get_version_wsl(
 
     match output {
         Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            let stdout = decode_command_output(&out.stdout).trim().to_string();
+            let stderr = decode_command_output(&out.stderr).trim().to_string();
             if out.status.success() {
                 let raw = if stdout.is_empty() { &stderr } else { &stdout };
                 if raw.is_empty() {
@@ -1314,8 +1611,43 @@ fn build_tool_search_paths(tool: &str) -> Vec<std::path::PathBuf> {
     search_paths
 }
 
+#[cfg(target_os = "windows")]
+fn is_windows_command_script(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"))
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "windows")]
+fn run_windows_tool_version_command(
+    tool_path: &Path,
+    new_path: &str,
+) -> std::io::Result<std::process::Output> {
+    use std::process::Command;
+
+    if is_windows_command_script(tool_path) {
+        let path = tool_path.to_string_lossy();
+        let command = format!("call {} --version", win_quote_path_for_batch(&path));
+        let mut cmd = Command::new("cmd");
+        return cmd
+            .args(["/D", "/S", "/C"])
+            .raw_arg(&command)
+            .env("PATH", new_path)
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+    }
+
+    Command::new(tool_path)
+        .arg("--version")
+        .env("PATH", new_path)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+}
+
 /// 扫描常见路径查找 CLI（PATH 主命令未命中时的兜底单探）。
 fn scan_cli_version(tool: &str) -> ShellProbe {
+    #[cfg(not(target_os = "windows"))]
     use std::process::Command;
 
     let search_paths = build_tool_search_paths(tool);
@@ -1341,13 +1673,7 @@ fn scan_cli_version(tool: &str) -> ShellProbe {
             }
 
             #[cfg(target_os = "windows")]
-            let output = {
-                Command::new("cmd")
-                    .args(["/C", &format!("\"{}\" --version", tool_path.display())])
-                    .env("PATH", &new_path)
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .output()
-            };
+            let output = run_windows_tool_version_command(&tool_path, &new_path);
 
             #[cfg(not(target_os = "windows"))]
             let output = {
@@ -1358,8 +1684,8 @@ fn scan_cli_version(tool: &str) -> ShellProbe {
             };
 
             if let Ok(out) = output {
-                let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                let stdout = decode_command_output(&out.stdout).trim().to_string();
+                let stderr = decode_command_output(&out.stderr).trim().to_string();
                 if out.status.success() {
                     let raw = if stdout.is_empty() { &stderr } else { &stdout };
                     if !raw.is_empty() {
@@ -1471,7 +1797,7 @@ fn resolve_path_default(tool: &str) -> Option<std::path::PathBuf> {
     if !out.status.success() {
         return None;
     }
-    let raw = String::from_utf8_lossy(&out.stdout);
+    let raw = decode_command_output(&out.stdout);
     // 不能死取第一行：交互式 .zshrc 可能先打印欢迎语（如 "🚀 Welcome back"），
     // command -v 的真实路径在其后；取第一个 `/` 开头的行才稳。
     let first = first_abs_path_line(&raw)?;
@@ -1490,7 +1816,7 @@ fn resolve_path_default(tool: &str) -> Option<std::path::PathBuf> {
     if !out.status.success() {
         return None;
     }
-    let raw = String::from_utf8_lossy(&out.stdout);
+    let raw = decode_command_output(&out.stdout);
     let first = raw.lines().next()?.trim();
     if first.is_empty() {
         return None;
@@ -1502,6 +1828,7 @@ fn resolve_path_default(tool: &str) -> Option<std::path::PathBuf> {
 /// `build_tool_search_paths`，但不在首个命中处停止——而是对每个去重后的真实
 /// 可执行文件都跑一次 `--version`，从而能发现"升级写入 A 处、PATH 实际用 B 处"。
 fn enumerate_tool_installations(tool: &str) -> Vec<ToolInstallation> {
+    #[cfg(not(target_os = "windows"))]
     use std::process::Command;
 
     let search_paths = build_tool_search_paths(tool);
@@ -1531,14 +1858,7 @@ fn enumerate_tool_installations(tool: &str) -> Vec<ToolInstallation> {
             }
 
             #[cfg(target_os = "windows")]
-            let output = {
-                use std::os::windows::process::CommandExt;
-                Command::new("cmd")
-                    .args(["/C", &format!("\"{}\" --version", tool_path.display())])
-                    .env("PATH", &new_path)
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .output()
-            };
+            let output = run_windows_tool_version_command(&tool_path, &new_path);
             #[cfg(not(target_os = "windows"))]
             let output = Command::new(&tool_path)
                 .arg("--version")
@@ -1547,14 +1867,14 @@ fn enumerate_tool_installations(tool: &str) -> Vec<ToolInstallation> {
 
             let (version, runnable, error) = match output {
                 Ok(out) if out.status.success() => {
-                    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                    let stdout = decode_command_output(&out.stdout).trim().to_string();
+                    let stderr = decode_command_output(&out.stderr).trim().to_string();
                     let raw = if stdout.is_empty() { stderr } else { stdout };
                     (Some(extract_version(&raw)), true, None)
                 }
                 Ok(out) => {
-                    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    let stderr = decode_command_output(&out.stderr).trim().to_string();
+                    let stdout = decode_command_output(&out.stdout).trim().to_string();
                     let detail = if stderr.is_empty() { stdout } else { stderr };
                     let detail = detail.trim();
                     let error = if detail.is_empty() {
@@ -1770,10 +2090,19 @@ fn anchored_official_update_command(tool: &str, bin_path: &str) -> Option<String
     official_update_args(tool).map(|args| format!("{} {args}", win_quote_path_for_batch(bin_path)))
 }
 
+/// 哪些工具的"官方 self-update"优先于包管理器升级（生成 `<tool> update || <pkg-mgr>`）。
+///
+/// **codex 刻意不在此列**：`codex update` 在 npm 安装上只是裸 `npm install -g
+/// @openai/codex`（无 `@latest` / `--include=optional` / 不先卸载），却只检查 exit code、
+/// 无条件打印 “Update ran successfully”。当 npm 把平台二进制 optional 依赖
+/// `@openai/codex-<triple>` 漏装时它仍 **exit 0 假成功**，使外层 `||` 兜底被短路、损坏被
+/// 成功 toast 掩盖（用户报告的 “Missing optional dependency” 即源于此）。因此 codex 一律走
+/// npm 锚定升级；真正损坏（`runnable=false`）时由 `installs_anchored_command` 的门控改用
+/// `codex_repair_command` 的 uninstall+install 自愈，而非交给 codex 自身的 self-update。
 fn prefers_official_update(tool: &str, shell: LifecycleCommandShell) -> bool {
     match shell {
         LifecycleCommandShell::Posix => {
-            matches!(tool, "claude" | "codex" | "opencode" | "openclaw")
+            matches!(tool, "claude" | "opencode" | "openclaw")
         }
         LifecycleCommandShell::WindowsBatch => {
             matches!(
@@ -1782,10 +2111,64 @@ fn prefers_official_update(tool: &str, shell: LifecycleCommandShell) -> bool {
                 // 安装方式探测失败弹交互 prompt（spawn npm.cmd 没传 shell:true）；静默
                 // lifecycle 没有 stdin 会挂死，Windows 先锚到包管理器路径，等上游修了
                 // 再把 opencode 加回这里。
-                "claude" | "codex" | "openclaw"
+                "claude" | "openclaw"
             )
         }
     }
+}
+
+/// Codex 平台分发包损坏的自愈命令。Codex 的 npm 包是「主包 `@openai/codex`（纯 JS
+/// launcher）+ 平台二进制 optional 依赖 `@openai/codex-<triple>`」的分发模式（同 esbuild/swc）。
+/// 当平台二进制缺失时 codex 跑不起来——`enumerate_tool_installations` 跑 `--version` 会拿到
+/// “Missing optional dependency” 的非 0 退出，标记 `runnable=false`。此状态下普通
+/// `npm i -g @pkg@latest` 是 **no-op**：npm 视 optional 依赖缺失为非致命，reify 又认为主包已是
+/// 最新（外加半损坏留下的空 nested `node_modules` 残骸强化「tree 已满足」判断），不会补回平台
+/// 二进制。唯一实测可靠的修复是先 `uninstall` 清掉残骸、再 `install` 装回完整的主包 + 平台二进制
+/// （实测输出 `added 2 packages`）。
+///
+/// 锚定到与 codex 入口同目录的 npm（与升级路径一致，不依赖 GUI 非登录进程的 PATH）。`|| true`
+/// 让 uninstall 失败（如 nvm 上对半损坏包静默返回非 0）不触发外层 `set -e` 中止，但随后的
+/// install 若失败仍会被 `set -e` 捕获并上报给前端 toast。
+///
+/// **仅对会锚定到 sibling npm 的 node 管理器来源（nvm/fnm/mise/homebrew npm）生效**：
+/// `runnable=false` 是宽信号（权限 / node 版本 / 任意 `--version` 失败皆可触发），非 npm
+/// 全局安装各有自己的二进制分发与修复方式，无脑套 npm uninstall+install 会出错——Homebrew
+/// formula（real 在 `Cellar/`）本应 `brew upgrade codex`，npm 够不到它反而旁路装第二份 npm
+/// 全局 codex；Volta/Bun 本应 `volta install`/`bun add`，且 `~/.bun/bin` 下没有 npm、
+/// `sibling_bin` 会拼出不存在的路径；system/未知来源无可靠 sibling npm。这些来源一律返回
+/// None，让上游继续走 source-specific 的 `anchored_command_from_paths`。白名单与
+/// `package_manager_anchored_command_from_paths` 的 sibling-npm 分支对齐。
+/// 刻意**不**额外用 `inst.error` 文本确认「确系缺二进制」：enumerate 只保留 stderr 末尾 4 行，
+/// 而 codex.js 抛错的 "Missing optional dependency" 行会被尾部 node stack `at ...` 行挤出窗口
+/// （实测用户原始错误即如此），强加该条件反而漏修真实缺包；对 npm 全局安装，uninstall+install
+/// 对各类损坏都是合理且不会更糟的修复。
+#[cfg(not(target_os = "windows"))]
+fn codex_repair_command(bin_path: &str, real: &str) -> Option<String> {
+    // brew formula（real 在 Cellar）→ 不归 npm 管，交回 anchored 走 brew upgrade。
+    if brew_formula_from_path(real).is_some() {
+        return None;
+    }
+    // 只认会落到 sibling npm 的 node 管理器来源；volta/bun/system/未知交回 anchored。
+    if !matches!(
+        infer_install_source(Path::new(bin_path)),
+        "nvm" | "fnm" | "mise" | "homebrew"
+    ) {
+        return None;
+    }
+    let npm = sibling_bin(bin_path, "npm")?;
+    let npm = quote_path_if_spaced(&npm);
+    let pkg = "@openai/codex";
+    Some(format!(
+        "{npm} uninstall -g {pkg} || true; {npm} i -g {pkg}@latest"
+    ))
+}
+
+/// Windows 暂不做平台分发自愈：Windows 上 codex 的破坏模式不同（EPERM 文件锁 / 版本 bump
+/// 残留，见 openai/codex#21872、#19824），且 `.bat` 链的错误处理与 POSIX `set -e` 语义不同，
+/// 需要单独设计；先在本问题实际发生的 POSIX 平台落地。返回 None → 上游走正常锚定命令。
+#[cfg(target_os = "windows")]
+fn codex_repair_command(_bin_path: &str, _real: &str) -> Option<String> {
+    None
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -1975,6 +2358,17 @@ fn default_install(installs: &[ToolInstallation]) -> Option<&ToolInstallation> {
 fn installs_anchored_command(tool: &str, installs: &[ToolInstallation]) -> Option<String> {
     let inst = default_install(installs)?;
     let real = inst.real.to_string_lossy();
+    // Codex 平台分发包损坏自愈：主包在但平台二进制缺失时 codex 跑不起来
+    // （runnable=false），此时正常锚定的 `npm i -g @latest` 是 no-op 修不好——改用
+    // uninstall+install 重装补回平台二进制。**但仅限会锚定到 sibling npm 的 node 管理器
+    // 来源**（codex_repair_command 内按 source/real 收窄，brew/volta/bun/system 交回下方
+    // source-specific 锚定，避免误用 npm 重装）。runnable=true 的正常升级也走下方普通锚定
+    // 路径（且因 codex 不在 prefers_official_update，不会再跑会假成功掩盖损坏的 `codex update`）。
+    if tool == "codex" && !inst.runnable {
+        if let Some(cmd) = codex_repair_command(&inst.path, &real) {
+            return Some(cmd);
+        }
+    }
     anchored_command_from_paths(tool, &inst.path, &real)
 }
 
@@ -2353,24 +2747,31 @@ fn launch_macos_terminal(config_file: &std::path::Path, cwd: Option<&Path>) -> R
     let preferred = crate::settings::get_preferred_terminal();
     let terminal = preferred.as_deref().unwrap_or("terminal");
 
+    let shell = get_user_shell();
+    let exec_line = build_exec_line(&shell, cwd);
+    let final_cd_command = build_final_shell_cd_command(&shell, cwd);
+
     let temp_dir = std::env::temp_dir();
     let script_file = temp_dir.join(format!("cc_switch_launcher_{}.sh", std::process::id()));
     let config_path = config_file.to_string_lossy();
-    let cd_command = build_shell_cd_command(cwd);
+    let provider_command = build_provider_command_line(&shell, &config_path, cwd);
 
     // Write the shell script to a temp file
+    // 脚本使用 POSIX sh 语法确保可移植性，exec 行切换到用户交互式 shell
     let script_content = format!(
-        r#"#!/bin/bash
+        r#"#!/usr/bin/env sh
 trap 'rm -f "{config_path}" "{script_file}"' EXIT
-{cd_command}
 echo "Using provider-specific claude config:"
 echo "{config_path}"
-claude --settings "{config_path}"
-exec bash --norc --noprofile
+{provider_command}
+{final_cd_command}
+{exec_line}
 "#,
         config_path = config_path,
         script_file = script_file.display(),
-        cd_command = cd_command,
+        provider_command = provider_command,
+        final_cd_command = final_cd_command,
+        exec_line = exec_line,
     );
 
     std::fs::write(&script_file, &script_content).map_err(|e| format!("写入启动脚本失败: {e}"))?;
@@ -2389,7 +2790,7 @@ exec bash --norc --noprofile
         "ghostty" => launch_macos_ghostty(&script_file),
         "wezterm" => launch_macos_open_app("WezTerm", &script_file, true),
         "kaku" => launch_macos_open_app("Kaku", &script_file, true),
-        _ => launch_macos_terminal_app(&script_file), // "terminal" or default
+        _ => launch_macos_terminal_app(&script_file),
     };
 
     // If preferred terminal fails and it's not the default, try Terminal.app as fallback
@@ -2405,29 +2806,67 @@ exec bash --norc --noprofile
     result
 }
 
-/// macOS: Terminal.app
+/// Escape a value as an AppleScript string literal.
 #[cfg(target_os = "macos")]
-fn launch_macos_terminal_app(script_file: &std::path::Path) -> Result<(), String> {
-    use std::process::Command;
+fn applescript_string_literal(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
 
-    let applescript = format!(
-        r#"tell application "Terminal"
-    activate
-    do script "bash '{}'"
+/// Build the launcher command literal used by AppleScript.
+#[cfg(target_os = "macos")]
+fn applescript_launcher_command(script_file: &std::path::Path) -> String {
+    applescript_string_literal(&format!(
+        "sh {}",
+        shell_single_quote(&script_file.to_string_lossy())
+    ))
+}
+
+/// Build a launcher command that replaces the terminal-created shell session.
+#[cfg(target_os = "macos")]
+fn applescript_exec_launcher_command(script_file: &std::path::Path) -> String {
+    applescript_string_literal(&format!(
+        "exec sh {}",
+        shell_single_quote(&script_file.to_string_lossy())
+    ))
+}
+
+/// macOS: Terminal.app AppleScript.
+/// A cold `activate` creates a default empty window before `do script` opens the command session.
+/// Use `launch` for cold starts so `do script` can create the only new session without reusing restored windows.
+#[cfg(target_os = "macos")]
+fn build_macos_terminal_applescript(script_file: &std::path::Path) -> String {
+    format!(
+        r#"set launcher_script to {launcher}
+set was_running to application "Terminal" is running
+tell application "Terminal"
+    if was_running then
+        activate
+        do script launcher_script
+    else
+        launch
+        do script launcher_script
+        activate
+    end if
 end tell"#,
-        script_file.display()
-    );
+        launcher = applescript_exec_launcher_command(script_file)
+    )
+}
+
+/// Run AppleScript through `osascript -e` with shared error handling.
+#[cfg(target_os = "macos")]
+fn run_terminal_osascript(applescript: &str, terminal_label: &str) -> Result<(), String> {
+    use std::process::Command;
 
     let output = Command::new("osascript")
         .arg("-e")
-        .arg(&applescript)
+        .arg(applescript)
         .output()
         .map_err(|e| format!("执行 osascript 失败: {e}"))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = decode_command_output(&output.stderr);
         return Err(format!(
-            "Terminal.app 执行失败 (exit code: {:?}): {}",
+            "{terminal_label} 执行失败 (exit code: {:?}): {}",
             output.status.code(),
             stderr
         ));
@@ -2436,11 +2875,20 @@ end tell"#,
     Ok(())
 }
 
+/// macOS: Terminal.app
+#[cfg(target_os = "macos")]
+fn launch_macos_terminal_app(script_file: &std::path::Path) -> Result<(), String> {
+    run_terminal_osascript(
+        &build_macos_terminal_applescript(script_file),
+        "Terminal.app",
+    )
+}
+
 /// macOS: iTerm2
 #[cfg(target_os = "macos")]
 fn build_macos_iterm2_applescript(script_file: &std::path::Path) -> String {
     format!(
-        r#"set launcher_script to "bash '{}'"
+        r#"set launcher_script to {launcher}
 set was_running to application "iTerm" is running
 tell application "iTerm"
     if was_running then
@@ -2468,63 +2916,59 @@ tell application "iTerm"
         write text launcher_script
     end tell
 end tell"#,
-        script_file.display()
+        launcher = applescript_exec_launcher_command(script_file)
     )
 }
 
 /// macOS: iTerm2
 #[cfg(target_os = "macos")]
 fn launch_macos_iterm2(script_file: &std::path::Path) -> Result<(), String> {
-    use std::process::Command;
-
-    let applescript = build_macos_iterm2_applescript(script_file);
-
-    let output = Command::new("osascript")
-        .arg("-e")
-        .arg(&applescript)
-        .output()
-        .map_err(|e| format!("执行 osascript 失败: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "iTerm2 执行失败 (exit code: {:?}): {}",
-            output.status.code(),
-            stderr
-        ));
-    }
-
-    Ok(())
+    run_terminal_osascript(&build_macos_iterm2_applescript(script_file), "iTerm2")
 }
 
-/// macOS: Ghostty — use --quit-after-last-window-closed to avoid cloning existing tabs
+/// Keep the launcher path inside a `sh -c` string.
+/// A bare `.sh` passed through `open --args` may also be opened as a document.
+#[cfg(target_os = "macos")]
+fn build_macos_dash_c_command(script_file: &std::path::Path) -> String {
+    format!(
+        "exec sh {}",
+        shell_single_quote(&script_file.to_string_lossy())
+    )
+}
+
+/// macOS: Ghostty.
+/// Warm starts use AppleScript to create one command window.
+/// Cold starts use `initial-command` so the first default surface runs the launcher.
+/// Do not use `initial-window=false` plus `new window`: cold launch can still create the default window first.
+#[cfg(target_os = "macos")]
+fn build_macos_ghostty_applescript(script_file: &std::path::Path) -> String {
+    format!(
+        r#"set launcher_command to {launcher}
+set was_running to application "Ghostty" is running
+if was_running then
+    tell application "Ghostty"
+        new window with configuration {{command:launcher_command}}
+    end tell
+else
+    do shell script "open -na Ghostty --args --quit-after-last-window-closed=true " & quoted form of ("--initial-command=" & launcher_command)
+end if
+"#,
+        launcher = applescript_launcher_command(script_file)
+    )
+}
+
+/// macOS: Ghostty
 #[cfg(target_os = "macos")]
 fn launch_macos_ghostty(script_file: &std::path::Path) -> Result<(), String> {
-    use std::process::Command;
-
-    let output = Command::new("open")
-        .args([
-            "-na",
-            "Ghostty",
-            "--args",
-            "--quit-after-last-window-closed=true",
-            "-e",
-            "bash",
-        ])
-        .arg(script_file)
-        .output()
-        .map_err(|e| format!("启动 Ghostty 失败: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "Ghostty 启动失败 (exit code: {:?}): {}",
-            output.status.code(),
-            stderr
-        ));
+    match run_terminal_osascript(&build_macos_ghostty_applescript(script_file), "Ghostty") {
+        Ok(()) => Ok(()),
+        Err(applescript_error) => {
+            log::warn!(
+                "Ghostty AppleScript launch failed, falling back to open -na: {applescript_error}"
+            );
+            launch_macos_open_app("Ghostty", script_file, true)
+        }
     }
-
-    Ok(())
 }
 
 /// macOS: 使用 open -na 启动支持 --args 参数的终端（Alacritty/Kitty/WezTerm/Kaku）
@@ -2542,14 +2986,17 @@ fn launch_macos_open_app(
     if use_e_flag {
         cmd.arg("-e");
     }
-    cmd.arg("bash").arg(script_file);
+    // Keep the script path inside `sh -c`; a trailing bare `.sh` can be opened as a document.
+    cmd.arg("sh")
+        .arg("-c")
+        .arg(build_macos_dash_c_command(script_file));
 
     let output = cmd
         .output()
         .map_err(|e| format!("启动 {app_name} 失败: {e}"))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = decode_command_output(&output.stderr);
         return Err(format!(
             "{} 启动失败 (exit code: {:?}): {}",
             app_name,
@@ -2586,9 +3033,9 @@ fn launch_macos_warp(script_file: &std::path::Path) -> Result<(), String> {
 
         rm -- "$0"
 
-        exec bash {}
+        exec sh {quoted_script}
         "#,
-        script_file.display(),
+        quoted_script = shell_single_quote(&script_file.to_string_lossy()),
     )
     .map_err(|e| format!("Failed to write to temporary script file for Warp: {e}"))?;
 
@@ -2601,7 +3048,7 @@ fn launch_macos_warp(script_file: &std::path::Path) -> Result<(), String> {
 
     let output = cmd.output().map_err(|e| format!("启动 Warp 失败: {e}"))?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = decode_command_output(&output.stderr);
         return Err(format!(
             "Warp 启动失败 (exit code: {:?}): {}",
             output.status.code(),
@@ -2620,6 +3067,10 @@ fn launch_linux_terminal(config_file: &std::path::Path, cwd: Option<&Path>) -> R
 
     let preferred = crate::settings::get_preferred_terminal();
 
+    let shell = get_user_shell();
+    let exec_line = build_exec_line(&shell, cwd);
+    let final_cd_command = build_final_shell_cd_command(&shell, cwd);
+
     // Default terminal list with their arguments
     let default_terminals = [
         ("gnome-terminal", vec!["--"]),
@@ -2636,20 +3087,22 @@ fn launch_linux_terminal(config_file: &std::path::Path, cwd: Option<&Path>) -> R
     let temp_dir = std::env::temp_dir();
     let script_file = temp_dir.join(format!("cc_switch_launcher_{}.sh", std::process::id()));
     let config_path = config_file.to_string_lossy();
-    let cd_command = build_shell_cd_command(cwd);
+    let provider_command = build_provider_command_line(&shell, &config_path, cwd);
 
     let script_content = format!(
-        r#"#!/bin/bash
+        r#"#!/usr/bin/env sh
 trap 'rm -f "{config_path}" "{script_file}"' EXIT
-{cd_command}
 echo "Using provider-specific claude config:"
 echo "{config_path}"
-claude --settings "{config_path}"
-exec bash --norc --noprofile
+{provider_command}
+{final_cd_command}
+{exec_line}
 "#,
         config_path = config_path,
         script_file = script_file.display(),
-        cd_command = cd_command,
+        provider_command = provider_command,
+        final_cd_command = final_cd_command,
+        exec_line = exec_line,
     );
 
     std::fs::write(&script_file, &script_content).map_err(|e| format!("写入启动脚本失败: {e}"))?;
@@ -2693,7 +3146,7 @@ exec bash --norc --noprofile
         if terminal_exists {
             let result = Command::new(terminal)
                 .args(&args)
-                .arg("bash")
+                .arg("sh")
                 .arg(script_file.to_string_lossy().as_ref())
                 .spawn();
 
@@ -2780,16 +3233,6 @@ del \"%~f0\" >nul 2>&1
     result
 }
 
-fn build_shell_cd_command(cwd: Option<&Path>) -> String {
-    cwd.map(|dir| {
-        format!(
-            "cd {} || exit 1\n",
-            shell_single_quote(&dir.to_string_lossy())
-        )
-    })
-    .unwrap_or_default()
-}
-
 fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
@@ -2844,7 +3287,7 @@ fn run_windows_start_command(args: &[&str], terminal_name: &str) -> Result<(), S
         .map_err(|e| format!("启动 {} 失败: {e}", terminal_name))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = decode_command_output(&output.stderr);
         return Err(format!(
             "{} 启动失败 (exit code: {:?}): {}",
             terminal_name,
@@ -2856,7 +3299,7 @@ fn run_windows_start_command(args: &[&str], terminal_name: &str) -> Result<(), S
     Ok(())
 }
 
-/// 打开用户首选终端并在其中执行一段可信命令脚本。脚本尾部 `read -n 1` / `pause`
+/// 打开用户首选终端并在其中执行一段可信命令脚本。脚本尾部 `read -r` / `pause`
 /// 是刻意设计的——让命令退出后窗口不要瞬间关闭，用户才看得到 `command
 /// not found` / `ModuleNotFoundError` 这类诊断信息。
 ///
@@ -2870,14 +3313,14 @@ pub(crate) fn launch_terminal_running(command_line: &str, label: &str) -> Result
     let (script_file, script_content) = {
         let file = temp_dir.join(format!("cc_switch_{}_{}.sh", label, pid));
         let content = format!(
-            r#"#!/bin/bash
+            r#"#!/usr/bin/env sh
 trap 'rm -f "{script_path}"' EXIT
 echo "[cc-switch] Starting: {label}"
 echo ""
 {cmd}
 echo ""
-echo "[cc-switch] Command exited. Press any key to close."
-read -n 1 -s
+echo "[cc-switch] Command exited. Press Enter to close."
+read -r _
 "#,
             script_path = file.display(),
             label = label,
@@ -2973,7 +3416,7 @@ read -n 1 -s
             if terminal_exists {
                 let spawn_result = Command::new(terminal)
                     .args(&args)
-                    .arg("bash")
+                    .arg("sh")
                     .arg(script_file.to_string_lossy().as_ref())
                     .spawn();
                 match spawn_result {

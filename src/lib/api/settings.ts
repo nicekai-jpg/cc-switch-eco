@@ -90,6 +90,14 @@ export const settingsApi = {
     return await invoke("clear_claude_onboarding_skip");
   },
 
+  async applyClaudeBypassPermissions(): Promise<boolean> {
+    return await invoke("apply_claude_bypass_permissions");
+  },
+
+  async clearClaudeBypassPermissions(): Promise<boolean> {
+    return await invoke("clear_claude_bypass_permissions");
+  },
+
   async saveFileDialog(defaultName: string): Promise<string | null> {
     return await invoke("save_file_dialog", { defaultName });
   },

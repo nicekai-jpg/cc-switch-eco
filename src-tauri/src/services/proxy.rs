@@ -41,14 +41,14 @@ const CLAUDE_MODEL_OVERRIDE_ENV_KEYS: [&str; 9] = [
 
 const CLAUDE_TAKEOVER_HAIKU_MODEL: &str = "claude-haiku-4-5";
 const CLAUDE_TAKEOVER_SONNET_MODEL: &str = "claude-sonnet-4-6";
-const CLAUDE_TAKEOVER_OPUS_MODEL: &str = "claude-opus-4-7";
+const CLAUDE_TAKEOVER_OPUS_MODEL: &str = "claude-opus-4-8";
 // 写给 Claude Code 时沿用文档示例的大写形式；解析侧大小写不敏感。
 const CLAUDE_ONE_M_MARKER_FOR_CLIENT: &str = "[1M]";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ClaudeTakeoverAuthPolicy {
     PreserveExistingOrAuthToken,
-    ManagedAccount,
+    ManagedAccount { keep_auth_token: bool },
 }
 
 #[derive(Clone)]
@@ -90,7 +90,12 @@ impl ProxyService {
         provider: &Provider,
     ) {
         let auth_policy = if provider.uses_managed_account_auth() {
-            ClaudeTakeoverAuthPolicy::ManagedAccount
+            // Codex 系（含仅凭 base_url 识别、无 provider_type meta 的）必须保留
+            // ANTHROPIC_AUTH_TOKEN 占位符：Claude Code 缺该键会弹登录提示（#3784）。
+            // Copilot 维持仅 API_KEY 占位，避免与 /login 管理的 key 冲突（#1049）。
+            ClaudeTakeoverAuthPolicy::ManagedAccount {
+                keep_auth_token: !provider.is_github_copilot(),
+            }
         } else {
             ClaudeTakeoverAuthPolicy::PreserveExistingOrAuthToken
         };
@@ -180,7 +185,7 @@ impl ProxyService {
                     );
                 }
             }
-            ClaudeTakeoverAuthPolicy::ManagedAccount => {
+            ClaudeTakeoverAuthPolicy::ManagedAccount { keep_auth_token } => {
                 for key in token_keys {
                     env.remove(key);
                 }
@@ -188,6 +193,14 @@ impl ProxyService {
                     "ANTHROPIC_API_KEY".to_string(),
                     json!(PROXY_TOKEN_PLACEHOLDER),
                 );
+                if keep_auth_token {
+                    // 无条件注入而非"已存在才保留"：热切换路径传入的是 provider
+                    // settings（预设不含该键），且旧版接管已把存量用户 live 中的键删光。
+                    env.insert(
+                        "ANTHROPIC_AUTH_TOKEN".to_string(),
+                        json!(PROXY_TOKEN_PLACEHOLDER),
+                    );
+                }
             }
         }
     }
@@ -322,15 +335,19 @@ impl ProxyService {
         &self,
         provider: &Provider,
     ) -> Result<(), String> {
-        let mut effective_settings = match self.read_codex_live() {
-            Ok(config) => config,
-            Err(_) => build_effective_settings_with_common_config(
-                self.db.as_ref(),
-                &AppType::Codex,
-                provider,
-            )
-            .map_err(|e| format!("构建 codex 有效配置失败: {e}"))?,
-        };
+        let existing_live = self.read_codex_live().ok();
+        let mut effective_settings = build_effective_settings_with_common_config(
+            self.db.as_ref(),
+            &AppType::Codex,
+            provider,
+        )
+        .map_err(|e| format!("构建 codex 有效配置失败: {e}"))?;
+        if let Some(existing_live) = existing_live.as_ref() {
+            Self::preserve_codex_mcp_servers_from_existing_config(
+                &mut effective_settings,
+                existing_live,
+            )?;
+        }
         let (_, proxy_codex_base_url) = self.build_proxy_urls().await?;
 
         if let Some(auth) = effective_settings
@@ -357,7 +374,7 @@ impl ProxyService {
         effective_settings["config"] = json!(updated_config);
         Self::attach_codex_model_catalog_from_provider(&mut effective_settings, Some(provider));
 
-        self.write_codex_live_for_provider(&effective_settings, Some(provider))?;
+        self.write_codex_takeover_live_for_provider(&effective_settings, Some(provider))?;
         Ok(())
     }
 
@@ -383,6 +400,13 @@ impl ProxyService {
         futures::executor::block_on(async {
             *self.app_handle.write().await = Some(handle);
         });
+    }
+
+    pub(crate) async fn lock_switch_for_app(
+        &self,
+        app_type: &str,
+    ) -> tokio::sync::OwnedMutexGuard<()> {
+        self.switch_locks.lock_for_app(app_type).await
     }
 
     /// 启动代理服务器
@@ -427,12 +451,50 @@ impl ProxyService {
             .start()
             .await
             .map_err(|e| format!("启动代理服务器失败: {e}"))?;
+        if let Err(e) = self
+            .persist_ephemeral_listen_port_if_needed(&config, info.port)
+            .await
+        {
+            let _ = server.stop().await;
+            return Err(e);
+        }
 
         // 5. 保存服务器实例
         *self.server.write().await = Some(server);
 
         log::info!("代理服务器已启动: {}:{}", info.address, info.port);
         Ok(info)
+    }
+
+    async fn persist_ephemeral_listen_port_if_needed(
+        &self,
+        config: &ProxyConfig,
+        actual_port: u16,
+    ) -> Result<(), String> {
+        if config.listen_port != 0 {
+            return Ok(());
+        }
+
+        let mut resolved_config = config.clone();
+        resolved_config.listen_port = actual_port;
+        self.db
+            .update_proxy_config(resolved_config)
+            .await
+            .map_err(|e| format!("保存动态代理端口失败: {e}"))
+    }
+
+    async fn start_before_takeover_if_ephemeral_port(&self) -> Result<bool, String> {
+        let config = self
+            .db
+            .get_proxy_config()
+            .await
+            .map_err(|e| format!("获取代理配置失败: {e}"))?;
+        if config.listen_port != 0 || self.is_running().await {
+            return Ok(false);
+        }
+
+        self.start().await?;
+        Ok(true)
     }
 
     /// 启动代理服务器（带 Live 配置接管）
@@ -449,11 +511,26 @@ impl ProxyService {
             return Err(e);
         }
 
+        // 端口 0 需要先启动代理拿到 OS 分配的真实端口，否则接管 Live 配置会写出 :0。
+        let started_proxy_before_takeover =
+            match self.start_before_takeover_if_ephemeral_port().await {
+                Ok(started) => started,
+                Err(e) => {
+                    if let Err(clean_err) = self.db.delete_all_live_backups().await {
+                        log::warn!("清理 Live 备份失败: {clean_err}");
+                    }
+                    return Err(e);
+                }
+            };
+
         // 3. 在写入接管配置之前先落盘接管标志：
         //    这样即使在接管过程中断电/kill，下次启动也能检测到并自动恢复。
         if let Err(e) = self.db.set_live_takeover_active(true).await {
             if let Err(clean_err) = self.db.delete_all_live_backups().await {
                 log::warn!("清理 Live 备份失败: {clean_err}");
+            }
+            if started_proxy_before_takeover {
+                let _ = self.stop().await;
             }
             return Err(format!("设置接管状态失败: {e}"));
         }
@@ -470,6 +547,9 @@ impl ProxyService {
                 Err(restore_err) => {
                     log::error!("恢复原始配置失败，将保留备份以便下次启动恢复: {restore_err}");
                 }
+            }
+            if started_proxy_before_takeover {
+                let _ = self.stop().await;
             }
             return Err(e);
         }
@@ -488,6 +568,9 @@ impl ProxyService {
                     Err(restore_err) => {
                         log::error!("恢复原始配置失败，将保留备份以便下次启动恢复: {restore_err}");
                     }
+                }
+                if started_proxy_before_takeover {
+                    let _ = self.stop().await;
                 }
                 Err(e)
             }
@@ -535,6 +618,7 @@ impl ProxyService {
     pub async fn set_takeover_for_app(&self, app_type: &str, enabled: bool) -> Result<(), String> {
         let app = AppType::from_str(app_type).map_err(|e| format!("无效的应用类型: {e}"))?;
         let app_type_str = app.as_str();
+        let _guard = self.switch_locks.lock_for_app(app_type_str).await;
 
         if enabled {
             // 1) 代理服务未运行则自动启动
@@ -549,6 +633,7 @@ impl ProxyService {
                 .await
                 .map_err(|e| format!("获取 {app_type_str} 配置失败: {e}"))?;
 
+            let mut restore_existing_backup_before_takeover = false;
             if current_config.enabled {
                 let has_backup = match self.db.get_live_backup(app_type_str).await {
                     Ok(v) => v.is_some(),
@@ -557,33 +642,45 @@ impl ProxyService {
                         false
                     }
                 };
-                let live_taken_over = self.detect_takeover_in_live_config_for_app(&app);
+                let live_matches_current_proxy =
+                    match self.live_takeover_matches_current_proxy(&app).await {
+                        Ok(value) => value,
+                        Err(e) => {
+                            log::warn!("检测 {app_type_str} 接管配置失败（将继续重建接管）: {e}");
+                            false
+                        }
+                    };
 
-                // 必须 backup AND live 占位符同时存在才算真接管。
-                // 只看其一会出现「UI 显示已接管但 Live 已被恢复」或「Live 仍是占位符但备份丢失」
-                // 两种脏角落，下面的重建分支会把这些情况修复成一致状态。
-                if has_backup && live_taken_over {
+                // 必须 backup 存在，且 live 确实指向当前代理地址，才算真接管。
+                // 只看占位符会把半接管/旧端口残留误判为可复用，导致开启接管后
+                // live 文件仍停留在普通供应商配置。
+                if has_backup && live_matches_current_proxy {
                     return Ok(());
                 }
+                restore_existing_backup_before_takeover = has_backup;
 
                 log::warn!(
-                    "{app_type_str} 标记为已接管，但 backup={has_backup} live_taken_over={live_taken_over}，正在重新接管并补齐备份"
+                    "{app_type_str} 标记为已接管，但 backup={has_backup} live_matches_current_proxy={live_matches_current_proxy}，正在重新接管并补齐 Live"
                 );
             }
 
             // 3) 备份 Live 配置（严格：目标 app 不存在则报错）
-            self.backup_live_config_strict(&app).await?;
+            if restore_existing_backup_before_takeover {
+                self.restore_live_config_for_app_inner(&app).await?;
+            } else {
+                self.backup_live_config_strict(&app).await?;
 
-            // 4) 同步 Live Token 到数据库（仅当前 app）
-            if let Err(e) = self.sync_live_to_provider(&app).await {
-                let _ = self.db.delete_live_backup(app_type_str).await;
-                return Err(e);
+                // 4) 同步 Live Token 到数据库（仅当前 app）
+                if let Err(e) = self.sync_live_to_provider(&app).await {
+                    let _ = self.db.delete_live_backup(app_type_str).await;
+                    return Err(e);
+                }
             }
 
             // 5) 写入接管配置（仅当前 app）
             if let Err(e) = self.takeover_live_config_strict(&app).await {
                 log::error!("{app_type_str} 接管 Live 配置失败，尝试恢复: {e}");
-                match self.restore_live_config_for_app(&app).await {
+                match self.restore_live_config_for_app_inner(&app).await {
                     Ok(()) => {
                         // 恢复成功才清理备份，避免失败场景下丢失唯一可回滚来源
                         let _ = self.db.delete_live_backup(app_type_str).await;
@@ -650,7 +747,8 @@ impl ProxyService {
         // 必须走 with_fallback 版本：备份 → SSOT → 清理占位符 的三层兜底。
         // 简版 restore_live_config_for_app 在备份缺失时会静默 Ok(())，
         // 留下接管时写入的占位符（代理地址/PROXY_MANAGED token），客户端无法工作。
-        self.restore_live_config_for_app_with_fallback(&app).await?;
+        self.restore_live_config_for_app_with_fallback_inner(&app)
+            .await?;
 
         // 2) 删除该 app 的备份（避免长期存储敏感 Token）
         self.db
@@ -1060,32 +1158,48 @@ impl ProxyService {
     async fn backup_live_configs(&self) -> Result<(), String> {
         // Claude
         if let Ok(config) = self.read_claude_live() {
-            let json_str = serde_json::to_string(&config)
-                .map_err(|e| format!("序列化 Claude 配置失败: {e}"))?;
-            self.db
-                .save_live_backup("claude", &json_str)
-                .await
-                .map_err(|e| format!("备份 Claude 配置失败: {e}"))?;
+            // 跳过已被代理接管的 Live：避免把代理占位符当作"原始 Live"存进备份槽。
+            // 否则下次 start_with_takeover 在异常历史状态下（Live 已是占位符）再次
+            // 调用本函数，会用代理配置覆盖一个原本正常的备份；之后 stop 恢复时
+            // 即便走到备份路径也会把代理占位符再写回 Live，永久卡在 127.0.0.1:15721。
+            if Self::live_has_proxy_placeholder_for_app(&AppType::Claude, &config) {
+                log::warn!("claude Live 已被代理接管，不备份（避免把代理配置固化进备份槽）；下次 stop 会从 SSOT 重建 Live");
+            } else {
+                let json_str = serde_json::to_string(&config)
+                    .map_err(|e| format!("序列化 Claude 配置失败: {e}"))?;
+                self.db
+                    .save_live_backup("claude", &json_str)
+                    .await
+                    .map_err(|e| format!("备份 Claude 配置失败: {e}"))?;
+            }
         }
 
         // Codex
         if let Ok(config) = self.read_codex_live() {
-            let json_str = serde_json::to_string(&config)
-                .map_err(|e| format!("序列化 Codex 配置失败: {e}"))?;
-            self.db
-                .save_live_backup("codex", &json_str)
-                .await
-                .map_err(|e| format!("备份 Codex 配置失败: {e}"))?;
+            if Self::live_has_proxy_placeholder_for_app(&AppType::Codex, &config) {
+                log::warn!("codex Live 已被代理接管，不备份（避免把代理配置固化进备份槽）；下次 stop 会从 SSOT 重建 Live");
+            } else {
+                let json_str = serde_json::to_string(&config)
+                    .map_err(|e| format!("序列化 Codex 配置失败: {e}"))?;
+                self.db
+                    .save_live_backup("codex", &json_str)
+                    .await
+                    .map_err(|e| format!("备份 Codex 配置失败: {e}"))?;
+            }
         }
 
         // Gemini
         if let Ok(config) = self.read_gemini_live() {
-            let json_str = serde_json::to_string(&config)
-                .map_err(|e| format!("序列化 Gemini 配置失败: {e}"))?;
-            self.db
-                .save_live_backup("gemini", &json_str)
-                .await
-                .map_err(|e| format!("备份 Gemini 配置失败: {e}"))?;
+            if Self::live_has_proxy_placeholder_for_app(&AppType::Gemini, &config) {
+                log::warn!("gemini Live 已被代理接管，不备份（避免把代理配置固化进备份槽）；下次 stop 会从 SSOT 重建 Live");
+            } else {
+                let json_str = serde_json::to_string(&config)
+                    .map_err(|e| format!("序列化 Gemini 配置失败: {e}"))?;
+                self.db
+                    .save_live_backup("gemini", &json_str)
+                    .await
+                    .map_err(|e| format!("备份 Gemini 配置失败: {e}"))?;
+            }
         }
 
         log::info!("已备份所有应用的 Live 配置");
@@ -1100,6 +1214,15 @@ impl ProxyService {
             AppType::Gemini => ("gemini", self.read_gemini_live()?),
             _ => return Err("该应用不支持代理功能".to_string()),
         };
+
+        // 跳过已被代理接管的 Live：避免把代理占位符当作"原始 Live"存进备份槽
+        // （见 backup_live_configs 中的注释）。
+        if Self::live_has_proxy_placeholder_for_app(app_type, &config) {
+            log::warn!(
+                "{app_type_str} Live 已被代理接管，不备份（避免把代理配置固化进备份槽）；下次 stop 会从 SSOT 重建 Live"
+            );
+            return Ok(());
+        }
 
         let json_str = serde_json::to_string(&config)
             .map_err(|e| format!("序列化 {app_type_str} 配置失败: {e}"))?;
@@ -1132,7 +1255,18 @@ impl ProxyService {
             connect_host
         };
 
-        let proxy_origin = format!("http://{}:{}", connect_host_for_url, config.listen_port);
+        let mut listen_port = config.listen_port;
+        if let Some(server) = self.server.read().await.as_ref() {
+            let status = server.get_status().await;
+            if status.running {
+                listen_port = status.port;
+            }
+        }
+        if listen_port == 0 {
+            return Err("代理监听端口为 0，但代理服务器尚未运行，无法生成接管地址".to_string());
+        }
+
+        let proxy_origin = format!("http://{}:{}", connect_host_for_url, listen_port);
         let proxy_url = proxy_origin.clone();
         let proxy_codex_base_url = format!("{}/v1", proxy_origin.trim_end_matches('/'));
 
@@ -1190,7 +1324,7 @@ impl ProxyService {
                 codex_provider.as_ref(),
             );
 
-            self.write_codex_live_for_provider(&live_config, codex_provider.as_ref())?;
+            self.write_codex_takeover_live_for_provider(&live_config, codex_provider.as_ref())?;
             log::info!("Codex Live 配置已接管，代理地址: {proxy_codex_base_url}");
         }
 
@@ -1242,22 +1376,19 @@ impl ProxyService {
                     .get("config")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                let codex_provider = self
-                    .get_current_provider_for_app(&AppType::Codex)
-                    .ok()
-                    .flatten();
+                let codex_provider = self.require_current_provider_for_app(&AppType::Codex)?;
                 let updated_config = Self::apply_codex_proxy_toml_config_for_provider(
                     config_str,
                     &proxy_codex_base_url,
-                    codex_provider.as_ref(),
+                    Some(&codex_provider),
                 );
                 live_config["config"] = json!(updated_config);
                 Self::attach_codex_model_catalog_from_provider(
                     &mut live_config,
-                    codex_provider.as_ref(),
+                    Some(&codex_provider),
                 );
 
-                self.write_codex_live_for_provider(&live_config, codex_provider.as_ref())?;
+                self.write_codex_takeover_live_for_provider(&live_config, Some(&codex_provider))?;
                 log::info!("Codex Live 配置已接管，代理地址: {proxy_codex_base_url}");
             }
             AppType::Gemini => {
@@ -1336,8 +1467,10 @@ impl ProxyService {
                         codex_provider.as_ref(),
                     );
 
-                    let _ =
-                        self.write_codex_live_for_provider(&live_config, codex_provider.as_ref());
+                    let _ = self.write_codex_takeover_live_for_provider(
+                        &live_config,
+                        codex_provider.as_ref(),
+                    );
                 }
             }
             AppType::Gemini => {
@@ -1359,12 +1492,6 @@ impl ProxyService {
         }
 
         Ok(())
-    }
-
-    /// 恢复指定应用的 Live 配置（若无备份则不做任何操作）
-    async fn restore_live_config_for_app(&self, app_type: &AppType) -> Result<(), String> {
-        let _guard = self.switch_locks.lock_for_app(app_type.as_str()).await;
-        self.restore_live_config_for_app_inner(app_type).await
     }
 
     async fn restore_live_config_for_app_inner(&self, app_type: &AppType) -> Result<(), String> {
@@ -1443,9 +1570,19 @@ impl ProxyService {
         if let Some(backup) = backup {
             let config: Value = serde_json::from_str(&backup.original_config)
                 .map_err(|e| format!("解析 {app_type_str} 备份失败: {e}"))?;
-            self.write_live_config_for_app(app_type, &config)?;
-            log::info!("{app_type_str} Live 配置已从备份恢复");
-            return Ok(());
+
+            // 备份若是代理占位符（异常历史：上次 stop 失败导致 Live 留在了代理状态，
+            // 下次接管时又被错误地备份成"原始 Live"），不能直接用 — 否则 stop 后
+            // Live 永远卡在 127.0.0.1:15721。落到下面的 SSOT 兜底重建。
+            if Self::live_has_proxy_placeholder_for_app(app_type, &config) {
+                log::warn!(
+                    "{app_type_str} 备份本身已是代理占位符（异常历史状态），跳过备份，改走 SSOT 重建 Live"
+                );
+            } else {
+                self.write_live_config_for_app(app_type, &config)?;
+                log::info!("{app_type_str} Live 配置已从备份恢复");
+                return Ok(());
+            }
         }
 
         // 2) 兜底：备份缺失，但 Live 仍包含接管占位符（异常退出/历史 bug 场景）
@@ -1508,7 +1645,7 @@ impl ProxyService {
     ///
     /// 返回值：
     /// - Ok(true)：已成功写回
-    /// - Ok(false)：缺少当前供应商/供应商不存在，无法写回
+    /// - Ok(false)：缺少当前供应商/供应商不存在/供应商本身含占位符，无法写回
     fn restore_live_from_ssot_for_app(&self, app_type: &AppType) -> Result<bool, String> {
         let current_id = crate::settings::get_effective_current_provider(&self.db, app_type)
             .map_err(|e| format!("获取 {app_type:?} 当前供应商失败: {e}"))?;
@@ -1525,6 +1662,16 @@ impl ProxyService {
         let Some(provider) = providers.get(&current_id) else {
             return Ok(false);
         };
+
+        // 供应商配置本身含接管占位符时不可写回（历史异常：接管期间 Live 被
+        // 误导入成了供应商）。写回只会把占位符固化进 Live；返回 Ok(false)
+        // 让调用方落到"清理占位符"兜底。
+        if Self::live_has_proxy_placeholder_for_app(app_type, &provider.settings_config) {
+            log::warn!(
+                "{app_type:?} 当前供应商配置含代理接管占位符（疑似接管期间被导入的残留），跳过 SSOT 写回，改走占位符清理"
+            );
+            return Ok(false);
+        }
 
         write_live_with_common_config(self.db.as_ref(), app_type, provider)
             .map_err(|e| format!("写入 {app_type:?} Live 配置失败: {e}"))?;
@@ -1557,6 +1704,82 @@ impl ProxyService {
             || rest.starts_with("[::]")
             || rest.starts_with("::1")
             || rest.starts_with("::")
+    }
+
+    fn proxy_urls_match(actual: &str, expected: &str) -> bool {
+        actual.trim().trim_end_matches('/') == expected.trim().trim_end_matches('/')
+    }
+
+    fn codex_config_has_base_url_matching(
+        config_text: &str,
+        predicate: impl Fn(&str) -> bool,
+    ) -> bool {
+        let Ok(doc) = toml::from_str::<toml::Value>(config_text) else {
+            return false;
+        };
+
+        let active_provider = doc
+            .get("model_provider")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|id| !id.is_empty());
+
+        if let Some(provider_id) = active_provider {
+            if doc
+                .get("model_providers")
+                .and_then(|value| value.get(provider_id))
+                .and_then(|value| value.get("base_url"))
+                .and_then(|value| value.as_str())
+                .is_some_and(&predicate)
+            {
+                return true;
+            }
+        }
+
+        doc.get("base_url")
+            .and_then(|value| value.as_str())
+            .is_some_and(predicate)
+    }
+
+    async fn live_takeover_matches_current_proxy(
+        &self,
+        app_type: &AppType,
+    ) -> Result<bool, String> {
+        let (proxy_url, proxy_codex_base_url) = self.build_proxy_urls().await?;
+
+        match app_type {
+            AppType::Claude => {
+                let config = self.read_claude_live()?;
+                let base_url_matches = config
+                    .get("env")
+                    .and_then(|value| value.get("ANTHROPIC_BASE_URL"))
+                    .and_then(|value| value.as_str())
+                    .is_some_and(|url| Self::proxy_urls_match(url, &proxy_url));
+                Ok(Self::is_claude_live_taken_over(&config) && base_url_matches)
+            }
+            AppType::Codex => {
+                let config = self.read_codex_live()?;
+                let base_url_matches = config
+                    .get("config")
+                    .and_then(|value| value.as_str())
+                    .is_some_and(|config_text| {
+                        Self::codex_config_has_base_url_matching(config_text, |url| {
+                            Self::proxy_urls_match(url, &proxy_codex_base_url)
+                        })
+                    });
+                Ok(Self::codex_live_has_proxy_placeholder(&config) && base_url_matches)
+            }
+            AppType::Gemini => {
+                let config = self.read_gemini_live()?;
+                let base_url_matches = config
+                    .get("env")
+                    .and_then(|value| value.get("GOOGLE_GEMINI_BASE_URL"))
+                    .and_then(|value| value.as_str())
+                    .is_some_and(|url| Self::proxy_urls_match(url, &proxy_url));
+                Ok(Self::is_gemini_live_taken_over(&config) && base_url_matches)
+            }
+            _ => Ok(false),
+        }
     }
 
     fn cleanup_claude_takeover_placeholders_in_live(&self) -> Result<(), String> {
@@ -1602,6 +1825,11 @@ impl ProxyService {
 
         if let Some(cfg_str) = config.get("config").and_then(|v| v.as_str()) {
             let updated = Self::remove_local_toml_base_url(cfg_str);
+            let updated =
+                crate::codex_config::remove_codex_experimental_bearer_token_if(&updated, |token| {
+                    token == PROXY_TOKEN_PLACEHOLDER
+                })
+                .map_err(|e| format!("清理 Codex 接管占位符失败: {e}"))?;
             config["config"] = json!(updated);
         }
 
@@ -1714,12 +1942,27 @@ impl ProxyService {
         false
     }
 
+    fn codex_live_has_proxy_placeholder(config: &Value) -> bool {
+        if config
+            .get("auth")
+            .and_then(|v| v.as_object())
+            .and_then(|auth| auth.get("OPENAI_API_KEY"))
+            .and_then(|v| v.as_str())
+            == Some(PROXY_TOKEN_PLACEHOLDER)
+        {
+            return true;
+        }
+
+        config
+            .get("config")
+            .and_then(|v| v.as_str())
+            .and_then(crate::codex_config::extract_codex_experimental_bearer_token)
+            .as_deref()
+            == Some(PROXY_TOKEN_PLACEHOLDER)
+    }
+
     fn is_codex_live_taken_over(config: &Value) -> bool {
-        let auth = match config.get("auth").and_then(|v| v.as_object()) {
-            Some(auth) => auth,
-            None => return false,
-        };
-        auth.get("OPENAI_API_KEY").and_then(|v| v.as_str()) == Some(PROXY_TOKEN_PLACEHOLDER)
+        Self::codex_live_has_proxy_placeholder(config)
     }
 
     fn is_gemini_live_taken_over(config: &Value) -> bool {
@@ -1728,6 +1971,21 @@ impl ProxyService {
             None => return false,
         };
         env.get("GEMINI_API_KEY").and_then(|v| v.as_str()) == Some(PROXY_TOKEN_PLACEHOLDER)
+    }
+
+    /// 判断给定的 Live/备份配置是否已被代理接管（包含占位符）
+    ///
+    /// 用途：检测"备份里存的其实是代理配置"这种异常历史状态。
+    /// 如果发现，备份不可信，备份路径不能写入（否则会把代理配置固化进备份槽），
+    /// 恢复路径不能读取（否则会把代理占位符原样写回 Live，永久卡在代理地址）。
+    /// 两种情况下都应该走 SSOT 兜底重建 Live。
+    fn live_has_proxy_placeholder_for_app(app_type: &AppType, config: &Value) -> bool {
+        match app_type {
+            AppType::Claude => Self::is_claude_live_taken_over(config),
+            AppType::Codex => Self::codex_live_has_proxy_placeholder(config),
+            AppType::Gemini => Self::is_gemini_live_taken_over(config),
+            _ => false,
+        }
     }
 
     /// 从供应商配置更新 Live 备份（用于代理模式下的热切换）
@@ -1769,16 +2027,20 @@ impl ProxyService {
                 .transpose()?;
 
             if let Some(existing_value) = existing_backup_value.as_ref() {
-                Self::preserve_codex_mcp_servers_in_backup(
+                Self::preserve_codex_mcp_servers_from_existing_config(
                     &mut effective_settings,
                     existing_value,
                 )?;
+                Self::preserve_codex_oauth_auth_in_backup(&mut effective_settings, existing_value)?;
             }
 
-            crate::codex_config::normalize_codex_settings_config_model_provider(
+            // 统一会话开关：备份是接管释放时恢复 live 的来源，官方配置的
+            // 共享 custom 路由注入必须落在备份里，否则恢复后开关失效。
+            crate::codex_config::apply_codex_unified_session_bucket_to_settings(
+                provider.category.as_deref(),
                 &mut effective_settings,
             )
-            .map_err(|e| format!("归一化 Codex restore backup 失败: {e}"))?;
+            .map_err(|e| format!("注入统一会话路由失败: {e}"))?;
         }
 
         let backup_json = match app_type_enum {
@@ -1814,7 +2076,14 @@ impl ProxyService {
         provider_id: &str,
     ) -> Result<HotSwitchOutcome, String> {
         let _guard = self.switch_locks.lock_for_app(app_type).await;
+        self.hot_switch_provider_inner(app_type, provider_id).await
+    }
 
+    pub(crate) async fn hot_switch_provider_inner(
+        &self,
+        app_type: &str,
+        provider_id: &str,
+    ) -> Result<HotSwitchOutcome, String> {
         let app_type_enum =
             AppType::from_str(app_type).map_err(|_| format!("无效的应用类型: {app_type}"))?;
         let provider = self
@@ -1865,6 +2134,27 @@ impl ProxyService {
             }
         }
 
+        if has_backup && !live_taken_over && matches!(app_type_enum, AppType::Codex) {
+            let effective_settings = build_effective_settings_with_common_config(
+                self.db.as_ref(),
+                &AppType::Codex,
+                &provider,
+            )
+            .map_err(|e| format!("构建 Codex 有效配置失败: {e}"))?;
+            let auth = effective_settings
+                .get("auth")
+                .ok_or_else(|| "Codex 供应商缺少 auth 配置".to_string())?;
+            let config_str = effective_settings.get("config").and_then(|v| v.as_str());
+
+            crate::codex_config::write_codex_provider_live_with_catalog(
+                &effective_settings,
+                provider.category.as_deref(),
+                auth,
+                config_str,
+            )
+            .map_err(|e| format!("写入 Codex 配置失败: {e}"))?;
+        }
+
         if let Some(server) = self.server.read().await.as_ref() {
             server
                 .set_active_target(app_type_enum.as_str(), &provider.id, &provider.name)
@@ -1881,9 +2171,9 @@ impl ProxyService {
         self.switch_locks.lock_for_app(app_type).await
     }
 
-    fn preserve_codex_mcp_servers_in_backup(
+    fn preserve_codex_mcp_servers_from_existing_config(
         target_settings: &mut Value,
-        existing_backup: &Value,
+        existing_config: &Value,
     ) -> Result<(), String> {
         let target_obj = target_settings
             .as_object_mut()
@@ -1901,7 +2191,7 @@ impl ProxyService {
                 .map_err(|e| format!("解析新的 Codex config.toml 失败: {e}"))?
         };
 
-        let existing_config = existing_backup
+        let existing_config = existing_config
             .get("config")
             .and_then(|v| v.as_str())
             .unwrap_or("");
@@ -1928,7 +2218,7 @@ impl ProxyService {
                         }
                     } else {
                         log::warn!(
-                            "Codex config contains a non-table mcp_servers section; skipping backup MCP merge"
+                            "Codex config contains a non-table mcp_servers section; skipping MCP merge"
                         );
                     }
                 }
@@ -1942,7 +2232,41 @@ impl ProxyService {
         Ok(())
     }
 
-    /// 代理模式下切换供应商（热切换，不写 Live）
+    fn preserve_codex_oauth_auth_in_backup(
+        target_settings: &mut Value,
+        existing_backup: &Value,
+    ) -> Result<(), String> {
+        if !crate::settings::preserve_codex_official_auth_on_switch() {
+            return Ok(());
+        }
+
+        let Some(existing_auth) = existing_backup
+            .get("auth")
+            .filter(|auth| crate::codex_config::codex_auth_has_oauth_login_material(auth))
+            .cloned()
+        else {
+            return Ok(());
+        };
+
+        let Some(target_obj) = target_settings.as_object_mut() else {
+            return Ok(());
+        };
+
+        let provider_auth = target_obj.get("auth").cloned().unwrap_or_else(|| json!({}));
+        if let Some(config_text) = target_obj.get("config").and_then(|value| value.as_str()) {
+            let live_config = crate::codex_config::prepare_codex_provider_live_config(
+                &provider_auth,
+                config_text,
+            )
+            .map_err(|e| format!("更新 Codex 备份配置失败: {e}"))?;
+            target_obj.insert("config".to_string(), json!(live_config));
+        }
+        target_obj.insert("auth".to_string(), existing_auth);
+
+        Ok(())
+    }
+
+    /// 代理模式下切换供应商（热切换，并按需刷新代理安全的 Live 显示字段）
     pub async fn switch_proxy_target(
         &self,
         app_type: &str,
@@ -2060,6 +2384,25 @@ impl ProxyService {
         provider: Option<&Provider>,
     ) -> Result<(), String> {
         let Some(provider) = provider else {
+            if crate::settings::preserve_codex_official_auth_on_switch() {
+                if let (Some(auth), Some(config_str)) = (
+                    config.get("auth"),
+                    config.get("config").and_then(|v| v.as_str()),
+                ) {
+                    if auth.get("OPENAI_API_KEY").and_then(|v| v.as_str())
+                        == Some(PROXY_TOKEN_PLACEHOLDER)
+                    {
+                        let live_config = crate::codex_config::prepare_codex_provider_live_config(
+                            auth, config_str,
+                        )
+                        .map_err(|e| format!("写入 Codex 配置失败: {e}"))?;
+                        crate::codex_config::write_codex_live_config_atomic(Some(&live_config))
+                            .map_err(|e| format!("写入 Codex 配置失败: {e}"))?;
+                        return Ok(());
+                    }
+                }
+            }
+
             return self.write_codex_live_verbatim(config);
         };
 
@@ -2077,13 +2420,67 @@ impl ProxyService {
         .map_err(|e| format!("写入 Codex 配置失败: {e}"))
     }
 
+    fn codex_auth_has_proxy_placeholder(auth: &Value) -> bool {
+        auth.get("OPENAI_API_KEY").and_then(|v| v.as_str()) == Some(PROXY_TOKEN_PLACEHOLDER)
+    }
+
+    fn write_codex_takeover_live_for_provider(
+        &self,
+        config: &Value,
+        provider: Option<&Provider>,
+    ) -> Result<(), String> {
+        if crate::settings::preserve_codex_official_auth_on_switch() {
+            if let Some(auth) = config
+                .get("auth")
+                .filter(|auth| Self::codex_auth_has_proxy_placeholder(auth))
+            {
+                let config_str = config.get("config").and_then(|v| v.as_str()).unwrap_or("");
+                let prepared_config =
+                    crate::codex_config::prepare_codex_live_config_text_with_optional_catalog(
+                        config, config_str,
+                    )
+                    .map_err(|e| format!("写入 Codex 配置失败: {e}"))?;
+                let live_config =
+                    crate::codex_config::prepare_codex_provider_live_config(auth, &prepared_config)
+                        .map_err(|e| format!("写入 Codex 配置失败: {e}"))?;
+                crate::codex_config::write_codex_live_config_atomic(Some(&live_config))
+                    .map_err(|e| format!("写入 Codex 配置失败: {e}"))?;
+                return Ok(());
+            }
+        }
+
+        self.write_codex_live_for_provider(config, provider)
+    }
+
     fn write_codex_live_verbatim(&self, config: &Value) -> Result<(), String> {
         use crate::codex_config::{get_codex_auth_path, get_codex_config_path};
 
         let auth = config.get("auth");
         let config_str = config.get("config").and_then(|v| v.as_str());
 
-        match (auth, config_str) {
+        // Decide the config.toml text ONCE, before splitting on auth. A stored
+        // Codex backup comes in two shapes needing opposite handling:
+        //  - snapshot backup (`read_codex_live_settings`): no inline `modelCatalog`;
+        //    the config text already carries the live `model_catalog_json` pointer
+        //    → keep raw, or projection would strip it.
+        //  - provider-rebuilt backup (`update_live_backup_from_provider`): inline
+        //    `modelCatalog` (DB SSOT) with a pointer-less config text → project,
+        //    or the mapping is lost on restore.
+        // The projection decision is orthogonal to auth: a provider-rebuilt backup
+        // can pair an inline `modelCatalog` with empty/absent `auth.json` (the key
+        // living in the config's `experimental_bearer_token`). Computing it up here
+        // keeps every config-writing branch — write-auth, delete-auth, no-auth —
+        // consistent instead of letting the empty-auth path skip projection.
+        let prepared_cfg = config_str
+            .map(|cfg| {
+                crate::codex_config::prepare_codex_live_config_text_with_optional_catalog(
+                    config, cfg,
+                )
+            })
+            .transpose()
+            .map_err(|e| format!("写入 Codex 配置失败: {e}"))?;
+
+        match (auth, prepared_cfg.as_deref()) {
             (Some(auth), Some(cfg)) => {
                 let auth_path = get_codex_auth_path();
                 if auth.as_object().is_some_and(|obj| obj.is_empty()) {
@@ -2092,7 +2489,7 @@ impl ProxyService {
                     crate::config::write_text_file(&config_path, cfg)
                         .map_err(|e| format!("写入 Codex config 失败: {e}"))?;
                 } else {
-                    crate::codex_config::write_codex_live_with_catalog(config, auth, Some(cfg))
+                    crate::codex_config::write_codex_live_atomic(auth, Some(cfg))
                         .map_err(|e| format!("写入 Codex 配置失败: {e}"))?;
                 }
             }
@@ -2192,11 +2589,18 @@ impl ProxyService {
             }
 
             let app_handle = self.app_handle.read().await.clone();
-            let new_server = ProxyServer::new(new_config, self.db.clone(), app_handle);
-            new_server
+            let new_server = ProxyServer::new(new_config.clone(), self.db.clone(), app_handle);
+            let info = new_server
                 .start()
                 .await
                 .map_err(|e| format!("重启代理服务器失败: {e}"))?;
+            if let Err(e) = self
+                .persist_ephemeral_listen_port_if_needed(&new_config, info.port)
+                .await
+            {
+                let _ = new_server.stop().await;
+                return Err(e);
+            }
 
             *server_guard = Some(new_server);
             log::info!("代理配置已更新，服务器已自动重启应用最新配置");

@@ -149,17 +149,20 @@ pub struct RequestLogDetail {
     pub created_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data_source: Option<String>,
+    /// 写入时实际用于计价的模型名。None = v11 前的历史行，"" = 未计价的错误行。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pricing_model: Option<String>,
 }
 
-/// 把 24 列的查询结果映射为 `RequestLogDetail`。
+/// 把 25 列的查询结果映射为 `RequestLogDetail`。
 ///
-/// 调用方的 SELECT **必须**按以下顺序返回 24 列：
+/// 调用方的 SELECT **必须**按以下顺序返回 25 列：
 /// `request_id, provider_id, provider_name, app_type, model, request_model,
 ///  cost_multiplier, input_tokens, output_tokens, cache_read_tokens,
 ///  cache_creation_tokens, input_cost_usd, output_cost_usd, cache_read_cost_usd,
 ///  cache_creation_cost_usd, total_cost_usd, is_streaming, latency_ms,
 ///  first_token_ms, duration_ms, status_code, error_message, created_at,
-///  data_source`
+///  data_source, pricing_model`
 ///
 /// 不需要 provider_name 时（如 backfill）SELECT `NULL AS provider_name` 占位即可。
 fn row_to_request_log_detail(row: &rusqlite::Row<'_>) -> rusqlite::Result<RequestLogDetail> {
@@ -190,6 +193,7 @@ fn row_to_request_log_detail(row: &rusqlite::Row<'_>) -> rusqlite::Result<Reques
         error_message: row.get(21)?,
         created_at: row.get(22)?,
         data_source: row.get(23)?,
+        pricing_model: row.get(24)?,
     })
 }
 
@@ -203,6 +207,7 @@ fn provider_name_coalesce(log_alias: &str, provider_alias: &str) -> String {
          WHEN '_session' THEN 'Claude (Session)' \
          WHEN '_codex_session' THEN 'Codex (Session)' \
          WHEN '_gemini_session' THEN 'Gemini (Session)' \
+         WHEN '_opencode_session' THEN 'OpenCode (Session)' \
          ELSE {log_alias}.provider_id END)"
     )
 }
@@ -218,12 +223,77 @@ fn data_source_expr(log_alias: &str) -> String {
     format!("COALESCE({log_alias}.data_source, 'proxy')")
 }
 
+/// SQL 标量表达式：把 Claude Desktop 网关的 `claude-desktop` app_type 在“展示口径”
+/// 上折叠进 `claude`，其余 app_type 原样返回。
+///
+/// 背景：Desktop 网关流量在记账层按各自入口写为 `app_type='claude-desktop'`，
+/// 以保留路由接管的账单审计精度（不要回退这一点）。但 Dashboard 把它当作
+/// Claude Code 呈现——它本质就是跑在 Desktop 壳里的内嵌 Claude Code 运行时，
+/// 且 Desktop 聊天用量永远不经过本软件，单列只会让用户误以为是“桌面版全部用量”。
+///
+/// 用法：把任一参与“按应用筛选/分组”的 `app_type` 列包进此表达式即可，
+/// 这样 `= 'claude'` 过滤会同时命中 `claude-desktop`、`GROUP BY` 会把两者合并，
+/// 而不改动任何已存储的行（详情面板仍读原始 `app_type`）。
+///
+/// 注意：包裹后该列上的索引在此比较中失效，但这些都是已带时间过滤的聚合扫描，
+/// app_type 本就不是主访问路径，可接受。仅用于读侧；去重匹配（`has_matching_
+/// proxy_usage_log`）与额度检查（`check_provider_limits`）必须保留原始精确比较。
+fn folded_app_type_sql(column: &str) -> String {
+    format!("CASE WHEN {column} = 'claude-desktop' THEN 'claude' ELSE {column} END")
+}
+
+/// SQL 片段：把日志/汇总行 LEFT JOIN 到 providers 表以取得供应商名称。
+/// `proxy_request_logs` 与 `usage_daily_rollups` 的 (provider_id, app_type)
+/// 形状相同，两者皆可作为 `log_alias`。providers 主键即 (id, app_type)，
+/// 连接至多 1:1，不会放大行数。
+fn providers_join(log_alias: &str, provider_alias: &str) -> String {
+    format!(
+        "LEFT JOIN providers {provider_alias} \
+         ON {log_alias}.provider_id = {provider_alias}.id \
+         AND {log_alias}.app_type = {provider_alias}.app_type"
+    )
+}
+
+/// SQL 标量表达式：行的「有效计价模型」—— pricing_model 非空优先，NULL/'' 回落
+/// model。这是 `get_model_stats` 的分组键，也是 Dashboard 模型筛选的匹配口径：
+/// 筛选值来自模型统计列表，两边必须用同一表达式才能选得中。
+fn effective_model_sql(alias: &str) -> String {
+    format!("COALESCE(NULLIF({alias}.pricing_model, ''), {alias}.model)")
+}
+
+/// 把 Dashboard 顶部的 Provider/模型筛选追加到查询条件。
+///
+/// Provider 按展示名精确匹配（复用 [`provider_name_coalesce`]，会话占位行的
+/// 可读名如 "Claude (Session)" 也能选中）；模型按 [`effective_model_sql`] 匹配。
+/// 注意：传入 `provider_name` 时调用方必须把 [`providers_join`] 拼进 FROM，
+/// 否则 `{provider_alias}.name` 无法解析。
+fn push_provider_model_filters(
+    conditions: &mut Vec<String>,
+    params: &mut Vec<Box<dyn rusqlite::ToSql>>,
+    log_alias: &str,
+    provider_alias: &str,
+    provider_name: Option<&str>,
+    model: Option<&str>,
+) {
+    if let Some(name) = provider_name {
+        conditions.push(format!(
+            "{} = ?",
+            provider_name_coalesce(log_alias, provider_alias)
+        ));
+        params.push(Box::new(name.to_string()));
+    }
+    if let Some(m) = model {
+        conditions.push(format!("{} = ?", effective_model_sql(log_alias)));
+        params.push(Box::new(m.to_string()));
+    }
+}
+
 pub(crate) fn effective_usage_log_filter(log_alias: &str) -> String {
     let data_source = data_source_expr(log_alias);
     let proxy_data_source = data_source_expr("proxy_dedup");
     format!(
         "NOT (
-            {data_source} IN ('session_log', 'codex_session', 'gemini_session')
+            {data_source} IN ('session_log', 'codex_session', 'gemini_session', 'opencode_session')
             AND EXISTS (
                 SELECT 1
                 FROM proxy_request_logs proxy_dedup
@@ -238,7 +308,7 @@ pub(crate) fn effective_usage_log_filter(log_alias: &str) -> String {
                       proxy_dedup.cache_creation_tokens = {log_alias}.cache_creation_tokens
                       OR (
                           {log_alias}.cache_creation_tokens = 0
-                          AND {data_source} IN ('codex_session', 'gemini_session')
+                          AND {data_source} IN ('codex_session', 'gemini_session', 'opencode_session')
                       )
                   )
                   AND proxy_dedup.created_at BETWEEN
@@ -298,7 +368,7 @@ pub(crate) fn has_matching_proxy_usage_log(
     key: &DedupKey,
 ) -> Result<bool, AppError> {
     let allow_missing_cache_creation =
-        matches!(key.app_type, "codex" | "gemini") && key.cache_creation_tokens == 0;
+        matches!(key.app_type, "codex" | "gemini" | "opencode") && key.cache_creation_tokens == 0;
 
     let l_data_source = data_source_expr("l");
     let sql = format!(
@@ -445,6 +515,8 @@ impl<'a> UsageStatsRepository<'a> {
         start_date: Option<i64>,
         end_date: Option<i64>,
         app_type: Option<&str>,
+        provider_name: Option<&str>,
+        model: Option<&str>,
     ) -> Result<UsageSummary, AppError> {
         let conn = lock_conn!(self.db.conn);
 
@@ -461,14 +533,27 @@ impl<'a> UsageStatsRepository<'a> {
             params_vec.push(Box::new(end));
         }
         if let Some(at) = app_type {
-            conditions.push("l.app_type = ?".to_string());
+            conditions.push(format!("{} = ?", folded_app_type_sql("l.app_type")));
             params_vec.push(Box::new(at.to_string()));
         }
+        push_provider_model_filters(
+            &mut conditions,
+            &mut params_vec,
+            "l",
+            "p",
+            provider_name,
+            model,
+        );
 
         let where_clause = if conditions.is_empty() {
             String::new()
         } else {
             format!("WHERE {}", conditions.join(" AND "))
+        };
+        let detail_join = if provider_name.is_some() {
+            providers_join("l", "p")
+        } else {
+            String::new()
         };
 
         // Only include rolled-up rows for full local days that are fully covered by the range.
@@ -479,22 +564,35 @@ impl<'a> UsageStatsRepository<'a> {
         push_rollup_date_filters(
             &mut rollup_conditions,
             &mut rollup_params,
-            "date",
+            "r.date",
             &rollup_bounds,
         );
         if let Some(at) = app_type {
-            rollup_conditions.push("app_type = ?".to_string());
+            rollup_conditions.push(format!("{} = ?", folded_app_type_sql("r.app_type")));
             rollup_params.push(Box::new(at.to_string()));
         }
+        push_provider_model_filters(
+            &mut rollup_conditions,
+            &mut rollup_params,
+            "r",
+            "p2",
+            provider_name,
+            model,
+        );
 
         let rollup_where = if rollup_conditions.is_empty() {
             String::new()
         } else {
             format!("WHERE {}", rollup_conditions.join(" AND "))
         };
+        let rollup_join = if provider_name.is_some() {
+            providers_join("r", "p2")
+        } else {
+            String::new()
+        };
 
         let fresh_input_detail = fresh_input_sql("l");
-        let fresh_input_rollup = fresh_input_sql("");
+        let fresh_input_rollup = fresh_input_sql("r");
         let sql = format!(
             "SELECT
                 COALESCE(d.total_requests, 0) + COALESCE(r.total_requests, 0),
@@ -513,16 +611,16 @@ impl<'a> UsageStatsRepository<'a> {
                     COALESCE(SUM(l.cache_creation_tokens), 0) as total_cache_creation_tokens,
                     COALESCE(SUM(l.cache_read_tokens), 0) as total_cache_read_tokens,
                     COALESCE(SUM(CASE WHEN l.status_code >= 200 AND l.status_code < 300 THEN 1 ELSE 0 END), 0) as success_count
-                 FROM proxy_request_logs l {where_clause}) d,
+                 FROM proxy_request_logs l {detail_join} {where_clause}) d,
                 (SELECT
-                    COALESCE(SUM(request_count), 0) as total_requests,
-                    COALESCE(SUM(CAST(total_cost_usd AS REAL)), 0) as total_cost,
+                    COALESCE(SUM(r.request_count), 0) as total_requests,
+                    COALESCE(SUM(CAST(r.total_cost_usd AS REAL)), 0) as total_cost,
                     COALESCE(SUM({fresh_input_rollup}), 0) as total_input_tokens,
-                    COALESCE(SUM(output_tokens), 0) as total_output_tokens,
-                    COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,
-                    COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
-                    COALESCE(SUM(success_count), 0) as success_count
-                 FROM usage_daily_rollups {rollup_where}) r"
+                    COALESCE(SUM(r.output_tokens), 0) as total_output_tokens,
+                    COALESCE(SUM(r.cache_creation_tokens), 0) as total_cache_creation_tokens,
+                    COALESCE(SUM(r.cache_read_tokens), 0) as total_cache_read_tokens,
+                    COALESCE(SUM(r.success_count), 0) as success_count
+                 FROM usage_daily_rollups r {rollup_join} {rollup_where}) r"
         );
 
         // Combine params: detail params first, then rollup params
@@ -577,6 +675,8 @@ impl<'a> UsageStatsRepository<'a> {
         &self,
         start_date: Option<i64>,
         end_date: Option<i64>,
+        provider_name: Option<&str>,
+        model: Option<&str>,
     ) -> Result<Vec<UsageSummaryByApp>, AppError> {
         let conn = lock_conn!(self.db.conn);
 
@@ -590,7 +690,20 @@ impl<'a> UsageStatsRepository<'a> {
             detail_conditions.push("l.created_at <= ?".to_string());
             detail_params.push(Box::new(end));
         }
+        push_provider_model_filters(
+            &mut detail_conditions,
+            &mut detail_params,
+            "l",
+            "p",
+            provider_name,
+            model,
+        );
         let detail_where = format!("WHERE {}", detail_conditions.join(" AND "));
+        let detail_join = if provider_name.is_some() {
+            providers_join("l", "p")
+        } else {
+            String::new()
+        };
 
         let rollup_bounds = compute_rollup_date_bounds(start_date, end_date)?;
         let mut rollup_conditions: Vec<String> = Vec::new();
@@ -598,17 +711,33 @@ impl<'a> UsageStatsRepository<'a> {
         push_rollup_date_filters(
             &mut rollup_conditions,
             &mut rollup_params,
-            "date",
+            "r.date",
             &rollup_bounds,
+        );
+        push_provider_model_filters(
+            &mut rollup_conditions,
+            &mut rollup_params,
+            "r",
+            "p2",
+            provider_name,
+            model,
         );
         let rollup_where = if rollup_conditions.is_empty() {
             String::new()
         } else {
             format!("WHERE {}", rollup_conditions.join(" AND "))
         };
+        let rollup_join = if provider_name.is_some() {
+            providers_join("r", "p2")
+        } else {
+            String::new()
+        };
 
         let fresh_input_detail = fresh_input_sql("l");
-        let fresh_input_rollup = fresh_input_sql("");
+        let fresh_input_rollup = fresh_input_sql("r");
+        // 折叠 claude-desktop → claude：内层投影成同一桶名，外层 GROUP BY 自然合并。
+        let detail_app_type = folded_app_type_sql("l.app_type");
+        let rollup_app_type = folded_app_type_sql("r.app_type");
 
         let sql = format!(
             "SELECT app_type,
@@ -620,7 +749,7 @@ impl<'a> UsageStatsRepository<'a> {
                 SUM(cache_read_t) as cache_read_t,
                 SUM(success_count) as success_count
             FROM (
-                SELECT l.app_type,
+                SELECT {detail_app_type} as app_type,
                     COUNT(*) as req_count,
                     COALESCE(SUM(CAST(l.total_cost_usd AS REAL)), 0) as cost,
                     COALESCE(SUM({fresh_input_detail}), 0) as input_t,
@@ -628,19 +757,19 @@ impl<'a> UsageStatsRepository<'a> {
                     COALESCE(SUM(l.cache_creation_tokens), 0) as cache_create_t,
                     COALESCE(SUM(l.cache_read_tokens), 0) as cache_read_t,
                     COALESCE(SUM(CASE WHEN l.status_code >= 200 AND l.status_code < 300 THEN 1 ELSE 0 END), 0) as success_count
-                FROM proxy_request_logs l {detail_where}
+                FROM proxy_request_logs l {detail_join} {detail_where}
                 GROUP BY l.app_type
                 UNION ALL
-                SELECT app_type,
-                    COALESCE(SUM(request_count), 0),
-                    COALESCE(SUM(CAST(total_cost_usd AS REAL)), 0),
+                SELECT {rollup_app_type} as app_type,
+                    COALESCE(SUM(r.request_count), 0),
+                    COALESCE(SUM(CAST(r.total_cost_usd AS REAL)), 0),
                     COALESCE(SUM({fresh_input_rollup}), 0),
-                    COALESCE(SUM(output_tokens), 0),
-                    COALESCE(SUM(cache_creation_tokens), 0),
-                    COALESCE(SUM(cache_read_tokens), 0),
-                    COALESCE(SUM(success_count), 0)
-                FROM usage_daily_rollups {rollup_where}
-                GROUP BY app_type
+                    COALESCE(SUM(r.output_tokens), 0),
+                    COALESCE(SUM(r.cache_creation_tokens), 0),
+                    COALESCE(SUM(r.cache_read_tokens), 0),
+                    COALESCE(SUM(r.success_count), 0)
+                FROM usage_daily_rollups r {rollup_join} {rollup_where}
+                GROUP BY r.app_type
             )
             GROUP BY app_type"
         );
@@ -710,6 +839,8 @@ impl<'a> UsageStatsRepository<'a> {
         start_date: Option<i64>,
         end_date: Option<i64>,
         app_type: Option<&str>,
+        provider_name: Option<&str>,
+        model: Option<&str>,
     ) -> Result<Vec<DailyStats>, AppError> {
         let conn = lock_conn!(self.db.conn);
 
@@ -733,10 +864,29 @@ impl<'a> UsageStatsRepository<'a> {
                 bucket_count = 1;
             }
 
-            let app_type_filter = if app_type.is_some() {
-                "AND l.app_type = ?4"
+            let mut extra_conditions: Vec<String> = Vec::new();
+            let mut extra_params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+            if let Some(at) = app_type {
+                extra_conditions.push(format!("{} = ?", folded_app_type_sql("l.app_type")));
+                extra_params.push(Box::new(at.to_string()));
+            }
+            push_provider_model_filters(
+                &mut extra_conditions,
+                &mut extra_params,
+                "l",
+                "p",
+                provider_name,
+                model,
+            );
+            let extra_filter = extra_conditions
+                .iter()
+                .map(|c| format!("AND {c}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let detail_join = if provider_name.is_some() {
+                providers_join("l", "p")
             } else {
-                ""
+                String::new()
             };
 
             let effective_filter = effective_usage_log_filter("l");
@@ -751,9 +901,9 @@ impl<'a> UsageStatsRepository<'a> {
                     COALESCE(SUM(l.output_tokens), 0) as total_output_tokens,
                     COALESCE(SUM(l.cache_creation_tokens), 0) as total_cache_creation_tokens,
                     COALESCE(SUM(l.cache_read_tokens), 0) as total_cache_read_tokens
-                FROM proxy_request_logs l
+                FROM proxy_request_logs l {detail_join}
                 WHERE l.created_at >= ?1 AND l.created_at <= ?2
-                  AND {effective_filter} {app_type_filter}
+                  AND {effective_filter} {extra_filter}
                 GROUP BY bucket_idx
                 ORDER BY bucket_idx ASC"
             );
@@ -777,11 +927,15 @@ impl<'a> UsageStatsRepository<'a> {
 
             let mut map: HashMap<i64, DailyStats> = HashMap::new();
 
-            let rows = if let Some(at) = app_type {
-                stmt.query_map(params![start_ts, end_ts, bucket_seconds, at], row_mapper)?
-            } else {
-                stmt.query_map(params![start_ts, end_ts, bucket_seconds], row_mapper)?
-            };
+            let mut all_params: Vec<Box<dyn rusqlite::ToSql>> = vec![
+                Box::new(start_ts),
+                Box::new(end_ts),
+                Box::new(bucket_seconds),
+            ];
+            all_params.extend(extra_params);
+            let param_refs: Vec<&dyn rusqlite::ToSql> =
+                all_params.iter().map(|p| p.as_ref()).collect();
+            let rows = stmt.query_map(param_refs.as_slice(), row_mapper)?;
             for row in rows {
                 let (mut bucket_idx, stat) = row?;
                 if bucket_idx < 0 {
@@ -823,10 +977,29 @@ impl<'a> UsageStatsRepository<'a> {
         let end_day = local_datetime_from_timestamp(end_ts)?.date_naive();
         let bucket_count = (end_day.signed_duration_since(start_day).num_days() + 1) as usize;
 
-        let app_type_filter = if app_type.is_some() {
-            "AND l.app_type = ?3"
+        let mut extra_conditions: Vec<String> = Vec::new();
+        let mut extra_params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        if let Some(at) = app_type {
+            extra_conditions.push(format!("{} = ?", folded_app_type_sql("l.app_type")));
+            extra_params.push(Box::new(at.to_string()));
+        }
+        push_provider_model_filters(
+            &mut extra_conditions,
+            &mut extra_params,
+            "l",
+            "p",
+            provider_name,
+            model,
+        );
+        let extra_filter = extra_conditions
+            .iter()
+            .map(|c| format!("AND {c}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let detail_join = if provider_name.is_some() {
+            providers_join("l", "p")
         } else {
-            ""
+            String::new()
         };
 
         let effective_filter = effective_usage_log_filter("l");
@@ -841,9 +1014,9 @@ impl<'a> UsageStatsRepository<'a> {
                 COALESCE(SUM(l.output_tokens), 0) as total_output_tokens,
                 COALESCE(SUM(l.cache_creation_tokens), 0) as total_cache_creation_tokens,
                 COALESCE(SUM(l.cache_read_tokens), 0) as total_cache_read_tokens
-            FROM proxy_request_logs l
+            FROM proxy_request_logs l {detail_join}
             WHERE l.created_at >= ?1 AND l.created_at <= ?2
-              AND {effective_filter} {app_type_filter}
+              AND {effective_filter} {extra_filter}
             GROUP BY bucket_date
             ORDER BY bucket_date ASC"
         );
@@ -866,11 +1039,12 @@ impl<'a> UsageStatsRepository<'a> {
         };
 
         let mut map: HashMap<NaiveDate, DailyStats> = HashMap::new();
-        let detail_rows = if let Some(at) = app_type {
-            detail_stmt.query_map(params![start_ts, end_ts, at], detail_row_mapper)?
-        } else {
-            detail_stmt.query_map(params![start_ts, end_ts], detail_row_mapper)?
-        };
+        let mut detail_all_params: Vec<Box<dyn rusqlite::ToSql>> =
+            vec![Box::new(start_ts), Box::new(end_ts)];
+        detail_all_params.extend(extra_params);
+        let detail_param_refs: Vec<&dyn rusqlite::ToSql> =
+            detail_all_params.iter().map(|p| p.as_ref()).collect();
+        let detail_rows = detail_stmt.query_map(detail_param_refs.as_slice(), detail_row_mapper)?;
 
         for row in detail_rows {
             let (bucket_date, stat) = row?;
@@ -885,35 +1059,48 @@ impl<'a> UsageStatsRepository<'a> {
         push_rollup_date_filters(
             &mut rollup_conditions,
             &mut rollup_params,
-            "date",
+            "r.date",
             &rollup_bounds,
         );
         if let Some(at) = app_type {
-            rollup_conditions.push("app_type = ?".to_string());
+            rollup_conditions.push(format!("{} = ?", folded_app_type_sql("r.app_type")));
             rollup_params.push(Box::new(at.to_string()));
         }
+        push_provider_model_filters(
+            &mut rollup_conditions,
+            &mut rollup_params,
+            "r",
+            "p2",
+            provider_name,
+            model,
+        );
 
         let rollup_where = if rollup_conditions.is_empty() {
             String::new()
         } else {
             format!("WHERE {}", rollup_conditions.join(" AND "))
         };
+        let rollup_join = if provider_name.is_some() {
+            providers_join("r", "p2")
+        } else {
+            String::new()
+        };
 
-        let fresh_input_rollup = fresh_input_sql("");
+        let fresh_input_rollup = fresh_input_sql("r");
         let rollup_sql = format!(
             "SELECT
-                date,
-                COALESCE(SUM(request_count), 0),
-                COALESCE(SUM(CAST(total_cost_usd AS REAL)), 0),
-                COALESCE(SUM({fresh_input_rollup} + output_tokens), 0),
+                r.date,
+                COALESCE(SUM(r.request_count), 0),
+                COALESCE(SUM(CAST(r.total_cost_usd AS REAL)), 0),
+                COALESCE(SUM({fresh_input_rollup} + r.output_tokens), 0),
                 COALESCE(SUM({fresh_input_rollup}), 0),
-                COALESCE(SUM(output_tokens), 0),
-                COALESCE(SUM(cache_creation_tokens), 0),
-                COALESCE(SUM(cache_read_tokens), 0)
-            FROM usage_daily_rollups
+                COALESCE(SUM(r.output_tokens), 0),
+                COALESCE(SUM(r.cache_creation_tokens), 0),
+                COALESCE(SUM(r.cache_read_tokens), 0)
+            FROM usage_daily_rollups r {rollup_join}
             {rollup_where}
-            GROUP BY date
-            ORDER BY date ASC"
+            GROUP BY r.date
+            ORDER BY r.date ASC"
         );
 
         let mut rollup_stmt = conn.prepare(&rollup_sql)?;
@@ -992,6 +1179,8 @@ impl<'a> UsageStatsRepository<'a> {
         start_date: Option<i64>,
         end_date: Option<i64>,
         app_type: Option<&str>,
+        provider_name: Option<&str>,
+        model: Option<&str>,
     ) -> Result<Vec<ProviderStats>, AppError> {
         let conn = lock_conn!(self.db.conn);
 
@@ -1006,9 +1195,17 @@ impl<'a> UsageStatsRepository<'a> {
             detail_params.push(Box::new(end));
         }
         if let Some(at) = app_type {
-            detail_conditions.push("l.app_type = ?".to_string());
+            detail_conditions.push(format!("{} = ?", folded_app_type_sql("l.app_type")));
             detail_params.push(Box::new(at.to_string()));
         }
+        push_provider_model_filters(
+            &mut detail_conditions,
+            &mut detail_params,
+            "l",
+            "p",
+            provider_name,
+            model,
+        );
         let detail_where = if detail_conditions.is_empty() {
             String::new()
         } else {
@@ -1025,9 +1222,17 @@ impl<'a> UsageStatsRepository<'a> {
             &rollup_bounds,
         );
         if let Some(at) = app_type {
-            rollup_conditions.push("r.app_type = ?".to_string());
+            rollup_conditions.push(format!("{} = ?", folded_app_type_sql("r.app_type")));
             rollup_params.push(Box::new(at.to_string()));
         }
+        push_provider_model_filters(
+            &mut rollup_conditions,
+            &mut rollup_params,
+            "r",
+            "p2",
+            provider_name,
+            model,
+        );
         let rollup_where = if rollup_conditions.is_empty() {
             String::new()
         } else {
@@ -1118,6 +1323,8 @@ impl<'a> UsageStatsRepository<'a> {
         start_date: Option<i64>,
         end_date: Option<i64>,
         app_type: Option<&str>,
+        provider_name: Option<&str>,
+        model: Option<&str>,
     ) -> Result<Vec<ModelStats>, AppError> {
         let conn = lock_conn!(self.db.conn);
 
@@ -1132,13 +1339,26 @@ impl<'a> UsageStatsRepository<'a> {
             detail_params.push(Box::new(end));
         }
         if let Some(at) = app_type {
-            detail_conditions.push("l.app_type = ?".to_string());
+            detail_conditions.push(format!("{} = ?", folded_app_type_sql("l.app_type")));
             detail_params.push(Box::new(at.to_string()));
         }
+        push_provider_model_filters(
+            &mut detail_conditions,
+            &mut detail_params,
+            "l",
+            "p",
+            provider_name,
+            model,
+        );
         let detail_where = if detail_conditions.is_empty() {
             String::new()
         } else {
             format!("WHERE {}", detail_conditions.join(" AND "))
+        };
+        let detail_join = if provider_name.is_some() {
+            providers_join("l", "p")
+        } else {
+            String::new()
         };
 
         let mut rollup_conditions = Vec::new();
@@ -1151,18 +1371,38 @@ impl<'a> UsageStatsRepository<'a> {
             &rollup_bounds,
         );
         if let Some(at) = app_type {
-            rollup_conditions.push("r.app_type = ?".to_string());
+            rollup_conditions.push(format!("{} = ?", folded_app_type_sql("r.app_type")));
             rollup_params.push(Box::new(at.to_string()));
         }
+        push_provider_model_filters(
+            &mut rollup_conditions,
+            &mut rollup_params,
+            "r",
+            "p2",
+            provider_name,
+            model,
+        );
         let rollup_where = if rollup_conditions.is_empty() {
             String::new()
         } else {
             format!("WHERE {}", rollup_conditions.join(" AND "))
         };
+        let rollup_join = if provider_name.is_some() {
+            providers_join("r", "p2")
+        } else {
+            String::new()
+        };
 
         // UNION detail logs + rollup data
+        //
+        // 分组键用「有效计价模型」：pricing_model 非空时优先（成本就是按它的
+        // 定价算的，金额与定价表自洽），NULL/'' 回落 model。默认 response 计价
+        // 模式下两者相同，行为不变；request 模式 + 路由接管下，钱挂在实际计价
+        // 基准名下，而不是上游回显/客户端别名名下。
         let fresh_input_detail = fresh_input_sql("l");
         let fresh_input_rollup = fresh_input_sql("r");
+        let detail_model = effective_model_sql("l");
+        let rollup_model = effective_model_sql("r");
         let sql = format!(
             "SELECT
                 model,
@@ -1170,21 +1410,23 @@ impl<'a> UsageStatsRepository<'a> {
                 SUM(total_tokens) as total_tokens,
                 SUM(total_cost) as total_cost
             FROM (
-                SELECT l.model,
+                SELECT {detail_model} as model,
                     COUNT(*) as request_count,
                     COALESCE(SUM({fresh_input_detail} + l.output_tokens), 0) as total_tokens,
                     COALESCE(SUM(CAST(l.total_cost_usd AS REAL)), 0) as total_cost
                 FROM proxy_request_logs l
+                {detail_join}
                 {detail_where}
-                GROUP BY l.model
+                GROUP BY {detail_model}
                 UNION ALL
-                SELECT r.model,
+                SELECT {rollup_model},
                     COALESCE(SUM(r.request_count), 0),
                     COALESCE(SUM({fresh_input_rollup} + r.output_tokens), 0),
                     COALESCE(SUM(CAST(r.total_cost_usd AS REAL)), 0)
                 FROM usage_daily_rollups r
+                {rollup_join}
                 {rollup_where}
-                GROUP BY r.model
+                GROUP BY {rollup_model}
             )
             GROUP BY model
             ORDER BY total_cost DESC"
@@ -1235,17 +1477,21 @@ impl<'a> UsageStatsRepository<'a> {
         let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
         if let Some(ref app_type) = filters.app_type {
-            conditions.push("l.app_type = ?".to_string());
+            // 仅过滤口径折叠 claude-desktop→claude；行投影仍返回原始 app_type，
+            // 详情面板据此展示真实入口（路由接管账单审计需要）。
+            conditions.push(format!("{} = ?", folded_app_type_sql("l.app_type")));
             params.push(Box::new(app_type.clone()));
         }
-        if let Some(ref provider_name) = filters.provider_name {
-            conditions.push("p.name LIKE ?".to_string());
-            params.push(Box::new(format!("%{provider_name}%")));
-        }
-        if let Some(ref model) = filters.model {
-            conditions.push("l.model LIKE ?".to_string());
-            params.push(Box::new(format!("%{model}%")));
-        }
+        // 与 Dashboard 顶部下拉筛选同口径：Provider 按展示名精确匹配（会话占位
+        // 行如 "Claude (Session)" 也能命中），模型按有效计价模型匹配。
+        push_provider_model_filters(
+            &mut conditions,
+            &mut params,
+            "l",
+            "p",
+            filters.provider_name.as_deref(),
+            filters.model.as_deref(),
+        );
         if let Some(status) = filters.status_code {
             conditions.push("l.status_code = ?".to_string());
             params.push(Box::new(status as i64));
@@ -1288,7 +1534,7 @@ impl<'a> UsageStatsRepository<'a> {
                     l.input_tokens, l.output_tokens, l.cache_read_tokens, l.cache_creation_tokens,
                     l.input_cost_usd, l.output_cost_usd, l.cache_read_cost_usd, l.cache_creation_cost_usd, l.total_cost_usd,
                     l.is_streaming, l.latency_ms, l.first_token_ms, l.duration_ms,
-                    l.status_code, l.error_message, l.created_at, l.data_source
+                    l.status_code, l.error_message, l.created_at, l.data_source, l.pricing_model
              FROM proxy_request_logs l
              LEFT JOIN providers p ON l.provider_id = p.id AND l.app_type = p.app_type
              {where_clause}
@@ -1331,7 +1577,7 @@ impl<'a> UsageStatsRepository<'a> {
                     input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
                     input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd, total_cost_usd,
                     is_streaming, latency_ms, first_token_ms, duration_ms,
-                    status_code, error_message, created_at, l.data_source
+                    status_code, error_message, created_at, l.data_source, l.pricing_model
              FROM proxy_request_logs l
              LEFT JOIN providers p ON l.provider_id = p.id AND l.app_type = p.app_type
              WHERE l.request_id = ?"
@@ -1476,7 +1722,7 @@ impl<'a> UsageStatsRepository<'a> {
         Self::backfill_missing_usage_costs_on_conn(&conn, Some(model_id))
     }
 
-    fn backfill_missing_usage_costs_on_conn(
+    pub(crate) fn backfill_missing_usage_costs_on_conn(
         conn: &Connection,
         only_model_id: Option<&str>,
     ) -> Result<u64, AppError> {
@@ -1487,27 +1733,26 @@ impl<'a> UsageStatsRepository<'a> {
                         input_cost_usd, output_cost_usd, cache_read_cost_usd,
                         cache_creation_cost_usd, total_cost_usd, is_streaming, latency_ms,
                         first_token_ms, duration_ms, status_code, error_message, created_at,
-                        data_source
+                        data_source, pricing_model
              FROM proxy_request_logs
              WHERE CAST(total_cost_usd AS REAL) <= 0
                AND (input_tokens > 0 OR output_tokens > 0
                     OR cache_read_tokens > 0 OR cache_creation_tokens > 0)";
 
         let mut logs = {
-            match only_model_id {
-                Some(model) => {
-                    let sql = format!("{BASE_SQL} AND (model = ?1 OR request_model = ?1)");
-                    let mut stmt = conn.prepare(&sql)?;
-                    let rows = stmt.query_map([model], row_to_request_log_detail)?;
-                    rows.collect::<Result<Vec<_>, _>>()?
-                }
-                None => {
-                    let mut stmt = conn.prepare(BASE_SQL)?;
-                    let rows = stmt.query_map([], row_to_request_log_detail)?;
-                    rows.collect::<Result<Vec<_>, _>>()?
-                }
-            }
+            let mut stmt = conn.prepare(BASE_SQL)?;
+            let rows = stmt.query_map([], row_to_request_log_detail)?;
+            rows.collect::<Result<Vec<_>, _>>()?
         };
+
+        // 精准回填的行筛选必须与查价层共用 candidates 归一化：SQL 精确匹配会漏掉
+        // 以原始别名落库的行（如 openrouter/anthropic/claude-sonnet-4.5:free），
+        // 这些行查价时能归一化命中新定价，却在筛选层被挡掉，导致导入定价后
+        // 历史成本要等下次全量回填才更新。误纳无害——查不到价的行会被跳过。
+        if let Some(model_id) = only_model_id {
+            let target = model_pricing_candidates(model_id);
+            logs.retain(|log| log_pricing_scope_matches(log, &target));
+        }
 
         if logs.is_empty() {
             return Ok(0);
@@ -1654,8 +1899,30 @@ impl<'a> UsageStatsRepository<'a> {
         cache: &mut HashMap<String, PricingInfo>,
         log: &RequestLogDetail,
     ) -> Result<Option<PricingInfo>, AppError> {
+        // 写入时的计价基准已落库（v11+）：回填只按它重算，找不到就保持 0 成本
+        // 等补价。不能换用 model/request_model 猜——路由接管 + request 计价模式下
+        // 三者可能各不相同（model=上游回显、request_model=客户端别名、
+        // pricing_model=实际出站模型），换基准会按错误价格永久固化。
+        // 占位符（"" = 未计价错误行 / "unknown"）视同缺失，走历史行逻辑。
+        if let Some(pricing_model) = log
+            .pricing_model
+            .as_deref()
+            .filter(|pm| !is_placeholder_pricing_model(pm))
+        {
+            return Self::get_model_pricing_cached(conn, cache, pricing_model);
+        }
+
         if let Some(pricing) = Self::get_model_pricing_cached(conn, cache, &log.model)? {
             return Ok(Some(pricing));
+        }
+
+        // 仅当 model 列是占位符（解析失败留下的 ""/"unknown" 等）时才回退到
+        // request_model 定价。model 是真实模型名但缺定价时必须保持 0 成本等待
+        // 补价：路由接管下 request_model 是客户端别名（如 claude-sonnet-4-6），
+        // 按别名回填会把真实上游模型的 tokens 按错误价格永久固化（行一旦有成本
+        // 就不再进入回填范围）。
+        if !is_placeholder_pricing_model(&log.model) {
+            return Ok(None);
         }
 
         let Some(request_model) = log.request_model.as_deref() else {
@@ -1702,6 +1969,30 @@ pub(crate) fn find_model_pricing_row(
     }
 
     Ok(None)
+}
+
+/// 精准回填的行筛选：log 的任一模型字段归一化后与目标模型的 candidates 相交，
+/// 或可按查价层的前缀规则命中目标，即视为相关。镜像 find_model_pricing_row 的
+/// 匹配语义，宁可误纳（后续查价会兜底）不可漏筛。
+fn log_pricing_scope_matches(log: &RequestLogDetail, target_candidates: &[String]) -> bool {
+    [
+        Some(log.model.as_str()),
+        log.request_model.as_deref(),
+        log.pricing_model.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|field| {
+        model_pricing_candidates(field).iter().any(|candidate| {
+            target_candidates.iter().any(|target| {
+                target == candidate
+                    || (should_try_pricing_prefix_match(candidate)
+                        && target
+                            .strip_prefix(candidate.as_str())
+                            .is_some_and(|rest| rest.starts_with('-')))
+            })
+        })
+    })
 }
 
 pub(crate) fn is_placeholder_pricing_model(model_id: &str) -> bool {
@@ -1959,46 +2250,84 @@ fn should_try_pricing_prefix_match(model_id: &str) -> bool {
         && dash_count >= 2
 }
 
-#[cfg(test)]
 impl Database {
     pub fn get_usage_summary(
         &self,
         start_date: Option<i64>,
         end_date: Option<i64>,
         app_type: Option<&str>,
+        provider_name: Option<&str>,
+        model: Option<&str>,
     ) -> Result<UsageSummary, AppError> {
-        UsageStatsRepository::new(self).get_usage_summary(start_date, end_date, app_type)
+        UsageStatsRepository::new(self).get_usage_summary(
+            start_date,
+            end_date,
+            app_type,
+            provider_name,
+            model,
+        )
     }
     pub fn get_usage_summary_by_app(
         &self,
         start_date: Option<i64>,
         end_date: Option<i64>,
+        provider_name: Option<&str>,
+        model: Option<&str>,
     ) -> Result<Vec<UsageSummaryByApp>, AppError> {
-        UsageStatsRepository::new(self).get_usage_summary_by_app(start_date, end_date)
+        UsageStatsRepository::new(self).get_usage_summary_by_app(
+            start_date,
+            end_date,
+            provider_name,
+            model,
+        )
     }
     pub fn get_daily_trends(
         &self,
         start_date: Option<i64>,
         end_date: Option<i64>,
         app_type: Option<&str>,
+        provider_name: Option<&str>,
+        model: Option<&str>,
     ) -> Result<Vec<DailyStats>, AppError> {
-        UsageStatsRepository::new(self).get_daily_trends(start_date, end_date, app_type)
+        UsageStatsRepository::new(self).get_daily_trends(
+            start_date,
+            end_date,
+            app_type,
+            provider_name,
+            model,
+        )
     }
     pub fn get_provider_stats(
         &self,
         start_date: Option<i64>,
         end_date: Option<i64>,
         app_type: Option<&str>,
+        provider_name: Option<&str>,
+        model: Option<&str>,
     ) -> Result<Vec<ProviderStats>, AppError> {
-        UsageStatsRepository::new(self).get_provider_stats(start_date, end_date, app_type)
+        UsageStatsRepository::new(self).get_provider_stats(
+            start_date,
+            end_date,
+            app_type,
+            provider_name,
+            model,
+        )
     }
     pub fn get_model_stats(
         &self,
         start_date: Option<i64>,
         end_date: Option<i64>,
         app_type: Option<&str>,
+        provider_name: Option<&str>,
+        model: Option<&str>,
     ) -> Result<Vec<ModelStats>, AppError> {
-        UsageStatsRepository::new(self).get_model_stats(start_date, end_date, app_type)
+        UsageStatsRepository::new(self).get_model_stats(
+            start_date,
+            end_date,
+            app_type,
+            provider_name,
+            model,
+        )
     }
     pub fn get_request_logs(
         &self,
