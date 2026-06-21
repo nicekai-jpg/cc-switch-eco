@@ -559,7 +559,7 @@ export function ClaudeFormFields({
       ? value
       : stripClaudeOneMMarker(value);
     const nextModelBase = stripClaudeOneMMarker(normalizedValue).trim();
-    const displayName = row.displayName.trim();
+    const displayName = (row.displayName || "").trim();
     const shouldSyncDisplayName = !displayName || displayName === oldModelBase;
     onModelChange(row.modelField, normalizedValue);
     if (shouldSyncDisplayName) {

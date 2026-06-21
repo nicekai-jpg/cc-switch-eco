@@ -18,17 +18,19 @@ export type ClaudeModelEnvField =
 
 export const CLAUDE_ONE_M_MARKER = "[1M]";
 
-export function hasClaudeOneMMarker(model: string): boolean {
+export function hasClaudeOneMMarker(model: string | undefined | null): boolean {
+  if (!model) return false;
   return model.trimEnd().toLowerCase().endsWith("[1m]");
 }
 
-export function stripClaudeOneMMarker(model: string): string {
+export function stripClaudeOneMMarker(model: string | undefined | null): string {
+  if (!model) return "";
   const trimmedEnd = model.trimEnd();
   if (!trimmedEnd.toLowerCase().endsWith("[1m]")) return model;
   return trimmedEnd.slice(0, -CLAUDE_ONE_M_MARKER.length).trimEnd();
 }
 
-export function setClaudeOneMMarker(model: string, enabled: boolean): string {
+export function setClaudeOneMMarker(model: string | undefined | null, enabled: boolean): string {
   const base = stripClaudeOneMMarker(model).trim();
   if (!base) return "";
   return enabled ? `${base}${CLAUDE_ONE_M_MARKER}` : base;

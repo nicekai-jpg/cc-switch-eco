@@ -114,6 +114,7 @@ export interface ProviderFormProps {
     iconColor?: string;
   };
   showButtons?: boolean;
+  isProxyTakeover?: boolean;
 }
 
 export function ProviderForm(props: ProviderFormProps) {
@@ -184,6 +185,9 @@ function ProviderFormFull({
   const [endpointAutoSelect, setEndpointAutoSelect] = useState<boolean>(
     () => initialData?.meta?.endpointAutoSelect ?? true,
   );
+  const [customUserAgent, setCustomUserAgent] = useState<string>(
+    () => initialData?.meta?.customUserAgent ?? "",
+  );
   const supportsFullUrl = strategy.supportsFullUrl;
   const [localIsFullUrl, setLocalIsFullUrl] = useState<boolean>(() => {
     if (!supportsFullUrl) return false;
@@ -225,6 +229,7 @@ function ProviderFormFull({
       setDraftCustomEndpoints([]);
     }
     setEndpointAutoSelect(initialData?.meta?.endpointAutoSelect ?? true);
+    setCustomUserAgent(initialData?.meta?.customUserAgent ?? "");
     setLocalIsFullUrl(
       supportsFullUrl ? (initialData?.meta?.isFullUrl ?? false) : false,
     );
@@ -322,6 +327,8 @@ function ProviderFormFull({
     defaultSonnetModelName,
     defaultOpusModel,
     defaultOpusModelName,
+    defaultFableModel,
+    defaultFableModelName,
     handleModelChange,
   } = useModelState({
     settingsConfig: form.getValues("settingsConfig"),
@@ -1163,6 +1170,10 @@ function ProviderFormFull({
         supportsFullUrl && category !== "official" && localIsFullUrl
           ? true
           : undefined,
+      customUserAgent:
+        (appId === "claude" || appId === "codex") && category !== "official"
+          ? (customUserAgent || "").trim() || undefined
+          : undefined,
     };
 
     if (!isCodexOauthProvider && "codexFastMode" in nextMeta) {
@@ -1267,8 +1278,9 @@ function ProviderFormFull({
     if (appId === "gemini") {
       // Safe: presetEntries for appId="gemini" always contains GeminiProviderPreset
       const preset = entry.preset as GeminiProviderPreset;
-      const env = preset.settingsConfig.env ?? {};
-      const config = preset.settingsConfig.config ?? {};
+      const settingsConfig = preset.settingsConfig as any;
+      const env = settingsConfig.env ?? {};
+      const config = settingsConfig.config ?? {};
 
       resetGeminiConfig(env, config);
 
@@ -1495,6 +1507,10 @@ function ProviderFormFull({
             defaultSonnetModelName={defaultSonnetModelName}
             defaultOpusModel={defaultOpusModel}
             defaultOpusModelName={defaultOpusModelName}
+            defaultFableModel={defaultFableModel}
+            defaultFableModelName={defaultFableModelName}
+            customUserAgent={customUserAgent}
+            onCustomUserAgentChange={setCustomUserAgent}
             apiFormat={localApiFormat}
             onApiFormatChange={handleApiFormatChange}
             apiKeyField={localApiKeyField}

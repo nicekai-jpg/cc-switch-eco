@@ -86,6 +86,10 @@ export interface AppSpecificFormFieldsProps {
   defaultSonnetModelName: string;
   defaultOpusModel: string;
   defaultOpusModelName: string;
+  defaultFableModel: string;
+  defaultFableModelName: string;
+  customUserAgent: string;
+  onCustomUserAgentChange: (val: string) => void;
   apiFormat: ClaudeApiFormat;
   onApiFormatChange: (val: ClaudeApiFormat) => void;
   apiKeyField: ClaudeApiKeyField;
@@ -223,6 +227,10 @@ const formFieldsRenderers: Partial<Record<AppId, FormFieldsRenderer>> = {
       defaultSonnetModelName={props.defaultSonnetModelName}
       defaultOpusModel={props.defaultOpusModel}
       defaultOpusModelName={props.defaultOpusModelName}
+      defaultFableModel={props.defaultFableModel}
+      defaultFableModelName={props.defaultFableModelName}
+      customUserAgent={props.customUserAgent}
+      onCustomUserAgentChange={props.onCustomUserAgentChange}
       onModelChange={props.onClaudeModelChange}
       speedTestEndpoints={props.speedTestEndpoints}
       apiFormat={props.apiFormat}

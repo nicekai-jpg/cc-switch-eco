@@ -8,7 +8,8 @@
  *
  * 空串（trim 后为空）视为"未设置"，合法。
  */
-export function isValidUserAgentHeader(value: string): boolean {
+export function isValidUserAgentHeader(value: string | undefined | null): boolean {
+  if (!value) return true;
   const trimmed = value.trim();
   if (trimmed === "") return true;
   // eslint-disable-next-line no-control-regex

@@ -8,6 +8,7 @@ import {
   ProviderForm,
   type ProviderFormValues,
 } from "@/components/providers/forms/ProviderForm";
+import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { openclawApi, providersApi, vscodeApi, type AppId } from "@/lib/api";
 
 interface EditProviderDialogProps {
@@ -121,8 +122,12 @@ export function EditProviderDialog({
             setHasLoadedLive(true);
           }
         }
-      } finally {
-        // no-op
+      } catch (err) {
+        console.error("Failed to load current provider or live settings:", err);
+        if (!cancelled) {
+          setLiveSettings(null);
+          setHasLoadedLive(true);
+        }
       }
     };
     void load();
@@ -238,17 +243,19 @@ export function EditProviderDialog({
         </Button>
       }
     >
-      <ProviderForm
-        appId={appId}
-        providerId={provider.id}
-        submitLabel={t("common.save")}
-        onSubmit={handleSubmit}
-        onCancel={() => onOpenChange(false)}
-        onSubmittingChange={setIsFormSubmitting}
-        initialData={initialData}
-        showButtons={false}
-        isProxyTakeover={isProxyTakeover}
-      />
+      <ErrorBoundary>
+        <ProviderForm
+          appId={appId}
+          providerId={provider.id}
+          submitLabel={t("common.save")}
+          onSubmit={handleSubmit}
+          onCancel={() => onOpenChange(false)}
+          onSubmittingChange={setIsFormSubmitting}
+          initialData={initialData}
+          showButtons={false}
+          isProxyTakeover={isProxyTakeover}
+        />
+      </ErrorBoundary>
     </FullScreenPanel>
   );
 }

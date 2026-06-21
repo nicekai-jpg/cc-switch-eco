@@ -223,6 +223,8 @@ export interface ProviderMeta {
   providerType?: string;
   // GitHub Copilot 关联账号 ID（旧字段，保留兼容读取）
   githubAccountId?: string;
+  // 自定义 User-Agent
+  customUserAgent?: string;
 }
 
 // Skill 同步方式
@@ -287,6 +289,30 @@ export interface WebDavSyncSettings {
   remoteRoot?: string;
   profile?: string;
   status?: WebDavSyncStatus;
+}
+
+// S3 同步状态
+export interface S3SyncStatus {
+  lastSyncAt?: number | null;
+  lastError?: string | null;
+  lastErrorSource?: string | null;
+  lastRemoteEtag?: string | null;
+  lastLocalManifestHash?: string | null;
+  lastRemoteManifestHash?: string | null;
+}
+
+// S3 同步配置
+export interface S3SyncSettings {
+  enabled?: boolean;
+  autoSync?: boolean;
+  region?: string;
+  bucket?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  endpoint?: string;
+  remoteRoot?: string;
+  profile?: string;
+  status?: S3SyncStatus;
 }
 
 export type RemoteSnapshotLayout = "current" | "legacy";
@@ -405,6 +431,14 @@ export interface Settings {
       migratedStateRows?: number;
     };
   };
+
+  // ===== Codex 共享历史与配置设置 =====
+  preserveCodexOfficialAuthOnSwitch?: boolean;
+  unifyCodexSessionHistory?: boolean;
+  unifyCodexMigrateExisting?: boolean;
+
+  // ===== S3 同步设置 =====
+  s3Sync?: S3SyncSettings;
 }
 
 export interface SessionMeta {
