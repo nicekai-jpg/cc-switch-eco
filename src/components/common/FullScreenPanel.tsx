@@ -134,9 +134,15 @@ export const FullScreenPanel: React.FC<FullScreenPanelProps> = ({
             </div>
           </div>
 
-          {/* Content */}
+          {/* Content with fallback for empty/null children */}
           <div className="flex-1 overflow-y-auto scroll-overlay">
-            <div className="px-6 py-6 space-y-6 w-full">{children}</div>
+            <div className="px-6 py-6 space-y-6 w-full">
+              {children || (
+                <div className="flex items-center justify-center h-40 text-muted-foreground">
+                  <p>Loading content...</p>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Footer */}

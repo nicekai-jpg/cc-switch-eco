@@ -246,18 +246,31 @@ function ProviderFormFull({
     setCodexChatReasoning(initialData?.meta?.codexChatReasoning ?? {});
   }, [appId, initialData, supportsFullUrl]);
 
+  // 确保 settingsConfig 始终是有效的对象，防御数据库返回 null/undefined/字符串的情况
+  const safeInitialSettingsConfig = useMemo(() => {
+    if (!initialData?.settingsConfig) return {};
+    if (typeof initialData.settingsConfig === "string") {
+      try {
+        return JSON.parse(initialData.settingsConfig);
+      } catch {
+        return {};
+      }
+    }
+    return initialData.settingsConfig;
+  }, [initialData?.settingsConfig]);
+
   const defaultValues: ProviderFormData = useMemo(
     () => ({
       name: initialData?.name ?? "",
       websiteUrl: initialData?.websiteUrl ?? "",
       notes: initialData?.notes ?? "",
-      settingsConfig: initialData?.settingsConfig
-        ? JSON.stringify(initialData.settingsConfig, null, 2)
+      settingsConfig: safeInitialSettingsConfig
+        ? JSON.stringify(safeInitialSettingsConfig, null, 2)
         : strategy.defaultConfig,
       icon: initialData?.icon ?? "",
       iconColor: initialData?.iconColor ?? "",
     }),
-    [initialData, strategy],
+    [initialData, strategy, safeInitialSettingsConfig],
   );
 
   const form = useForm<ProviderFormData>({

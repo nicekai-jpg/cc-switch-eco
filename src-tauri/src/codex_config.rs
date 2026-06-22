@@ -173,6 +173,7 @@ pub(crate) fn is_custom_codex_model_provider_id(id: &str) -> bool {
             .any(|reserved| reserved.eq_ignore_ascii_case(id))
 }
 
+#[allow(dead_code)]
 pub(crate) fn stable_codex_model_provider_id_from_config(config_text: &str) -> Option<String> {
     let doc = config_text.parse::<DocumentMut>().ok()?;
     let provider_id = active_codex_model_provider_id(&doc)?;
@@ -184,6 +185,7 @@ pub(crate) fn stable_codex_model_provider_id_from_config(config_text: &str) -> O
     }
 }
 
+#[allow(dead_code)]
 fn codex_model_provider_id_with_table_from_config(
     config_text: &str,
 ) -> Result<Option<String>, AppError> {
@@ -207,6 +209,7 @@ fn codex_model_provider_id_with_table_from_config(
     Ok(has_provider_table.then_some(provider_id))
 }
 
+#[allow(dead_code)]
 fn normalize_codex_live_config_model_provider(config_text: &str) -> Result<String, AppError> {
     if config_text.trim().is_empty() {
         return Ok(config_text.to_string());
@@ -254,6 +257,7 @@ fn normalize_codex_live_config_model_provider(config_text: &str) -> Result<Strin
     Ok(doc.to_string())
 }
 
+#[allow(dead_code)]
 fn rewrite_codex_profile_model_provider_refs(
     doc: &mut DocumentMut,
     source_provider_id: &str,
@@ -311,6 +315,7 @@ pub fn normalize_codex_settings_config_model_provider(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn restore_codex_backfill_model_provider_id(
     config_text: &str,
     template_config_text: &str,
@@ -356,6 +361,7 @@ fn restore_codex_backfill_model_provider_id(
 
 /// Convert a Codex live config that was normalized for history stability back
 /// to the provider-specific id used by the stored provider template.
+#[allow(dead_code)]
 pub fn restore_codex_settings_config_model_provider_for_backfill(
     settings: &mut Value,
     template_settings: &Value,
@@ -386,6 +392,7 @@ pub fn restore_codex_settings_config_model_provider_for_backfill(
 ///
 /// Use this for provider-driven live writes. Keep `write_codex_live_atomic` available
 /// for exact restore/backup paths that must preserve the config text byte-for-byte.
+#[allow(dead_code)]
 pub fn write_codex_live_atomic_with_stable_provider(
     auth: &Value,
     config_text_opt: Option<&str>,
@@ -399,6 +406,7 @@ pub fn write_codex_live_atomic_with_stable_provider(
     }
 }
 
+#[allow(dead_code)]
 fn normalize_codex_config_for_live_provider(config_text: &str) -> Result<String, AppError> {
     let mut settings = serde_json::Map::new();
     settings.insert("config".to_string(), Value::String(config_text.to_string()));

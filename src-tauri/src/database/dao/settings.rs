@@ -391,10 +391,12 @@ impl Database {
         SettingsRepository::new(self).set_global_proxy_url(url)
     }
 
+    #[allow(deprecated)]
     pub fn get_proxy_takeover_enabled(&self, app_type: &str) -> Result<bool, AppError> {
         SettingsRepository::new(self).get_proxy_takeover_enabled(app_type)
     }
 
+    #[allow(deprecated)]
     pub fn set_proxy_takeover_enabled(
         &self,
         app_type: &str,
@@ -403,10 +405,12 @@ impl Database {
         SettingsRepository::new(self).set_proxy_takeover_enabled(app_type, enabled)
     }
 
+    #[allow(deprecated)]
     pub fn has_any_proxy_takeover(&self) -> Result<bool, AppError> {
         SettingsRepository::new(self).has_any_proxy_takeover()
     }
 
+    #[allow(deprecated)]
     pub fn clear_all_proxy_takeover(&self) -> Result<(), AppError> {
         SettingsRepository::new(self).clear_all_proxy_takeover()
     }

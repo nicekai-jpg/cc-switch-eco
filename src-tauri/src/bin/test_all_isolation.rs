@@ -1,7 +1,6 @@
 use cc_switch_eco_lib::Database;
 use cc_switch_eco_lib::AppState;
 use cc_switch_eco_lib::services::ecosystem::EcosystemService;
-use std::fs;
 use std::process::Command;
 use std::sync::Arc;
 

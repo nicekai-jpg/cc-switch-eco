@@ -8,9 +8,11 @@ use futures::Stream;
 use super::gemini_shadow::GeminiShadowStore;
 use super::transform_gemini::AnthropicToolSchemaHints;
 
+#[allow(dead_code)]
 pub type BoxedStream = Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>;
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct TransformContext {
     pub provider: Provider,
     pub session_id: Option<String>,
@@ -18,6 +20,7 @@ pub struct TransformContext {
     pub tool_schema_hints: Option<AnthropicToolSchemaHints>,
 }
 
+#[allow(dead_code)]
 pub trait PayloadTransformer: Send + Sync {
     fn transform_request(
         &self,
@@ -38,6 +41,7 @@ pub trait PayloadTransformer: Send + Sync {
     ) -> BoxedStream;
 }
 
+#[allow(dead_code)]
 pub struct PassthroughTransformer;
 
 impl PayloadTransformer for PassthroughTransformer {
@@ -66,6 +70,7 @@ impl PayloadTransformer for PassthroughTransformer {
     }
 }
 
+#[allow(dead_code)]
 pub struct OpenAiChatTransformer;
 
 impl PayloadTransformer for OpenAiChatTransformer {
@@ -107,6 +112,7 @@ impl PayloadTransformer for OpenAiChatTransformer {
     }
 }
 
+#[allow(dead_code)]
 pub struct OpenAiResponsesTransformer;
 
 impl PayloadTransformer for OpenAiResponsesTransformer {
@@ -143,6 +149,7 @@ impl PayloadTransformer for OpenAiResponsesTransformer {
     }
 }
 
+#[allow(dead_code)]
 pub struct GeminiNativeTransformer;
 
 impl PayloadTransformer for GeminiNativeTransformer {
@@ -188,6 +195,7 @@ impl PayloadTransformer for GeminiNativeTransformer {
     }
 }
 
+#[allow(dead_code)]
 pub fn get_transformer(api_format: &str) -> Box<dyn PayloadTransformer> {
     match api_format {
         "openai_chat" => Box::new(OpenAiChatTransformer),
@@ -199,6 +207,7 @@ pub fn get_transformer(api_format: &str) -> Box<dyn PayloadTransformer> {
 
 // --- Helper functions for OpenAI chat / responses ---
 
+#[allow(dead_code)]
 fn is_reasoning_content_compatible_identifier(value: &str) -> bool {
     let value = value.to_ascii_lowercase();
     value.contains("moonshot")
@@ -208,6 +217,7 @@ fn is_reasoning_content_compatible_identifier(value: &str) -> bool {
         || value.contains("xiaomimimo")
 }
 
+#[allow(dead_code)]
 fn should_preserve_reasoning_content_for_openai_chat(
     provider: &Provider,
     body: &Value,
@@ -237,6 +247,7 @@ fn should_preserve_reasoning_content_for_openai_chat(
         .any(is_reasoning_content_compatible_identifier)
 }
 
+#[allow(dead_code)]
 fn get_cache_key(
     provider: &Provider,
     body: &Value,

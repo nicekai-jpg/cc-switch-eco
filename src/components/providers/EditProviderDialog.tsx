@@ -166,11 +166,18 @@ export function EditProviderDialog({
   // 固定 initialData，防止 provider 对象更新时重置表单
   const initialData = useMemo(() => {
     if (!provider) return null;
+    
+    // Ensure settingsConfig is always a valid object to prevent null/undefined crashes
+    let safeSettingsConfig = initialSettingsConfig;
+    if (safeSettingsConfig === null || safeSettingsConfig === undefined) {
+      safeSettingsConfig = {};
+    }
+    
     return {
       name: provider.name,
       notes: provider.notes,
       websiteUrl: provider.websiteUrl,
-      settingsConfig: initialSettingsConfig,
+      settingsConfig: safeSettingsConfig,
       category: provider.category,
       meta: provider.meta,
       icon: provider.icon,

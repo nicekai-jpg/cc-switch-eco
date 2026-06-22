@@ -4,18 +4,17 @@
 //! 用于 Eco 创建时选择安装。
 //!
 //! 安装策略（遵循各框架官方推荐方式）：
-//! - Superpowers 中文版: npx superpowers-zh --tool claude-code
-//! - Agency Agents 中文版: ./scripts/install.sh --tool claude-code
-//! - Oh My ClaudeCode: npx oh-my-claude-sisyphus@latest setup
-//! - Ruflo: npx ruflo@latest init --force
+//! - Superpowers 中文版: claude plugin install superpowers-zh@superpowers-zh
+//! - Oh My ClaudeCode: claude plugin install oh-my-claudecode@omc
+//! - Ruflo: claude plugin install claude-flow@ruflo
 //! - Spec Kit: uv tool install specify-cli --from git+... && specify init . --integration claude
 //! - Matt Pocock Skills: npx skills@latest add mattpocock/skills -y -a claude-code --copy
 //! - GStack: git clone + ./setup（官方推荐方式）
 //! - OpenSpec: npx @fission-ai/openspec@latest init --tools claude --force
 //! - BMAD-METHOD: npx bmad-method install --yes --modules bmm --tools claude-code
 //! - Get Shit Done: npx @opengsd/gsd-core@latest --yes
-//! - PUA: npx skills@latest add tanweai/pua --skill pua -y -a claude-code --copy
-//! - Web Access: npx skills@latest add eze-is/web-access -y -a claude-code --copy
+//! - PUA: claude plugin install pua@pua-skills（HOME 重定向 → eco/plugins，失败回退手动注册）
+//! - Web Access: claude plugin install web-access@web-access（HOME 重定向 → eco/plugins）
 //! - Claude HUD: plugin（commands + .claude-plugin，安装后自动配置 statusLine）
 
 use crate::services::ecosystem::dir_strategy::DirLayout;
@@ -56,6 +55,13 @@ pub struct FrameworkRegistry {
     /// Claude Code 的 installed_plugins.json key 格式为 pluginName@marketplaceName
     /// 如 warp 的 marketplace 为 "claude-code-warp"，key 为 "warp@claude-code-warp"
     pub marketplace_name: Option<String>,
+    /// Hook 交付方式: "none" | "settings" | "plugin"
+    /// - none: 无 hook
+    /// - settings: hooks 合并进 settings.json fragment（命令不能含 ${CLAUDE_PLUGIN_ROOT}）
+    /// - plugin: 必须通过 Claude Code plugin 注册（hooks 脚本引用 ${CLAUDE_PLUGIN_ROOT}）
+    pub hook_delivery: String,
+    /// Claude Code 插件名（默认与 id 相同；如 ruflo 官方插件名为 claude-flow）
+    pub plugin_name: Option<String>,
 }
 
 /// 获取所有注册的框架
@@ -69,14 +75,14 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
                     .to_string(),
             repo_url: "https://github.com/jnMetaCode/superpowers-zh.git".to_string(),
             repo_branch: "main".to_string(),
-            provided_dirs: vec!["skills".to_string(), ".claude-plugin".to_string()],
-            install_method: "npx".to_string(),
-            install_command: Some("npx".to_string()),
-            install_args: vec![
-                "superpowers-zh".to_string(),
-                "--tool".to_string(),
-                "claude-code".to_string(),
+            provided_dirs: vec![
+                "skills".to_string(),
+                "hooks".to_string(),
+                ".claude-plugin".to_string(),
             ],
+            install_method: "plugin".to_string(),
+            install_command: None,
+            install_args: vec![],
             install_env: vec![],
             isolated_dirs: vec![],
             isolated_files: vec!["CLAUDE.md".to_string()],
@@ -85,9 +91,11 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             files_prefixed: false,
             dir_mappings: vec![(
                 ".claude-plugin".to_string(),
-                "plugins/{id}".to_string(),
+                "plugins/{id}/.claude-plugin".to_string(),
             )],
-            marketplace_name: None,
+            marketplace_name: Some("superpowers-zh".to_string()),
+            hook_delivery: "plugin".to_string(),
+            plugin_name: Some("superpowers-zh".to_string()),
         },
         FrameworkRegistry {
             id: "agency-agents-zh".to_string(),
@@ -110,6 +118,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             files_prefixed: false,
             dir_mappings: vec![],
             marketplace_name: None,
+            hook_delivery: "none".to_string(),
+            plugin_name: None,
         },
         FrameworkRegistry {
             id: "ohmyclaudecode".to_string(),
@@ -125,12 +135,9 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
                 "skills".to_string(),
                 ".claude-plugin".to_string(),
             ],
-            install_method: "npx".to_string(),
-            install_command: Some("npx".to_string()),
-            install_args: vec![
-                "oh-my-claude-sisyphus@latest".to_string(),
-                "setup".to_string(),
-            ],
+            install_method: "plugin".to_string(),
+            install_command: None,
+            install_args: vec![],
             install_env: vec![],
             isolated_dirs: vec!["hud".to_string()],
             isolated_files: vec!["CLAUDE.md".to_string(), "settings.json".to_string()],
@@ -139,9 +146,11 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             files_prefixed: false,
             dir_mappings: vec![(
                 ".claude-plugin".to_string(),
-                "plugins/{id}".to_string(),
+                "plugins/{id}/.claude-plugin".to_string(),
             )],
-            marketplace_name: None,
+            marketplace_name: Some("omc".to_string()),
+            hook_delivery: "plugin".to_string(),
+            plugin_name: Some("oh-my-claudecode".to_string()),
         },
         FrameworkRegistry {
             id: "ruflo".to_string(),
@@ -154,14 +163,11 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
                 "skills".to_string(),
                 "agents".to_string(),
                 "commands".to_string(),
+                ".claude-plugin".to_string(),
             ],
-            install_method: "npx".to_string(),
-            install_command: Some("npx".to_string()),
-            install_args: vec![
-                "ruflo@latest".to_string(),
-                "init".to_string(),
-                "--force".to_string(),
-            ],
+            install_method: "plugin".to_string(),
+            install_command: None,
+            install_args: vec![],
             install_env: vec![],
             isolated_dirs: vec!["helpers".to_string()],
             isolated_files: vec![
@@ -172,8 +178,13 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             file_prefix: "ruflo-".to_string(),
             dir_layout: DirLayout::Flat,
             files_prefixed: false,
-            dir_mappings: vec![],
-            marketplace_name: None,
+            dir_mappings: vec![(
+                ".claude-plugin".to_string(),
+                "plugins/{id}/.claude-plugin".to_string(),
+            )],
+            marketplace_name: Some("ruflo".to_string()),
+            hook_delivery: "plugin".to_string(),
+            plugin_name: Some("claude-flow".to_string()),
         },
         FrameworkRegistry {
             id: "speckit".to_string(),
@@ -200,6 +211,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             files_prefixed: false,
             dir_mappings: vec![],
             marketplace_name: None,
+            hook_delivery: "none".to_string(),
+            plugin_name: None,
         },
         FrameworkRegistry {
             id: "mattpocock-skills".to_string(),
@@ -227,6 +240,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             files_prefixed: false,
             dir_mappings: vec![],
             marketplace_name: None,
+            hook_delivery: "none".to_string(),
+            plugin_name: None,
         },
         FrameworkRegistry {
             id: "gstack".to_string(),
@@ -246,6 +261,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             files_prefixed: false,
             dir_mappings: vec![],
             marketplace_name: None,
+            hook_delivery: "none".to_string(),
+            plugin_name: None,
         },
         FrameworkRegistry {
             id: "openspec".to_string(),
@@ -271,6 +288,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             files_prefixed: false,
             dir_mappings: vec![],
             marketplace_name: None,
+            hook_delivery: "none".to_string(),
+            plugin_name: None,
         },
         FrameworkRegistry {
             id: "bmad-method".to_string(),
@@ -300,6 +319,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             files_prefixed: false,
             dir_mappings: vec![],
             marketplace_name: None,
+            hook_delivery: "none".to_string(),
+            plugin_name: None,
         },
         FrameworkRegistry {
             id: "get-shit-done".to_string(),
@@ -327,6 +348,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
             files_prefixed: true,
             dir_mappings: vec![],
             marketplace_name: None,
+            hook_delivery: "settings".to_string(),
+            plugin_name: None,
         },
         FrameworkRegistry {
             id: "pua".to_string(),
@@ -341,30 +364,22 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
                 "hooks".to_string(),
                 ".claude-plugin".to_string(),
             ],
-            install_method: "npx".to_string(),
-            install_command: Some("npx".to_string()),
-            install_args: vec![
-                "skills@latest".to_string(),
-                "add".to_string(),
-                "tanweai/pua".to_string(),
-                "--skill".to_string(),
-                "pua".to_string(),
-                "-y".to_string(),
-                "-a".to_string(),
-                "claude-code".to_string(),
-                "--copy".to_string(),
-            ],
+            install_method: "plugin".to_string(),
+            install_command: None,
+            install_args: vec![],
             install_env: vec![],
             isolated_dirs: vec![],
-            isolated_files: vec!["CLAUDE.md".to_string(), "settings.json".to_string()],
+            isolated_files: vec![],
             file_prefix: "pua-".to_string(),
             dir_layout: DirLayout::Flat,
             files_prefixed: false,
             dir_mappings: vec![(
                 ".claude-plugin".to_string(),
-                "plugins/{id}".to_string(),
+                "plugins/{id}/.claude-plugin".to_string(),
             )],
-            marketplace_name: None,
+            marketplace_name: Some("pua-skills".to_string()),
+            hook_delivery: "plugin".to_string(),
+            plugin_name: Some("pua".to_string()),
         },
         FrameworkRegistry {
             id: "web-access".to_string(),
@@ -376,17 +391,9 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
                 "skills".to_string(),
                 ".claude-plugin".to_string(),
             ],
-            install_method: "npx".to_string(),
-            install_command: Some("npx".to_string()),
-            install_args: vec![
-                "skills@latest".to_string(),
-                "add".to_string(),
-                "eze-is/web-access".to_string(),
-                "-y".to_string(),
-                "-a".to_string(),
-                "claude-code".to_string(),
-                "--copy".to_string(),
-            ],
+            install_method: "plugin".to_string(),
+            install_command: None,
+            install_args: vec![],
             install_env: vec![],
             isolated_dirs: vec![],
             isolated_files: vec![],
@@ -397,7 +404,9 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
                 ".claude-plugin".to_string(),
                 "plugins/{id}".to_string(),
             )],
-            marketplace_name: None,
+            marketplace_name: Some("web-access".to_string()),
+            hook_delivery: "none".to_string(),
+            plugin_name: Some("web-access".to_string()),
         },
         FrameworkRegistry {
             id: "claude-hud".to_string(),
@@ -434,6 +443,8 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
                 ),
             ],
             marketplace_name: Some("claude-hud".to_string()),
+            hook_delivery: "plugin".to_string(),
+            plugin_name: Some("claude-hud".to_string()),
         },
     ]
 }
@@ -441,4 +452,74 @@ pub fn get_all_frameworks() -> Vec<FrameworkRegistry> {
 /// 根据 ID 查找框架
 pub fn find_framework(id: &str) -> Option<FrameworkRegistry> {
     get_all_frameworks().into_iter().find(|f| f.id == id)
+}
+
+/// Claude Code 插件名（默认 framework id）
+pub fn framework_plugin_name(framework: &FrameworkRegistry) -> &str {
+    framework
+        .plugin_name
+        .as_deref()
+        .unwrap_or(framework.id.as_str())
+}
+
+/// installed_plugins.json / enabledPlugins 的 key：{pluginName}@{marketplace}
+pub fn framework_plugin_key(framework: &FrameworkRegistry) -> Option<String> {
+    framework
+        .marketplace_name
+        .as_ref()
+        .map(|m| format!("{}@{m}", framework_plugin_name(framework)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pua_uses_plugin_hook_delivery() {
+        let pua = find_framework("pua").expect("pua framework should exist");
+        assert_eq!(pua.install_method, "plugin");
+        assert_eq!(pua.hook_delivery, "plugin");
+        assert_eq!(pua.marketplace_name.as_deref(), Some("pua-skills"));
+        assert!(
+            pua.provided_dirs.contains(&"hooks".to_string()),
+            "PUA should ship hooks directory"
+        );
+    }
+
+    #[test]
+    fn test_framework_hook_delivery_consistency() {
+        for fw in get_all_frameworks() {
+            if fw.hook_delivery == "plugin" {
+                assert_eq!(
+                    fw.install_method, "plugin",
+                    "{}: hook_delivery=plugin 必须配合 install_method=plugin",
+                    fw.id
+                );
+                assert!(
+                    fw.marketplace_name.is_some(),
+                    "{}: hook_delivery=plugin 必须配置 marketplace_name",
+                    fw.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_plugin_frameworks_with_hooks_use_plugin_delivery() {
+        let plugin_hook_frameworks = [
+            ("superpowers", "superpowers-zh"),
+            ("ohmyclaudecode", "oh-my-claudecode"),
+            ("ruflo", "claude-flow"),
+            ("pua", "pua"),
+        ];
+        for (id, plugin_name) in plugin_hook_frameworks {
+            let fw = find_framework(id).expect(id);
+            assert_eq!(fw.hook_delivery, "plugin", "{id} should use plugin hooks");
+            assert_eq!(
+                framework_plugin_name(&fw),
+                plugin_name,
+                "{id} plugin name mismatch"
+            );
+        }
+    }
 }

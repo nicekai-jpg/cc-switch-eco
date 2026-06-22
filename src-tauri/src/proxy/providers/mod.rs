@@ -39,7 +39,7 @@ use crate::provider::Provider;
 use serde::{Deserialize, Serialize};
 
 // 公开导出
-pub use strategy::{PayloadTransformer, TransformContext, get_transformer};
+// pub use strategy::{PayloadTransformer, TransformContext, get_transformer};
 pub use adapter::ProviderAdapter;
 pub use auth::{AuthInfo, AuthStrategy};
 pub use claude::{

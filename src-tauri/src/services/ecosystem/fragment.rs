@@ -1008,4 +1008,33 @@ mod tests {
         assert!(!names.contains(&"settings.user-fragment.json".to_string()));
         assert!(!names.contains(&"other.json".to_string()));
     }
+
+    #[test]
+    fn test_pua_plugin_root_hooks_stripped_from_global_settings() {
+        // PUA v3 hooks 引用 ${CLAUDE_PLUGIN_ROOT}，写入全局 settings 后会被剥离。
+        // 因此 PUA 必须走 plugin 安装，不能仅用 skills CLI + settings fragment。
+        let mut hooks = json!({
+            "SessionStart": [{"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-restore.sh\""}]}],
+            "PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/failure-detector.sh\""}]}],
+            "PreCompact": [{"matcher": "*", "hooks": [{"type": "prompt", "prompt": "[PUA PreCompact]"}]}]
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        sanitize_hooks_for_global_settings(&mut hooks);
+
+        assert!(
+            hooks.get("SessionStart").is_none(),
+            "SessionStart command hooks 应被剥离"
+        );
+        assert!(
+            hooks.get("PostToolUse").is_none(),
+            "PostToolUse command hooks 应被剥离"
+        );
+        assert!(
+            hooks.get("PreCompact").is_some(),
+            "不含 ${{CLAUDE_PLUGIN_ROOT}} 的 prompt hook 应保留"
+        );
+    }
 }

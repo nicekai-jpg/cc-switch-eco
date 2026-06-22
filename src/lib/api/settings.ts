@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Settings, WebDavSyncSettings, RemoteSnapshotInfo } from "@/types";
+import type { Settings, WebDavSyncSettings, RemoteSnapshotInfo, S3SyncSettings } from "@/types";
 import type { AppId } from "./types";
 
 export interface ConfigTransferResult {
@@ -33,6 +33,18 @@ export const settingsApi = {
 
   async checkUpdates(): Promise<void> {
     await invoke("check_for_updates");
+  },
+
+  async installUpdateAndRestart(): Promise<boolean> {
+    return await invoke("install_update_and_restart");
+  },
+
+  async hasCodexUnifyHistoryBackup(): Promise<boolean> {
+    return await invoke("has_codex_unify_history_backup");
+  },
+
+  async restoreCodexUnifiedHistory(): Promise<any> {
+    return await invoke("restore_codex_unified_history");
   },
 
   async isPortable(): Promise<boolean> {
@@ -148,6 +160,40 @@ export const settingsApi = {
     RemoteSnapshotInfo | { empty: true }
   > {
     return await invoke("webdav_sync_fetch_remote_info");
+  },
+
+  // ─── S3 sync ──────────────────────────────────────────────
+
+  async s3TestConnection(
+    settings: S3SyncSettings,
+    preserveEmptySecret = true,
+  ): Promise<any> {
+    return await invoke("s3_test_connection", {
+      settings,
+      preserveEmpty: preserveEmptySecret,
+    });
+  },
+
+  async s3SyncUpload(): Promise<any> {
+    return await invoke("s3_sync_upload");
+  },
+
+  async s3SyncDownload(): Promise<any> {
+    return await invoke("s3_sync_download");
+  },
+
+  async s3SyncSaveSettings(
+    settings: S3SyncSettings,
+    secretTouched = false,
+  ): Promise<{ success: boolean }> {
+    return await invoke("s3_sync_save_settings", {
+      settings,
+      secretTouched,
+    });
+  },
+
+  async s3SyncFetchRemoteInfo(): Promise<any> {
+    return await invoke("s3_sync_fetch_remote_info");
   },
 
   async syncCurrentProvidersLive(): Promise<void> {
@@ -274,6 +320,8 @@ export interface RectifierConfig {
   enabled: boolean;
   requestThinkingSignature: boolean;
   requestThinkingBudget: boolean;
+  requestMediaFallback: boolean;
+  requestMediaHeuristic: boolean;
 }
 
 export interface OptimizerConfig {
