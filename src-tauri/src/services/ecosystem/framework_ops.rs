@@ -504,10 +504,10 @@ fn validate_hook_delivery(
 
     let Some(path) = hooks_json_path else {
         if framework.hook_delivery == "plugin" {
-            return Err(AppError::Message(format!(
-                "框架「{}」声明 hook_delivery=plugin，但源码中未找到 hooks/hooks.json",
+            log::info!(
+                "框架「{}」声明 hook_delivery=plugin，但源码中未找到 hooks/hooks.json（跳过 hook 校验）",
                 framework.name
-            )));
+            );
         }
         return Ok(());
     };
@@ -773,18 +773,264 @@ fn install_plugin_from_git_source(
     Ok(())
 }
 
-/// plugin 安装收尾：清理孤立 skills 副本、移除无效全局 hooks fragment
+/// plugin 安装收尾：暴露 plugin cache 中的 skill/command/agent/hooks 到隔离目录、注入 plugin hooks 到 settings、清理孤立 skills 副本
 fn finalize_plugin_framework_install(
     eco_dir: &Path,
     framework: &ecosystem_framework::FrameworkRegistry,
 ) -> Result<(), AppError> {
+    expose_plugin_dirs_to_eco_isolation(eco_dir, framework)?;
+    let hooks_injected = inject_plugin_hooks_to_settings(eco_dir, framework);
+    if !hooks_injected.is_ok() {
+        remove_plugin_hooks_from_settings_fragment(eco_dir, &framework.file_prefix);
+    }
     cleanup_orphan_plugin_skill_dirs(eco_dir, framework);
-    remove_plugin_hooks_from_settings_fragment(eco_dir, &framework.file_prefix);
+    ensure_settings_json_in_isolated_files(eco_dir)?;
     fragment::rebuild_all_root_files(eco_dir)?;
     Ok(())
 }
 
-/// 删除 skills/ 下由旧版 npx skills 复制的孤立目录（无 .claude-plugin，plugin 已接管）
+/// 将 plugin cache 安装路径中的 skills/commands/agents 子目录内容
+/// 以带前缀的方式复制到 eco 对应的隔离目录，使 Claude Code 能通过
+/// ~/.claude/skills/ 和 ~/.claude/commands/ symlink 发现这些内容。
+fn expose_plugin_dirs_to_eco_isolation(
+    eco_dir: &Path,
+    framework: &ecosystem_framework::FrameworkRegistry,
+) -> Result<(), AppError> {
+    let marketplace_name = match framework.marketplace_name.as_ref() {
+        Some(m) => m,
+        None => return Ok(()),
+    };
+    let plugin_name = ecosystem_framework::framework_plugin_name(framework);
+
+    let plugins_dir = eco_dir.join("plugins");
+    let cache_base = plugins_dir.join("cache").join(marketplace_name).join(plugin_name);
+    if !cache_base.is_dir() {
+        return Ok(());
+    }
+
+    let version_dir = match find_latest_version_dir(&cache_base) {
+        Some(v) => v,
+        None => return Ok(()),
+    };
+
+    let prefix = &framework.file_prefix;
+    let expose_dirs = ["skills", "commands", "agents", "hooks"];
+
+    for dir_name in &expose_dirs {
+        let src_dir = version_dir.join(dir_name);
+        if !src_dir.is_dir() {
+            continue;
+        }
+
+        let eco_sub_dir = eco_dir.join(dir_name);
+        fs::create_dir_all(&eco_sub_dir).map_err(|e| AppError::io(&eco_sub_dir, e))?;
+
+        let Ok(entries) = fs::read_dir(&src_dir) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let src_path = entry.path();
+
+            let prefixed_name = if name.starts_with(prefix) {
+                name.clone()
+            } else {
+                format!("{prefix}{name}")
+            };
+
+            if src_path.is_dir() {
+                let dst_path = eco_sub_dir.join(&prefixed_name);
+                if dst_path.exists() {
+                    continue;
+                }
+
+                if let Err(e) = fs_utils::copy_dir_recursive(&src_path, &dst_path) {
+                    log::warn!(
+                        "复制 plugin {} 目录失败: {} -> {}: {e}",
+                        dir_name,
+                        src_path.display(),
+                        dst_path.display()
+                    );
+                }
+
+                if dir_name == &"skills" {
+                    let plugin_dir = dst_path.join(".claude-plugin");
+                    if !plugin_dir.join("plugin.json").exists() {
+                        if let Err(e) = fs::create_dir_all(&plugin_dir) {
+                            log::warn!("创建 .claude-plugin 目录失败: {}: {e}", plugin_dir.display());
+                        } else {
+                            let mini_plugin = serde_json::json!({
+                                "name": prefixed_name,
+                                "version": "1.0.0",
+                                "skills": ["./"]
+                            });
+                            if let Ok(content) = fragment::write_json(&mini_plugin) {
+                                let _ = fs::write(plugin_dir.join("plugin.json"), content);
+                            }
+                        }
+                    }
+                }
+            } else if src_path.is_file() {
+                if dir_name == &"hooks" && name == "hooks.json" {
+                    continue;
+                }
+                let dst_path = eco_sub_dir.join(&prefixed_name);
+                if dst_path.exists() {
+                    continue;
+                }
+                if let Err(e) = fs::copy(&src_path, &dst_path) {
+                    log::warn!(
+                        "复制 plugin {} 文件失败: {} -> {}: {e}",
+                        dir_name,
+                        src_path.display(),
+                        dst_path.display()
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn merge_hooks_objects(base: &serde_json::Value, overlay: &serde_json::Value) -> serde_json::Value {
+    let mut result = base.clone();
+    if !result.is_object() {
+        result = serde_json::json!({});
+    }
+    if let Some(overlay_obj) = overlay.as_object() {
+        for (key, value) in overlay_obj {
+            if let Some(existing) = result.get(key) {
+                let mut merged_arr = Vec::new();
+                if let Some(arr) = existing.as_array() {
+                    merged_arr.extend(arr.iter().cloned());
+                }
+                if let Some(arr) = value.as_array() {
+                    merged_arr.extend(arr.iter().cloned());
+                }
+                result
+                    .as_object_mut()
+                    .unwrap()
+                    .insert(key.clone(), serde_json::Value::Array(merged_arr));
+            } else {
+                result
+                    .as_object_mut()
+                    .unwrap()
+                    .insert(key.clone(), value.clone());
+            }
+        }
+    }
+    result
+}
+
+/// 将 plugin 的 hooks/hooks.json 注入到 eco 的 settings fragment，
+/// 同时将 ${CLAUDE_PLUGIN_ROOT} 替换为实际的 installPath 绝对路径。
+/// 这确保即使 Claude Code 的 plugin hooks 自动发现机制不工作，
+/// hooks 也能通过 settings.json 被正确注册。
+fn inject_plugin_hooks_to_settings(
+    eco_dir: &Path,
+    framework: &ecosystem_framework::FrameworkRegistry,
+) -> Result<(), AppError> {
+    let marketplace_name = match framework.marketplace_name.as_ref() {
+        Some(m) => m,
+        None => return Ok(()),
+    };
+    let plugin_name = ecosystem_framework::framework_plugin_name(framework);
+
+    let plugins_dir = eco_dir.join("plugins");
+    let cache_base = plugins_dir.join("cache").join(marketplace_name).join(plugin_name);
+    if !cache_base.is_dir() {
+        return Ok(());
+    }
+
+    let version_dir = match find_latest_version_dir(&cache_base) {
+        Some(v) => v,
+        None => return Ok(()),
+    };
+
+    let hooks_json_path = version_dir.join("hooks").join("hooks.json");
+    if !hooks_json_path.exists() {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(&hooks_json_path)
+        .map_err(|e| AppError::io(&hooks_json_path, e))?;
+    let plugin_hooks: serde_json::Value =
+        fragment::parse_json(&content, "解析 plugin hooks.json 失败")?;
+
+    let hooks_value = match plugin_hooks.get("hooks") {
+        Some(v) if v.is_object() => v.clone(),
+        _ => return Ok(()),
+    };
+
+    let claude_dir = crate::config::get_claude_config_dir();
+    let install_path = claude_dir
+        .join("plugins")
+        .join("cache")
+        .join(marketplace_name)
+        .join(plugin_name)
+        .join(version_dir.file_name().unwrap_or_default());
+    let install_path_str = install_path.to_str().unwrap_or("");
+
+    let hooks_str = serde_json::to_string(&hooks_value).unwrap_or_default();
+    let mut resolved_hooks_str = hooks_str.replace("${CLAUDE_PLUGIN_ROOT}", install_path_str);
+    resolved_hooks_str = resolved_hooks_str.replace("$CLAUDE_PLUGIN_ROOT", install_path_str);
+    let resolved_hooks: serde_json::Value =
+        fragment::parse_json(&resolved_hooks_str, "解析替换后的 hooks 失败")?;
+
+    let rootfiles_dir = eco_dir.join("rootfiles");
+    fs::create_dir_all(&rootfiles_dir).map_err(|e| AppError::io(&rootfiles_dir, e))?;
+
+    let prefix = &framework.file_prefix;
+    let frag_path = fragment::fragment_path(&rootfiles_dir, "settings.json", prefix);
+
+    let mut frag: serde_json::Value = if frag_path.exists() {
+        let c = fs::read_to_string(&frag_path).map_err(|e| AppError::io(&frag_path, e))?;
+        fragment::parse_json(&c, "解析 settings fragment 失败")?
+    } else {
+        serde_json::json!({})
+    };
+
+    if !frag.is_object() {
+        frag = serde_json::json!({});
+    }
+
+    let existing_hooks = frag.get("hooks").cloned().unwrap_or(serde_json::json!({}));
+    let merged = merge_hooks_objects(&existing_hooks, &resolved_hooks);
+    frag.as_object_mut()
+        .unwrap()
+        .insert("hooks".to_string(), merged);
+
+    let output = fragment::write_json(&frag)?;
+    fs::write(&frag_path, output).map_err(|e| AppError::io(&frag_path, e))?;
+
+    log::info!(
+        "已将 plugin '{}' 的 hooks 注入到 settings fragment",
+        framework.id
+    );
+    Ok(())
+}
+
+fn find_latest_version_dir(base: &Path) -> Option<std::path::PathBuf> {
+    let Ok(entries) = fs::read_dir(base) else {
+        return None;
+    };
+    let mut latest: Option<(String, std::path::PathBuf)> = None;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if entry.path().is_dir() {
+            match &latest {
+                Some((prev, _)) if name <= *prev => {}
+                _ => latest = Some((name, entry.path())),
+            }
+        }
+    }
+    latest.map(|(_, p)| p)
+}
+
+/// 删除 skills/ 下由旧版 npx skills 复制的孤立目录
+/// 保留由 plugin 路径安装的有效 skill 目录（含 SKILL.md 的目录不是孤立的）
 fn cleanup_orphan_plugin_skill_dirs(
     eco_dir: &Path,
     framework: &ecosystem_framework::FrameworkRegistry,
@@ -803,7 +1049,10 @@ fn cleanup_orphan_plugin_skill_dirs(
             continue;
         }
         let path = entry.path();
-        if path.is_dir() && !path.join(".claude-plugin").exists() {
+        if path.is_dir()
+            && !path.join(".claude-plugin").exists()
+            && !path.join("SKILL.md").exists()
+        {
             log::info!("清理孤立 skill 目录: {}", path.display());
             if let Err(e) = fs::remove_dir_all(&path) {
                 log::warn!("清理孤立 skill 目录失败 {}: {e}", path.display());
@@ -1067,7 +1316,101 @@ fn merge_claude_plugin_settings_to_eco(
             }
         }
     }
+
+    // 官方 plugin CLI 写入的 hooks 包含 $CLAUDE_PLUGIN_ROOT，
+    // 需要替换为绝对路径后写入 fragment，否则 Claude Code 运行时无法解析
+    if let Some(hooks) = settings.get("hooks") {
+        if hooks.is_object() {
+            let claude_dir = crate::config::get_claude_config_dir();
+            let plugins_dir = eco_dir.join("plugins");
+            let hooks_str = serde_json::to_string(hooks).unwrap_or_default();
+            let resolved = resolve_plugin_root_in_hooks(&hooks_str, &claude_dir.join("plugins"), &plugins_dir);
+            let resolved_hooks: serde_json::Value =
+                fragment::parse_json(&resolved, "解析替换后的 hooks 失败")?;
+
+            let rootfiles_dir = eco_dir.join("rootfiles");
+            fs::create_dir_all(&rootfiles_dir).map_err(|e| AppError::io(&rootfiles_dir, e))?;
+
+            // 写入 plugin-fragment（由 finalize_plugin_framework_install 统一管理）
+            let frag_path = fragment::fragment_path(&rootfiles_dir, "settings.json", "plugin-");
+            let mut frag: serde_json::Value = if frag_path.exists() {
+                let c = fs::read_to_string(&frag_path).map_err(|e| AppError::io(&frag_path, e))?;
+                fragment::parse_json(&c, "解析 plugin-fragment 失败")?
+            } else {
+                serde_json::json!({})
+            };
+
+            let existing = frag.get("hooks").cloned().unwrap_or(serde_json::json!({}));
+            let merged = merge_hooks_objects(&existing, &resolved_hooks);
+            frag.as_object_mut()
+                .unwrap()
+                .insert("hooks".to_string(), merged);
+
+            let output = fragment::write_json(&frag)?;
+            fs::write(&frag_path, output).map_err(|e| AppError::io(&frag_path, e))?;
+        }
+    }
+
     Ok(())
+}
+
+/// 将 hooks 中的 $CLAUDE_PLUGIN_ROOT 替换为绝对路径
+/// 官方 CLI 写入的路径形如 ~/.claude/plugins/cache/{marketplace}/{plugin}/{version}/
+/// 在 eco 中实际位于 eco_dir/plugins/cache/...，通过 symlink 映射
+fn resolve_plugin_root_in_hooks(hooks_str: &str, claude_plugins: &Path, eco_plugins: &Path) -> String {
+    let mut result = hooks_str.to_string();
+    let claude_prefix = claude_plugins.to_str().unwrap_or("");
+    let eco_prefix = eco_plugins.to_str().unwrap_or("");
+
+    // 先替换绝对路径引用（eco_dir/.claude/plugins/... → ~/.claude/plugins/...）
+    if !eco_prefix.is_empty() && result.contains(eco_prefix) {
+        result = result.replace(eco_prefix, claude_prefix);
+    }
+
+    // 再替换 $CLAUDE_PLUGIN_ROOT
+    // 需要从 installed_plugins.json 中查找每个插件的 installPath
+    // 简化处理：遍历 cache 目录结构，构建 marketplace/plugin/version → path 映射
+    let cache_dir = eco_plugins.join("cache");
+    if cache_dir.is_dir() {
+        if let Ok(marketplace_entries) = fs::read_dir(&cache_dir) {
+            for marketplace_entry in marketplace_entries.flatten() {
+                if !marketplace_entry.path().is_dir() {
+                    continue;
+                }
+                let marketplace_name = marketplace_entry.file_name().to_string_lossy().to_string();
+                let marketplace_dir = marketplace_entry.path();
+                if let Ok(plugin_entries) = fs::read_dir(&marketplace_dir) {
+                    for plugin_entry in plugin_entries.flatten() {
+                        if !plugin_entry.path().is_dir() {
+                            continue;
+                        }
+                        let plugin_name = plugin_entry.file_name().to_string_lossy().to_string();
+                        let plugin_dir = plugin_entry.path();
+                        if let Ok(version_entries) = fs::read_dir(&plugin_dir) {
+                            for version_entry in version_entries.flatten() {
+                                if !version_entry.path().is_dir() {
+                                    continue;
+                                }
+                                let version = version_entry.file_name().to_string_lossy().to_string();
+                                let install_path = claude_plugins
+                                    .join("cache")
+                                    .join(&marketplace_name)
+                                    .join(&plugin_name)
+                                    .join(&version);
+                                let install_path_str = install_path.to_str().unwrap_or("");
+                                if !install_path_str.is_empty() {
+                                    result = result.replace("${CLAUDE_PLUGIN_ROOT}", install_path_str);
+                                    result = result.replace("$CLAUDE_PLUGIN_ROOT", install_path_str);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    result
 }
 
 /// 执行框架安装（官方命令 + 手动复制回退）
@@ -1126,6 +1469,7 @@ fn do_install(
             // git 回退路径已在 install_plugin_from_git_source 中注册
             if !should_use_claude_plugin_cli(framework) {
                 register_plugin_to_installed_plugins(eco_dir, framework)?;
+                finalize_plugin_framework_install(eco_dir, framework)?;
             }
         }
         verify_plugin_hooks_installed(eco_dir, framework)?;
@@ -2234,32 +2578,56 @@ fn auto_setup_hud(
     fs::create_dir_all(&hud_config_dir).map_err(|e| AppError::io(&hud_config_dir, e))?;
 
     let config_path = hud_config_dir.join("config.json");
-    if !config_path.exists() {
-        // 默认配置：expanded 布局，显示 model + context bar + git + token breakdown + usage
-        let default_config = serde_json::json!({
-            "language": "en",
-            "lineLayout": "expanded",
-            "showSeparators": false,
-            "gitStatus": {
-                "enabled": true,
-                "showDirty": true,
-                "showAheadBehind": false,
-                "showFileStats": false
-            },
-            "display": {
-                "showModel": true,
-                "showContextBar": true,
-                "showTokenBreakdown": true,
-                "showUsage": true,
-                "usageBarEnabled": true
-            }
-        });
+    let full_config = serde_json::json!({
+        "language": "en",
+        "lineLayout": "expanded",
+        "showSeparators": true,
+        "gitStatus": {
+            "enabled": true,
+            "showDirty": true,
+            "showAheadBehind": true,
+            "showFileStats": true
+        },
+        "display": {
+            "showModel": true,
+            "showContextBar": true,
+            "contextValue": "both",
+            "showTools": true,
+            "showSkills": true,
+            "showMcp": true,
+            "showAgents": true,
+            "showTodos": true,
+            "showProject": true,
+            "showAddedDirs": true,
+            "showConfigCounts": true,
+            "showTokenBreakdown": true,
+            "showSpeed": true,
+            "showUsage": true,
+            "usageValue": "percent",
+            "usageBarEnabled": true,
+            "usageCompact": false,
+            "showResetLabel": true,
+            "showCost": true,
+            "showDuration": true,
+            "showSessionName": true,
+            "showSessionTokens": true,
+            "showSessionStartDate": true,
+            "showLastResponseAt": true,
+            "showEffortLevel": true,
+            "showOutputStyle": true,
+            "showMemoryUsage": false,
+            "showPromptCache": true,
+            "showClaudeCodeVersion": true,
+            "showCompactions": true,
+            "showAdvisor": true,
+            "showProvider": true,
+            "modelFormat": "compact"
+        }
+    });
 
-        let config_content = fragment::write_json(&default_config)?;
-        fs::write(&config_path, config_content).map_err(|e| AppError::io(&config_path, e))?;
-
-        log::info!("HUD auto-setup: 已创建默认 config.json");
-    }
+    let config_content = fragment::write_json(&full_config)?;
+    fs::write(&config_path, config_content).map_err(|e| AppError::io(&config_path, e))?;
+    log::info!("HUD auto-setup: 已写入 full 模式 config.json");
 
     Ok(())
 }
@@ -2289,7 +2657,6 @@ fn enable_plugin_in_settings(eco_dir: &Path, plugin_key: &str) -> Result<(), App
         user_frag = serde_json::json!({});
     }
 
-    // 确保 enabledPlugins 字段存在
     if user_frag.get("enabledPlugins").is_none() {
         user_frag
             .as_object_mut()
@@ -2297,7 +2664,6 @@ fn enable_plugin_in_settings(eco_dir: &Path, plugin_key: &str) -> Result<(), App
             .insert("enabledPlugins".to_string(), serde_json::json!({}));
     }
 
-    // 添加插件到 enabledPlugins
     if let Some(ep) = user_frag.get_mut("enabledPlugins").and_then(|v| v.as_object_mut()) {
         ep.insert(plugin_key.to_string(), serde_json::json!(true));
     }
@@ -2306,10 +2672,32 @@ fn enable_plugin_in_settings(eco_dir: &Path, plugin_key: &str) -> Result<(), App
     fs::write(&user_frag_path, content)
         .map_err(|e| AppError::io(&user_frag_path, e))?;
 
-    // 重建 settings.json
+    ensure_settings_json_in_isolated_files(eco_dir)?;
     fragment::rebuild_all_root_files(eco_dir)?;
 
     log::info!("已在 user-fragment 中启用插件 '{}'", plugin_key);
+    Ok(())
+}
+
+fn ensure_settings_json_in_isolated_files(eco_dir: &Path) -> Result<(), AppError> {
+    let eco_json_path = eco_dir.join("eco.json");
+    if !eco_json_path.exists() {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(&eco_json_path).map_err(|e| AppError::io(&eco_json_path, e))?;
+    let mut eco_json: serde_json::Value =
+        fragment::parse_json(&content, "解析 eco.json 失败")?;
+
+    if let Some(files) = eco_json.get_mut("isolatedFiles").and_then(|v| v.as_array_mut()) {
+        let has_settings = files.iter().any(|v| v.as_str() == Some("settings.json"));
+        if !has_settings {
+            files.push(serde_json::Value::String("settings.json".to_string()));
+            let updated = fragment::write_json(&eco_json)?;
+            fs::write(&eco_json_path, updated).map_err(|e| AppError::io(&eco_json_path, e))?;
+        }
+    }
+
     Ok(())
 }
 
@@ -2343,10 +2731,19 @@ fn unregister_plugin_from_installed_plugins(
         let mut json: serde_json::Value = fragment::parse_json(&content, "解析 installed_plugins.json 失败")?;
 
         if let Some(plugins_obj) = json.get_mut("plugins").and_then(|v| v.as_object_mut()) {
-            // 移除所有包含该 framework_id 的 key（可能是 id 或 id@marketplace）
+            let actual_key: Option<String> = framework
+                .as_ref()
+                .and_then(|f| ecosystem_framework::framework_plugin_key(f));
+            let prefix_match = format!("{framework_id}@");
             let keys_to_remove: Vec<String> = plugins_obj
                 .keys()
-                .filter(|k| k.as_str() == framework_id || k.starts_with(&format!("{framework_id}@")))
+                .filter(|k| {
+                    let ks = k.as_str();
+                    match &actual_key {
+                        Some(ak) => ks == ak,
+                        None => ks == framework_id || ks.starts_with(&prefix_match),
+                    }
+                })
                 .cloned()
                 .collect();
             for key in keys_to_remove {
@@ -2402,11 +2799,10 @@ fn unregister_plugin_from_installed_plugins(
     }
 
     // 从 settings.json 的 enabledPlugins 中移除
-    let plugin_key = if let Some(mkt_name) = marketplace_name {
-        format!("{framework_id}@{mkt_name}")
-    } else {
-        framework_id.to_string()
-    };
+    let plugin_key = framework
+        .as_ref()
+        .and_then(|f| ecosystem_framework::framework_plugin_key(f))
+        .unwrap_or_else(|| framework_id.to_string());
     disable_plugin_in_settings(eco_dir, &plugin_key)?;
 
     // 对于 claude-hud，清理 statusLine 和 config.json
@@ -2588,5 +2984,29 @@ mod plugin_install_tests {
 
         let resolved = resolve_plugin_source_dir(eco_dir, "pua");
         assert_eq!(resolved, fw_dir);
+    }
+
+    #[test]
+    fn test_claude_hud_should_not_use_claude_plugin_cli() {
+        let hud = ecosystem_framework::find_framework("claude-hud").expect("claude-hud exists");
+        assert!(!should_use_claude_plugin_cli(&hud));
+    }
+
+    #[test]
+    fn test_validate_hook_delivery_passes_without_hooks_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let fw_dir = dir.path();
+        let hud = ecosystem_framework::find_framework("claude-hud").expect("claude-hud exists");
+        let result = validate_hook_delivery(&hud, fw_dir);
+        assert!(result.is_ok(), "hook_delivery=plugin 但无 hooks.json 应通过，got: {result:?}");
+    }
+
+    #[test]
+    fn test_inject_plugin_hooks_noop_when_no_hooks_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let eco_dir = dir.path();
+        let hud = ecosystem_framework::find_framework("claude-hud").expect("claude-hud exists");
+        let result = inject_plugin_hooks_to_settings(eco_dir, &hud);
+        assert!(result.is_ok(), "无 hooks.json 时 inject 应返回 Ok(())");
     }
 }

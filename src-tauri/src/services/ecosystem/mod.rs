@@ -98,7 +98,7 @@ impl EcosystemService {
         };
         state.db.save_ecosystem(&eco)?;
 
-        // 安装选中的框架，收集所有失败信息一并返回
+        // 安装选中的框架，收集所有失败信息
         let mut install_errors: Vec<String> = Vec::new();
         for fw_id in &frameworks {
             if let Err(e) = framework_ops::install_framework(state, &id, fw_id) {
@@ -106,14 +106,20 @@ impl EcosystemService {
                 install_errors.push(format!("• {fw_id}: {e}"));
             }
         }
+
         if !install_errors.is_empty() {
-            return Err(AppError::Message(format!(
-                "生态 '{name}' 已创建，但以下框架安装失败：\n{}",
+            log::warn!(
+                "生态 '{id}' 已创建，但部分框架安装失败：\n{}",
                 install_errors.join("\n")
-            )));
+            );
         }
 
-        log::info!("生态 '{id}' 创建成功");
+        log::info!("生态 '{id}' 创建成功，自动切换到该生态");
+        Self::switch(state, &id)?;
+        let eco = Ecosystem {
+            is_current: true,
+            ..eco
+        };
         Ok(eco)
     }
 

@@ -756,7 +756,7 @@ pub fn sanitize_hooks_for_global_settings(hooks: &mut serde_json::Map<String, se
                             hooks_list_arr.retain(|hook| {
                                 if let Some(hook_obj) = hook.as_object() {
                                     if let Some(cmd) = hook_obj.get("command").and_then(|c| c.as_str()) {
-                                        if cmd.contains("${CLAUDE_PLUGIN_ROOT}") {
+                                        if cmd.contains("${CLAUDE_PLUGIN_ROOT}") || cmd.contains("$CLAUDE_PLUGIN_ROOT") {
                                             return false;
                                         }
                                     }
