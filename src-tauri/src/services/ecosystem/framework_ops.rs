@@ -924,10 +924,135 @@ fn merge_hooks_objects(base: &serde_json::Value, overlay: &serde_json::Value) ->
     result
 }
 
+/// 从 hooks JSON 中移除引用了指定插件旧版本路径的 hook 条目。
+///
+/// 当插件更新时，新版本 hooks 路径包含新版本号（如 `4.15.2`），
+/// 但旧版本路径（如 `4.15.0`）的 hook 条目仍残留在 fragment 中。
+/// 此函数遍历 hooks 结构，移除 command 字段包含旧版本路径的 hook，
+/// 避免合并后出现指向不存在目录的残留 hook 导致 Node.js 模块加载失败。
+fn remove_stale_plugin_hooks(
+    hooks: &mut serde_json::Value,
+    marketplace_name: &str,
+    plugin_name: &str,
+    current_version: &str,
+) {
+    // 构建版本路径前缀：~/.claude/plugins/cache/{marketplace}/{plugin}/
+    // 路径格式为 .../cache/{marketplace}/{plugin}/{version}/scripts/...
+    // 版本号后面可能是 "/" 或 '"'（JSON 引号），所以用版本号本身做区分
+    let claude_dir = crate::config::get_claude_config_dir();
+    let version_parent = claude_dir
+        .join("plugins")
+        .join("cache")
+        .join(marketplace_name)
+        .join(plugin_name);
+    let version_parent_str = version_parent.to_str().unwrap_or("");
+
+    if version_parent_str.is_empty() {
+        return;
+    }
+
+    // 当前版本标识：{version_parent}/{current_version}
+    // 匹配时检查 command 包含此标识（后面可能跟 / 或 " 或空格）
+    let current_version_marker = format!("{}/{}/", version_parent_str, current_version);
+    let current_version_marker_no_slash = format!("{}/{}", version_parent_str, current_version);
+
+    remove_stale_hooks_recursive(hooks, version_parent_str, &current_version_marker, &current_version_marker_no_slash);
+}
+
+/// 递归遍历 hooks JSON，移除引用旧版本路径的 command hook
+fn remove_stale_hooks_recursive(
+    value: &mut serde_json::Value,
+    version_parent: &str,
+    current_version_marker: &str,
+    current_version_marker_no_slash: &str,
+) {
+    match value {
+        serde_json::Value::Array(arr) => {
+            // 先递归处理子元素
+            for item in arr.iter_mut() {
+                remove_stale_hooks_recursive(item, version_parent, current_version_marker, current_version_marker_no_slash);
+            }
+            // 然后移除引用旧版本路径的 hook 对象
+            arr.retain(|item| {
+                if let Some(obj) = item.as_object() {
+                    if let Some(cmd) = obj.get("command").and_then(|c| c.as_str()) {
+                        // command 包含版本父路径但不是当前版本 → 旧版本残留
+                        // 版本号后面可能跟 "/" 或 '"'（JSON 引号），两种格式都要检查
+                        if cmd.contains(version_parent)
+                            && !cmd.contains(current_version_marker)
+                            && !cmd.contains(current_version_marker_no_slash)
+                        {
+                            log::info!("移除旧版本 hook: {}", cmd);
+                            return false;
+                        }
+                    }
+                }
+                true
+            });
+        }
+        serde_json::Value::Object(map) => {
+            for (_, child) in map.iter_mut() {
+                remove_stale_hooks_recursive(child, version_parent, current_version_marker, current_version_marker_no_slash);
+            }
+            // 清理空的 hook group 数组
+            map.retain(|_, v| {
+                if let Some(arr) = v.as_array() {
+                    return !arr.is_empty();
+                }
+                true
+            });
+        }
+        _ => {}
+    }
+}
+
+/// 扫描所有插件的 cache 目录，清理 hooks 中引用旧版本路径的残留条目。
+/// 用于 merge_claude_plugin_settings_to_eco 等无法确定具体插件的场景。
+fn remove_all_stale_plugin_hooks(hooks: &mut serde_json::Value, eco_plugins_dir: &Path) {
+    let cache_dir = eco_plugins_dir.join("cache");
+    if !cache_dir.is_dir() {
+        return;
+    }
+
+    // 收集所有插件的 (version_parent_path, current_version_marker_with_slash, current_version_marker_no_slash) 三元组
+    let mut version_triples: Vec<(String, String, String)> = Vec::new();
+
+    if let Ok(marketplace_entries) = fs::read_dir(&cache_dir) {
+        for marketplace_entry in marketplace_entries.flatten() {
+            if !marketplace_entry.path().is_dir() {
+                continue;
+            }
+            if let Ok(plugin_entries) = fs::read_dir(marketplace_entry.path()) {
+                for plugin_entry in plugin_entries.flatten() {
+                    if !plugin_entry.path().is_dir() {
+                        continue;
+                    }
+                    let version_parent = plugin_entry.path();
+                    if let Some(latest) = find_latest_version_dir(&version_parent) {
+                        if let Some(vp_str) = version_parent.to_str() {
+                            let cv = latest.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+                            let marker_with_slash = format!("{}/{}/", vp_str, cv);
+                            let marker_no_slash = format!("{}/{}", vp_str, cv);
+                            version_triples.push((vp_str.to_string(), marker_with_slash, marker_no_slash));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 对每个插件，清理其旧版本路径的 hooks
+    for (version_parent, marker_with_slash, marker_no_slash) in &version_triples {
+        remove_stale_hooks_recursive(hooks, version_parent, marker_with_slash, marker_no_slash);
+    }
+}
+
 /// 将 plugin 的 hooks/hooks.json 注入到 eco 的 settings fragment，
 /// 同时将 ${CLAUDE_PLUGIN_ROOT} 替换为实际的 installPath 绝对路径。
 /// 这确保即使 Claude Code 的 plugin hooks 自动发现机制不工作，
 /// hooks 也能通过 settings.json 被正确注册。
+///
+/// 更新时会先清理同一插件旧版本路径的残留 hooks，避免 Node.js 加载不存在的模块。
 fn inject_plugin_hooks_to_settings(
     eco_dir: &Path,
     framework: &ecosystem_framework::FrameworkRegistry,
@@ -948,6 +1073,11 @@ fn inject_plugin_hooks_to_settings(
         Some(v) => v,
         None => return Ok(()),
     };
+
+    let current_version = version_dir
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
 
     let hooks_json_path = version_dir.join("hooks").join("hooks.json");
     if !hooks_json_path.exists() {
@@ -996,6 +1126,11 @@ fn inject_plugin_hooks_to_settings(
         frag = serde_json::json!({});
     }
 
+    // 先清理同一插件旧版本路径的残留 hooks
+    if let Some(existing_hooks) = frag.get_mut("hooks") {
+        remove_stale_plugin_hooks(existing_hooks, marketplace_name, plugin_name, &current_version);
+    }
+
     let existing_hooks = frag.get("hooks").cloned().unwrap_or(serde_json::json!({}));
     let merged = merge_hooks_objects(&existing_hooks, &resolved_hooks);
     frag.as_object_mut()
@@ -1006,8 +1141,9 @@ fn inject_plugin_hooks_to_settings(
     fs::write(&frag_path, output).map_err(|e| AppError::io(&frag_path, e))?;
 
     log::info!(
-        "已将 plugin '{}' 的 hooks 注入到 settings fragment",
-        framework.id
+        "已将 plugin '{}' 的 hooks 注入到 settings fragment (version: {})",
+        framework.id,
+        current_version
     );
     Ok(())
 }
@@ -1339,6 +1475,11 @@ fn merge_claude_plugin_settings_to_eco(
             } else {
                 serde_json::json!({})
             };
+
+            // 清理所有插件旧版本路径的残留 hooks
+            if let Some(existing_hooks) = frag.get_mut("hooks") {
+                remove_all_stale_plugin_hooks(existing_hooks, &plugins_dir);
+            }
 
             let existing = frag.get("hooks").cloned().unwrap_or(serde_json::json!({}));
             let merged = merge_hooks_objects(&existing, &resolved_hooks);
@@ -2491,8 +2632,7 @@ fn auto_setup_hud(
     // 在 Rust 字符串中直接写 '"'"' 即可
     let statusline_command = if use_bun {
         format!(
-            "bash -c 'cols=$(stty size </dev/tty 2>/dev/null | awk '\"'\"'{{print $2}}'\"'\"'); \
-             export COLUMNS=$(( ${{cols:-120}} > 4 ? ${{cols:-120}} - 4 : 1 )); \
+            "bash -c 'cols=${{COLUMNS:-}}; case \"$cols\" in \"\"|*[!0-9]*) cols=$(stty size </dev/tty 2>/dev/null | awk '\"'\"'{{print $2}}'\"'\"');; esac; case \"$cols\" in \"\"|*[!0-9]*) cols=120;; esac; export COLUMNS=$(( cols > 4 ? cols - 4 : 1 )); \
              plugin_dir=$(ls -d \"${{CLAUDE_CONFIG_DIR:-$HOME/.claude}}\"/plugins/cache/*/claude-hud/*/ 2>/dev/null | \
                awk -F/ '\"'\"'{{ print $(NF-1) \"\\t\" $(0) }}'\"'\"' | \
                grep -E '\"'\"'^[0-9]+\\.[0-9]+\\.[0-9]+[[:space:]]'\"'\"' | \
@@ -2501,8 +2641,7 @@ fn auto_setup_hud(
         )
     } else {
         format!(
-            "bash -c 'cols=$(stty size </dev/tty 2>/dev/null | awk '\"'\"'{{print $2}}'\"'\"'); \
-             export COLUMNS=$(( ${{cols:-120}} > 4 ? ${{cols:-120}} - 4 : 1 )); \
+            "bash -c 'cols=${{COLUMNS:-}}; case \"$cols\" in \"\"|*[!0-9]*) cols=$(stty size </dev/tty 2>/dev/null | awk '\"'\"'{{print $2}}'\"'\"');; esac; case \"$cols\" in \"\"|*[!0-9]*) cols=120;; esac; export COLUMNS=$(( cols > 4 ? cols - 4 : 1 )); \
              plugin_dir=$(ls -d \"${{CLAUDE_CONFIG_DIR:-$HOME/.claude}}\"/plugins/cache/*/claude-hud/*/ 2>/dev/null | \
                awk -F/ '\"'\"'{{ print $(NF-1) \"\\t\" $(0) }}'\"'\"' | \
                grep -E '\"'\"'^[0-9]+\\.[0-9]+\\.[0-9]+[[:space:]]'\"'\"' | \
@@ -3008,5 +3147,156 @@ mod plugin_install_tests {
         let hud = ecosystem_framework::find_framework("claude-hud").expect("claude-hud exists");
         let result = inject_plugin_hooks_to_settings(eco_dir, &hud);
         assert!(result.is_ok(), "无 hooks.json 时 inject 应返回 Ok(())");
+    }
+
+    #[test]
+    fn test_remove_stale_plugin_hooks_removes_old_version() {
+        // 模拟 hooks 中同时存在 4.15.0 和 4.15.2 两个版本的路径
+        let mut hooks = serde_json::json!({
+            "SessionStart": [
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "node \"/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.0\"/scripts/run.cjs \"/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.0\"/scripts/session-start.mjs",
+                            "timeout": 5
+                        },
+                        {
+                            "type": "command",
+                            "command": "node \"/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.2\"/scripts/run.cjs \"/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.2\"/scripts/session-start.mjs",
+                            "timeout": 5
+                        }
+                    ]
+                }
+            ],
+            "PreToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "node \"/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.0\"/scripts/run.cjs \"/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.0\"/scripts/pre-tool-enforcer.mjs",
+                            "timeout": 3
+                        },
+                        {
+                            "type": "command",
+                            "command": "node \"/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.2\"/scripts/run.cjs \"/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.2\"/scripts/pre-tool-enforcer.mjs",
+                            "timeout": 3
+                        }
+                    ]
+                }
+            ]
+        });
+
+        // 直接测试 remove_stale_hooks_recursive
+        let version_parent = "/Users/me/.claude/plugins/cache/omc/oh-my-claudecode";
+        let current_marker = "/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.2/";
+        let current_marker_no_slash = "/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.2";
+        remove_stale_hooks_recursive(&mut hooks, version_parent, current_marker, current_marker_no_slash);
+
+        // 4.15.0 的 hooks 应被移除，4.15.2 的应保留
+        let session_hooks = hooks["SessionStart"][0]["hooks"].as_array().unwrap();
+        assert_eq!(session_hooks.len(), 1, "应只剩 1 个 SessionStart hook");
+        let cmd = session_hooks[0]["command"].as_str().unwrap();
+        assert!(cmd.contains("4.15.2"), "保留的 hook 应是 4.15.2 版本");
+        assert!(!cmd.contains("4.15.0"), "4.15.0 版本 hook 应被移除");
+
+        let pretool_hooks = hooks["PreToolUse"][0]["hooks"].as_array().unwrap();
+        assert_eq!(pretool_hooks.len(), 1, "应只剩 1 个 PreToolUse hook");
+        let cmd2 = pretool_hooks[0]["command"].as_str().unwrap();
+        assert!(cmd2.contains("4.15.2"), "保留的 PreToolUse hook 应是 4.15.2 版本");
+    }
+
+    #[test]
+    fn test_remove_stale_plugin_hooks_preserves_other_plugins() {
+        // hooks 中有 OMC 和 PUA 两个插件，只清理 OMC 的旧版本
+        let mut hooks = serde_json::json!({
+            "SessionStart": [
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "node \"/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.0\"/scripts/run.cjs",
+                            "timeout": 5
+                        },
+                        {
+                            "type": "command",
+                            "command": "node \"/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.2\"/scripts/run.cjs",
+                            "timeout": 5
+                        },
+                        {
+                            "type": "command",
+                            "command": "bash \"/Users/me/.claude/plugins/cache/pua-skills/pua/3.5.0/hooks/session-restore.sh\"",
+                            "timeout": 5
+                        }
+                    ]
+                }
+            ]
+        });
+
+        let version_parent = "/Users/me/.claude/plugins/cache/omc/oh-my-claudecode";
+        let current_marker = "/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.2/";
+        let current_marker_no_slash = "/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.2";
+        remove_stale_hooks_recursive(&mut hooks, version_parent, current_marker, current_marker_no_slash);
+
+        let session_hooks = hooks["SessionStart"][0]["hooks"].as_array().unwrap();
+        assert_eq!(session_hooks.len(), 2, "OMC 旧版移除，PUA 保留");
+
+        // PUA hook 应保留
+        let pua_hook = session_hooks.iter().find(|h| {
+            h["command"].as_str().map(|c| c.contains("pua-skills")).unwrap_or(false)
+        });
+        assert!(pua_hook.is_some(), "PUA hook 应被保留");
+
+        // OMC 4.15.2 应保留
+        let omc_new = session_hooks.iter().find(|h| {
+            h["command"].as_str().map(|c| c.contains("4.15.2")).unwrap_or(false)
+        });
+        assert!(omc_new.is_some(), "OMC 4.15.2 hook 应被保留");
+    }
+
+    #[test]
+    fn test_remove_stale_plugin_hooks_cleans_empty_groups() {
+        // 当一个 matcher group 下所有 hooks 都是旧版本时，整个 group 应被清理
+        let mut hooks = serde_json::json!({
+            "SessionStart": [
+                {
+                    "matcher": "init",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "node \"/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.0\"/scripts/setup-init.mjs",
+                            "timeout": 30
+                        }
+                    ]
+                },
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "node \"/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.2\"/scripts/session-start.mjs",
+                            "timeout": 5
+                        }
+                    ]
+                }
+            ]
+        });
+
+        let version_parent = "/Users/me/.claude/plugins/cache/omc/oh-my-claudecode";
+        let current_marker = "/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.2/";
+        let current_marker_no_slash = "/Users/me/.claude/plugins/cache/omc/oh-my-claudecode/4.15.2";
+        remove_stale_hooks_recursive(&mut hooks, version_parent, current_marker, current_marker_no_slash);
+
+        // "init" group 的所有 hooks 被移除后，整个 group 应被清理
+        let session_arr = hooks["SessionStart"].as_array().unwrap();
+        assert_eq!(session_arr.len(), 1, "空的 init group 应被移除");
+        assert_eq!(
+            session_arr[0]["matcher"].as_str(),
+            Some("*"),
+            "保留的应是 * matcher group"
+        );
     }
 }
