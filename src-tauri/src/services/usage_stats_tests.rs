@@ -298,7 +298,7 @@ fn test_get_usage_summary() -> Result<(), AppError> {
         )?;
     }
 
-    let summary = db.get_usage_summary(None, None, None)?;
+    let summary = db.get_usage_summary(None, None, None, None, None)?;
     assert_eq!(summary.total_requests, 2);
     assert_eq!(summary.success_rate, 100.0);
 
@@ -378,7 +378,7 @@ fn test_get_usage_summary_excludes_partial_rollup_boundary_days() -> Result<(), 
         )?;
     }
 
-    let summary = db.get_usage_summary(Some(start), Some(end), Some("claude"))?;
+    let summary = db.get_usage_summary(Some(start), Some(end), Some("claude"), None, None)?;
     assert_eq!(summary.total_requests, 20);
     assert_eq!(summary.total_input_tokens, 2000);
     assert_eq!(summary.total_output_tokens, 1000);
@@ -439,7 +439,7 @@ fn test_get_usage_summary_includes_end_day_rollup_for_minute_precision_end_time(
         )?;
     }
 
-    let summary = db.get_usage_summary(Some(start), Some(end), Some("claude"))?;
+    let summary = db.get_usage_summary(Some(start), Some(end), Some("claude"), None, None)?;
     assert_eq!(summary.total_requests, 30);
     assert_eq!(summary.total_input_tokens, 3000);
     assert_eq!(summary.total_output_tokens, 1500);
@@ -560,7 +560,7 @@ fn test_effective_usage_dedup_prefers_proxy_for_session_sources() -> Result<(), 
         )?;
     }
 
-    let summary = db.get_usage_summary(None, None, None)?;
+    let summary = db.get_usage_summary(None, None, None, None, None)?;
     assert_eq!(summary.total_requests, 4);
     // codex-proxy contributes 100-10=90; gemini-proxy contributes 200-30=170
     // (both cache-inclusive providers). claude-proxy=300, codex-session-only=50.
@@ -575,10 +575,10 @@ fn test_effective_usage_dedup_prefers_proxy_for_session_sources() -> Result<(), 
     let expected_hit_rate = 60.0_f64 / 682.0_f64;
     assert!((summary.cache_hit_rate - expected_hit_rate).abs() < 1e-9);
 
-    let trends = db.get_daily_trends(Some(0), Some(40_000), None)?;
+    let trends = db.get_daily_trends(Some(0), Some(40_000), None, None, None)?;
     assert_eq!(trends.iter().map(|stat| stat.request_count).sum::<u64>(), 4);
 
-    let provider_stats = db.get_provider_stats(None, None, None)?;
+    let provider_stats = db.get_provider_stats(None, None, None, None, None)?;
     assert_eq!(
         provider_stats
             .iter()
@@ -596,7 +596,7 @@ fn test_effective_usage_dedup_prefers_proxy_for_session_sources() -> Result<(), 
         .iter()
         .any(|stat| stat.provider_id == "_session"));
 
-    let model_stats = db.get_model_stats(None, None, None)?;
+    let model_stats = db.get_model_stats(None, None, None, None, None)?;
     assert_eq!(
         model_stats
             .iter()
@@ -788,7 +788,7 @@ fn test_effective_usage_dedup_keeps_non_matching_session_rows() -> Result<(), Ap
         )?;
     }
 
-    let summary = db.get_usage_summary(None, None, None)?;
+    let summary = db.get_usage_summary(None, None, None, None, None)?;
     assert_eq!(summary.total_requests, 9);
 
     let logs = db.get_request_logs(&LogFilters::default(), 0, 10)?;
@@ -836,7 +836,7 @@ fn test_get_model_stats() -> Result<(), AppError> {
         )?;
     }
 
-    let stats = db.get_model_stats(None, None, None)?;
+    let stats = db.get_model_stats(None, None, None, None, None)?;
     assert_eq!(stats.len(), 1);
     assert_eq!(stats[0].model, "claude-3-sonnet");
     assert_eq!(stats[0].request_count, 1);
@@ -868,7 +868,7 @@ fn test_get_provider_stats_with_time_filter() -> Result<(), AppError> {
         )?;
     }
 
-    let stats = db.get_provider_stats(Some(1500), Some(2500), Some("claude"))?;
+    let stats = db.get_provider_stats(Some(1500), Some(2500), Some("claude"), None, None)?;
     assert_eq!(stats.len(), 1);
     assert_eq!(stats[0].provider_id, "p1");
     assert_eq!(stats[0].request_count, 1);
@@ -950,7 +950,7 @@ fn test_get_provider_stats_excludes_partial_rollup_boundary_days() -> Result<(),
         )?;
     }
 
-    let stats = db.get_provider_stats(Some(start), Some(end), Some("claude"))?;
+    let stats = db.get_provider_stats(Some(start), Some(end), Some("claude"), None, None)?;
     assert_eq!(stats.len(), 1);
     assert_eq!(stats[0].provider_id, "p-rollup");
     assert_eq!(stats[0].request_count, 8);
@@ -986,7 +986,7 @@ fn test_get_daily_trends_respects_shorter_than_24_hours() -> Result<(), AppError
         )?;
     }
 
-    let stats = db.get_daily_trends(Some(0), Some(15 * 60 * 60), Some("claude"))?;
+    let stats = db.get_daily_trends(Some(0), Some(15 * 60 * 60), Some("claude"), None, None)?;
     assert_eq!(stats.len(), 15);
     assert_eq!(stats[3].request_count, 1);
 
@@ -1063,7 +1063,7 @@ fn test_get_daily_trends_groups_ranges_longer_than_24_hours_by_local_day(
         )?;
     }
 
-    let stats = db.get_daily_trends(Some(start), Some(end), Some("claude"))?;
+    let stats = db.get_daily_trends(Some(start), Some(end), Some("claude"), None, None)?;
     assert_eq!(stats.len(), 3);
     assert_eq!(stats[0].request_count, 1);
     assert_eq!(stats[0].total_tokens, 150);
@@ -1148,7 +1148,7 @@ fn test_get_model_stats_excludes_partial_rollup_boundary_days() -> Result<(), Ap
         )?;
     }
 
-    let stats = db.get_model_stats(Some(start), Some(end), Some("claude"))?;
+    let stats = db.get_model_stats(Some(start), Some(end), Some("claude"), None, None)?;
     assert_eq!(stats.len(), 1);
     assert_eq!(stats[0].model, "claude-3-haiku");
     assert_eq!(stats[0].request_count, 9);

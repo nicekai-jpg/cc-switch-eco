@@ -6,6 +6,9 @@
 
 pub mod dir_strategy;
 pub mod fragment;
+pub mod fragment_rebuild;
+pub mod fragment_pref;
+pub mod fragment_isolation;
 mod framework_ops;
 mod fs_utils;
 pub mod migration;
