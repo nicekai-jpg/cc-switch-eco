@@ -39,6 +39,7 @@ pub(crate) use dao::proxy::{
 };
 pub use dao::Ecosystem;
 pub use dao::FailoverQueueItem;
+pub use dao::Profile;
 
 use crate::config::get_app_config_dir;
 use crate::error::AppError;
@@ -162,6 +163,22 @@ impl Database {
         }
 
         Ok(db)
+    }
+
+    /// 读取磁盘上数据库的 `user_version`；仅当它比应用支持的 [`SCHEMA_VERSION`]
+    /// 更新时返回 `Some(version)`。
+    ///
+    /// 用于初始化失败后判断是否为「数据库版本过新（应用过旧，需升级应用）」的可恢复
+    /// 场景——此时不应反复弹出无效的重试对话框，而应引导用户在应用内升级。
+    pub fn stored_user_version_exceeds_supported(
+        db_path: &std::path::Path,
+    ) -> Result<Option<i32>, AppError> {
+        if !db_path.exists() {
+            return Ok(None);
+        }
+        let conn = Connection::open(db_path).map_err(|e| AppError::Database(e.to_string()))?;
+        let version = Self::get_user_version(&conn)?;
+        Ok((version > SCHEMA_VERSION).then_some(version))
     }
 
     /// 创建内存数据库（用于测试）

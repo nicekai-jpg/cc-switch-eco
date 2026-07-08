@@ -21,7 +21,7 @@ export interface Provider {
   notes?: string;
   // 新增：是否为商业合作伙伴
   isPartner?: boolean;
-  // 可选：供应商元数据（仅存于 ~/.cc-switch-eco/config.json，不写入 live 配置）
+  // 可选：供应商元数据（仅存于 ~/.cc-switch/config.json，不写入 live 配置）
   meta?: ProviderMeta;
   // 图标配置
   icon?: string; // 图标名称（如 "openai", "anthropic"）
@@ -109,16 +109,12 @@ export interface UsageResult {
   error?: string;
 }
 
-// 供应商单独的模型测试配置
+// 供应商单独的连通检测配置（覆盖全局配置）
 export interface ProviderTestConfig {
   // 是否启用单独配置（false 时使用全局配置）
   enabled: boolean;
-  // 测试用的模型名称（覆盖全局配置）
-  testModel?: string;
   // 超时时间（秒）
   timeoutSecs?: number;
-  // 测试提示词
-  testPrompt?: string;
   // 降级阈值（毫秒）
   degradedThresholdMs?: number;
   // 最大重试次数
@@ -175,6 +171,11 @@ export interface CodexChatReasoning {
   outputFormat?: CodexChatReasoningOutputFormat;
 }
 
+export interface LocalProxyRequestOverrides {
+  headers?: Record<string, string>;
+  body?: Record<string, unknown>;
+}
+
 // 供应商元数据（字段名与后端一致，保持 snake_case）
 export interface ProviderMeta {
   // 自定义端点：以 URL 为键，值为端点信息
@@ -221,12 +222,14 @@ export interface ProviderMeta {
   codexFastMode?: boolean;
   // Codex Responses -> Chat Completions reasoning capability metadata
   codexChatReasoning?: CodexChatReasoning;
+  // Custom User-Agent for local proxy routing. Only applied by the local proxy.
+  customUserAgent?: string;
+  // Local proxy request overrides. Only applied by the local proxy after route transforms.
+  localProxyRequestOverrides?: LocalProxyRequestOverrides;
   // 供应商类型（用于识别 Copilot 等特殊供应商）
   providerType?: string;
   // GitHub Copilot 关联账号 ID（旧字段，保留兼容读取）
   githubAccountId?: string;
-  // 自定义 User-Agent
-  customUserAgent?: string;
 }
 
 // Skill 同步方式
@@ -255,6 +258,15 @@ export interface CodexCatalogModel {
   model: string;
   displayName?: string;
   contextWindow?: string | number;
+  // Native Responses (direct) profile overrides for the generated
+  // model-catalogs.json. Ignored by the chat/proxy profile.
+  // e.g. MiniMax: supportsParallelToolCalls=true, inputModalities=["text","image"].
+  supportsParallelToolCalls?: boolean;
+  inputModalities?: string[];
+  // Vendor's OFFICIAL base_instructions (model identity / system preamble).
+  // Codex requires this field in every catalog entry; when omitted the backend
+  // falls back to a neutral default. e.g. MiMo "developed by Xiaomi".
+  baseInstructions?: string;
 }
 
 // Claude 认证字段类型
@@ -293,16 +305,6 @@ export interface WebDavSyncSettings {
   status?: WebDavSyncStatus;
 }
 
-// S3 同步状态
-export interface S3SyncStatus {
-  lastSyncAt?: number | null;
-  lastError?: string | null;
-  lastErrorSource?: string | null;
-  lastRemoteEtag?: string | null;
-  lastLocalManifestHash?: string | null;
-  lastRemoteManifestHash?: string | null;
-}
-
 // S3 同步配置
 export interface S3SyncSettings {
   enabled?: boolean;
@@ -314,7 +316,7 @@ export interface S3SyncSettings {
   endpoint?: string;
   remoteRoot?: string;
   profile?: string;
-  status?: S3SyncStatus;
+  status?: WebDavSyncStatus;
 }
 
 export type RemoteSnapshotLayout = "current" | "legacy";
@@ -334,7 +336,7 @@ export interface RemoteSnapshotInfo {
 }
 
 // 应用设置类型（用于设置对话框与 Tauri API）
-// 存储在本地 ~/.cc-switch-eco/settings.json，不随数据库同步
+// 存储在本地 ~/.cc-switch/settings.json，不随数据库同步
 export interface Settings {
   // ===== 设备级 UI 设置 =====
   // 是否在系统托盘（macOS 菜单栏）显示图标
@@ -347,8 +349,6 @@ export interface Settings {
   enableClaudePluginIntegration?: boolean;
   // 跳过 Claude Code 初次安装确认（写入 ~/.claude.json 的 hasCompletedOnboarding）
   skipClaudeOnboarding?: boolean;
-  // 在 Claude Code settings.json 中启用 bypassPermissions 默认权限模式
-  claudeBypassPermissions?: boolean;
   // 是否开机自启
   launchOnStartup?: boolean;
   // 静默启动（程序启动时不显示主窗口）
@@ -363,6 +363,13 @@ export interface Settings {
   streamCheckConfirmed?: boolean;
   // Whether to show the failover toggle independently on the main page
   enableFailoverToggle?: boolean;
+  // Preserve Codex ChatGPT login in auth.json when switching third-party providers
+  preserveCodexOfficialAuthOnSwitch?: boolean;
+  // Run official Codex under the shared "custom" provider id so future
+  // sessions share one resume-history bucket with third-party providers
+  unifyCodexSessionHistory?: boolean;
+  // User opted in (enable dialog checkbox) to migrate existing official sessions
+  unifyCodexMigrateExisting?: boolean;
   // User has confirmed the failover toggle first-run notice
   failoverConfirmed?: boolean;
   // User has confirmed the first-run welcome notice
@@ -410,6 +417,9 @@ export interface Settings {
   // ===== WebDAV v2 同步设置 =====
   webdavSync?: WebDavSyncSettings;
 
+  // ===== S3 同步设置 =====
+  s3Sync?: S3SyncSettings;
+
   // ===== 备份策略设置 =====
   // Auto-backup interval in hours (0=disabled, default 24)
   backupIntervalHours?: number;
@@ -433,14 +443,6 @@ export interface Settings {
       migratedStateRows?: number;
     };
   };
-
-  // ===== Codex 共享历史与配置设置 =====
-  preserveCodexOfficialAuthOnSwitch?: boolean;
-  unifyCodexSessionHistory?: boolean;
-  unifyCodexMigrateExisting?: boolean;
-
-  // ===== S3 同步设置 =====
-  s3Sync?: S3SyncSettings;
 }
 
 export interface SessionMeta {
@@ -643,6 +645,9 @@ export interface OpenClawModel {
   };
   contextWindow?: number;
   maxTokens?: number; // 最大输出 token 数
+  compat?: {
+    maxTokensField?: string; // 最大输出 token 请求字段名（如 "max_tokens"）
+  };
 }
 
 // OpenClaw 默认模型配置（agents.defaults.model）

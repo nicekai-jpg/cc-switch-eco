@@ -295,18 +295,34 @@ impl Database {
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-        // 19. Ecosystems 表 (生态隔离)
+        // 19. Profiles 表（全应用共享的项目实体，payload 按 app 分槽快照
+        //     供应商/MCP/Skills/Prompt；各应用分组的 current 标记在 settings 表）
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS ecosystems (
+            "CREATE TABLE IF NOT EXISTS profiles (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
-                description TEXT DEFAULT '',
-                is_current BOOLEAN NOT NULL DEFAULT 0,
-                created_at INTEGER DEFAULT 0
+                payload TEXT NOT NULL,
+                sort_order INTEGER,
+                created_at INTEGER,
+                updated_at INTEGER
             )",
             [],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
+
+        // 修复跑过未发布开发版的库：current 标记曾是全局 key，现按应用分组
+        // （随 v12 定稿为 current_profile_id_<scope>，不单独 bump 版本）
+        if conn
+            .execute(
+                "INSERT OR REPLACE INTO settings (key, value)
+                 SELECT 'current_profile_id_claude', value FROM settings
+                 WHERE key = 'current_profile_id'",
+                [],
+            )
+            .is_ok()
+        {
+            let _ = conn.execute("DELETE FROM settings WHERE key = 'current_profile_id'", []);
+        }
 
         // 尝试添加 live_takeover_active 列到 proxy_config 表
         let _ = conn.execute(
@@ -453,14 +469,12 @@ impl Database {
                         Self::set_user_version(conn, 10)?;
                     }
                     10 => {
-                        log::info!("迁移数据库从 v10 到 v11（添加生态隔离支持）");
+                        log::info!("迁移数据库从 v10 到 v11（usage_daily_rollups 保留 request_model 维度）");
                         Self::migrate_v10_to_v11(conn)?;
                         Self::set_user_version(conn, 11)?;
                     }
                     11 => {
-                        log::info!(
-                            "迁移数据库从 v11 到 v12（usage_daily_rollups 保留 request_model 维度）"
-                        );
+                        log::info!("迁移数据库从 v11 到 v12（添加项目 Profiles 表）");
                         Self::migrate_v11_to_v12(conn)?;
                         Self::set_user_version(conn, 12)?;
                     }
@@ -1233,44 +1247,26 @@ impl Database {
         Ok(())
     }
 
-    /// v10 -> v11 迁移：添加生态隔离支持
-    fn migrate_v10_to_v11(conn: &Connection) -> Result<(), AppError> {
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS ecosystems (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT DEFAULT '',
-                is_current BOOLEAN NOT NULL DEFAULT 0,
-                created_at INTEGER DEFAULT 0
-            )",
-            [],
-        )
-        .map_err(|e| AppError::Database(format!("创建 ecosystems 表失败: {e}")))?;
-
-        log::info!("v10 -> v11 迁移完成：已添加生态隔离支持");
-        Ok(())
-    }
-
-    /// v11 -> v12：usage_daily_rollups 增加 request_model 维度（进入主键），
+    /// v10 -> v11：usage_daily_rollups 增加 request_model 维度（进入主键），
     /// proxy_request_logs 增加 pricing_model 列（写入时的计价基准，回填依据）。
     ///
     /// 路由接管下 model（真实上游模型）≠ request_model（客户端别名），
     /// 旧 rollup 只按 model 聚合，明细 prune 后映射关系永久丢失、计费不可审计。
     /// SQLite 改主键必须重建表；历史行的 request_model 已不可知，填 ''。
-    fn migrate_v11_to_v12(conn: &Connection) -> Result<(), AppError> {
-        // proxy_request_logs.pricing_model：NULL = v12 前的历史行（回填走
+    fn migrate_v10_to_v11(conn: &Connection) -> Result<(), AppError> {
+        // proxy_request_logs.pricing_model：NULL = v11 前的历史行（回填走
         // model → 占位符回退 request_model 的旧逻辑），'' = 未计价的错误行
         if Self::table_exists(conn, "proxy_request_logs")? {
             Self::add_column_if_missing(conn, "proxy_request_logs", "pricing_model", "TEXT")?;
         }
 
         if !Self::table_exists(conn, "usage_daily_rollups")? {
-            log::info!("v11 -> v12：usage_daily_rollups 不存在，跳过重建");
+            log::info!("v10 -> v11：usage_daily_rollups 不存在，跳过重建");
             return Ok(());
         }
 
         conn.execute_batch(
-            "ALTER TABLE usage_daily_rollups RENAME TO usage_daily_rollups_v11;
+            "ALTER TABLE usage_daily_rollups RENAME TO usage_daily_rollups_v10;
              CREATE TABLE usage_daily_rollups (
                  date TEXT NOT NULL,
                  app_type TEXT NOT NULL,
@@ -1295,16 +1291,34 @@ impl Database {
              SELECT date, app_type, provider_id, model, '', '',
                   request_count, success_count, input_tokens, output_tokens,
                   cache_read_tokens, cache_creation_tokens, total_cost_usd, avg_latency_ms
-             FROM usage_daily_rollups_v11;
-             DROP TABLE usage_daily_rollups_v11;",
+             FROM usage_daily_rollups_v10;
+             DROP TABLE usage_daily_rollups_v10;",
         )
         .map_err(|e| {
-            AppError::Database(format!("v11 -> v12 重建 usage_daily_rollups 失败: {e}"))
+            AppError::Database(format!("v10 -> v11 重建 usage_daily_rollups 失败: {e}"))
         })?;
 
         log::info!(
-            "v11 -> v12 迁移完成：usage_daily_rollups 已保留 request_model/pricing_model 维度"
+            "v10 -> v11 迁移完成：usage_daily_rollups 已保留 request_model/pricing_model 维度"
         );
+        Ok(())
+    }
+
+    /// v11 -> v12 迁移：添加项目 Profiles 表
+    /// 与 create_tables_on_conn 中的建表语句保持一致（IF NOT EXISTS 保证幂等）
+    fn migrate_v11_to_v12(conn: &Connection) -> Result<(), AppError> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS profiles (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                sort_order INTEGER,
+                created_at INTEGER,
+                updated_at INTEGER
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("v11 -> v12 创建 profiles 表失败: {e}")))?;
         Ok(())
     }
 
@@ -1338,6 +1352,15 @@ impl Database {
                 "25",
                 "0.50",
                 "6.25",
+            ),
+            // Claude Sonnet 5（list 价，与 Sonnet 4.6 一致；促销 $2/$10 至 2026-08-31 不入表）
+            (
+                "claude-sonnet-5",
+                "Claude Sonnet 5",
+                "3",
+                "15",
+                "0.30",
+                "3.75",
             ),
             // Claude 4.7 系列
             (
@@ -1722,6 +1745,26 @@ impl Database {
             ),
             // ====== 国产模型 (USD/1M tokens) ======
             // Doubao (字节跳动)
+            // Seed 2.1 系列（2026-06 火山引擎官方 list 价，CNY 按 ~7.14 折算）：
+            //   pro   输入 6 元 / 输出 30 元 / 命中 1.2 元
+            //   turbo 输入 3 元 / 输出 15 元 / 命中 0.6 元
+            // 「缓存存储 0.017 元/M/小时」是按时长计费的存储费，与本表 cache_creation（按 token 写入价）口径不同，置 0。
+            (
+                "doubao-seed-2-1-pro",
+                "Doubao Seed 2.1 Pro",
+                "0.84",
+                "4.2",
+                "0.17",
+                "0",
+            ),
+            (
+                "doubao-seed-2-1-turbo",
+                "Doubao Seed 2.1 Turbo",
+                "0.42",
+                "2.1",
+                "0.08",
+                "0",
+            ),
             (
                 "doubao-seed-code",
                 "Doubao Seed Code",
