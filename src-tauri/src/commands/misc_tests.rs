@@ -1295,7 +1295,7 @@ fn resolve_launch_cwd_rejects_missing_directory() {
 
 #[test]
 fn build_shell_cd_command_quotes_spaces_and_single_quotes() {
-    let command = build_shell_cd_command(Some(Path::new("/tmp/project O'Brien")));
+    let command = build_final_shell_cd_command("bash", Some(Path::new("/tmp/project O'Brien")));
 
     assert_eq!(command, "cd '/tmp/project O'\"'\"'Brien' || exit 1\n");
 }

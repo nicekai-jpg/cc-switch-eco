@@ -10,6 +10,13 @@ mod framework_ops;
 mod fs_utils;
 pub mod migration;
 mod symlink;
+pub mod cmd_utils;
+pub mod hud_ops;
+pub mod plugin_ops;
+pub mod plugin_sync;
+pub mod hook_ops;
+pub mod installers;
+pub mod plugin_install;
 
 use std::fs;
 use std::path::PathBuf;
