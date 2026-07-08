@@ -29,9 +29,6 @@ pub mod skill;
 mod stream_check;
 mod subscription;
 mod sync_support;
-mod tool_lifecycle;
-mod tool_probe;
-mod provider_terminal;
 
 mod lightweight;
 mod s3_sync;
@@ -67,12 +64,6 @@ pub use settings::*;
 pub use skill::*;
 pub use stream_check::*;
 pub use subscription::*;
-#[allow(unused_imports)]
-pub use tool_lifecycle::*;
-#[allow(unused_imports)]
-pub use tool_probe::*;
-#[allow(unused_imports)]
-pub use provider_terminal::*;
 
 pub use lightweight::*;
 pub use s3_sync::*;

@@ -11,6 +11,7 @@ import type { GeminiProviderPreset } from "@/config/geminiProviderPresets";
 import type { OpenCodeProviderPreset } from "@/config/opencodeProviderPresets";
 import type { OpenClawProviderPreset } from "@/config/openclawProviderPresets";
 import type { HermesProviderPreset } from "@/config/hermesProviderPresets";
+import type { ClaudeDesktopProviderPreset } from "@/config/claudeDesktopProviderPresets";
 
 /** 所有 app 预设类型的联合（替代 any） */
 export type AnyProviderPreset =
@@ -19,7 +20,8 @@ export type AnyProviderPreset =
   | GeminiProviderPreset
   | OpenCodeProviderPreset
   | OpenClawProviderPreset
-  | HermesProviderPreset;
+  | HermesProviderPreset
+  | ClaudeDesktopProviderPreset;
 
 /** 预设条目（preset 类型安全） */
 export interface PresetEntry {

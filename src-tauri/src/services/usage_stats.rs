@@ -4066,3 +4066,25 @@ mod tests {
         Ok(())
     }
 }
+
+/// UsageStatsRepository wraps Database to provide usage statistics methods.
+///
+/// This is a newtype wrapper that allows gradual migration from direct `Database` usage.
+/// All methods are delegated to the underlying `Database` implementation.
+pub struct UsageStatsRepository<'a> {
+    db: &'a Database,
+}
+
+impl<'a> UsageStatsRepository<'a> {
+    pub fn new(db: &'a Database) -> Self {
+        Self { db }
+    }
+}
+
+// Delegate all usage stats methods from Database to UsageStatsRepository
+impl<'a> std::ops::Deref for UsageStatsRepository<'a> {
+    type Target = Database;
+    fn deref(&self) -> &Self::Target {
+        self.db
+    }
+}

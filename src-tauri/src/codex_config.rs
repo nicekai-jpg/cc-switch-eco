@@ -12,7 +12,7 @@ use std::process::Command;
 use toml_edit::DocumentMut;
 
 pub const CC_SWITCH_CODEX_MODEL_PROVIDER_ID: &str = "custom";
-pub const CC_SWITCH_CODEX_MODEL_CATALOG_FILENAME: &str = "cc-switch-model-catalog.json";
+pub const CC_SWITCH_CODEX_MODEL_CATALOG_FILENAME: &str = "cc-switch-eco-model-catalog.json";
 
 /// Top-level `config.toml` key that controls Codex's built-in web-search tool.
 const CODEX_WEB_SEARCH_FIELD: &str = "web_search";
@@ -278,6 +278,252 @@ pub(crate) fn is_custom_codex_model_provider_id(id: &str) -> bool {
         && !CODEX_RESERVED_MODEL_PROVIDER_IDS
             .iter()
             .any(|reserved| reserved.eq_ignore_ascii_case(id))
+}
+
+#[allow(dead_code)]
+pub(crate) fn stable_codex_model_provider_id_from_config(config_text: &str) -> Option<String> {
+    let doc = config_text.parse::<DocumentMut>().ok()?;
+    let provider_id = active_codex_model_provider_id(&doc)?;
+
+    if is_custom_codex_model_provider_id(&provider_id) {
+        Some(provider_id)
+    } else {
+        None
+    }
+}
+
+#[allow(dead_code)]
+fn codex_model_provider_id_with_table_from_config(
+    config_text: &str,
+) -> Result<Option<String>, AppError> {
+    if config_text.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let doc = config_text
+        .parse::<DocumentMut>()
+        .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
+    let Some(provider_id) = active_codex_model_provider_id(&doc) else {
+        return Ok(None);
+    };
+
+    let has_provider_table = doc
+        .get("model_providers")
+        .and_then(|item| item.as_table())
+        .and_then(|table| table.get(provider_id.as_str()))
+        .is_some();
+
+    Ok(has_provider_table.then_some(provider_id))
+}
+
+#[allow(dead_code)]
+fn normalize_codex_live_config_model_provider(config_text: &str) -> Result<String, AppError> {
+    if config_text.trim().is_empty() {
+        return Ok(config_text.to_string());
+    }
+
+    let mut doc = config_text
+        .parse::<DocumentMut>()
+        .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
+
+    let Some(source_provider_id) = active_codex_model_provider_id(&doc) else {
+        return Ok(config_text.to_string());
+    };
+
+    let has_source_provider_table = doc
+        .get("model_providers")
+        .and_then(|item| item.as_table())
+        .and_then(|table| table.get(source_provider_id.as_str()))
+        .is_some();
+    if !has_source_provider_table {
+        return Ok(config_text.to_string());
+    }
+    if !is_custom_codex_model_provider_id(&source_provider_id) {
+        return Ok(config_text.to_string());
+    }
+
+    let stable_provider_id = CC_SWITCH_CODEX_MODEL_PROVIDER_ID.to_string();
+
+    if stable_provider_id == source_provider_id {
+        return Ok(config_text.to_string());
+    }
+
+    if let Some(model_providers) = doc
+        .get_mut("model_providers")
+        .and_then(|item| item.as_table_mut())
+    {
+        let Some(provider_table) = model_providers.remove(source_provider_id.as_str()) else {
+            return Ok(config_text.to_string());
+        };
+        model_providers[stable_provider_id.as_str()] = provider_table;
+    }
+
+    rewrite_codex_profile_model_provider_refs(&mut doc, &source_provider_id, &stable_provider_id);
+    doc["model_provider"] = toml_edit::value(stable_provider_id.as_str());
+
+    Ok(doc.to_string())
+}
+
+#[allow(dead_code)]
+fn rewrite_codex_profile_model_provider_refs(
+    doc: &mut DocumentMut,
+    source_provider_id: &str,
+    stable_provider_id: &str,
+) {
+    let Some(profiles) = doc
+        .get_mut("profiles")
+        .and_then(|item| item.as_table_like_mut())
+    else {
+        return;
+    };
+
+    let profile_keys: Vec<String> = profiles.iter().map(|(key, _)| key.to_string()).collect();
+    for profile_key in profile_keys {
+        let Some(profile_table) = profiles
+            .get_mut(&profile_key)
+            .and_then(|item| item.as_table_like_mut())
+        else {
+            continue;
+        };
+
+        let references_source = profile_table
+            .get("model_provider")
+            .and_then(|item| item.as_str())
+            == Some(source_provider_id);
+        if references_source {
+            profile_table.insert("model_provider", toml_edit::value(stable_provider_id));
+        }
+    }
+}
+
+/// Keep Codex's active `model_provider` stable across CC Switch Eco provider changes.
+///
+/// Codex stores and filters resume history by `model_provider`, so switching between
+/// provider-specific ids like `rightcode` and `aihubmix` makes history appear to move.
+/// CC Switch Eco-managed third-party providers share one stable bucket while official
+/// built-in providers such as `openai` keep their original identity.
+pub fn normalize_codex_settings_config_model_provider(
+    settings: &mut Value,
+) -> Result<(), AppError> {
+    let Some(config_text) = settings
+        .get("config")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+    else {
+        return Ok(());
+    };
+
+    let normalized = normalize_codex_live_config_model_provider(&config_text)?;
+
+    if let Some(obj) = settings.as_object_mut() {
+        obj.insert("config".to_string(), Value::String(normalized));
+    }
+
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn restore_codex_backfill_model_provider_id(
+    config_text: &str,
+    template_config_text: &str,
+) -> Result<String, AppError> {
+    let Some(template_provider_id) =
+        codex_model_provider_id_with_table_from_config(template_config_text)?
+    else {
+        return Ok(config_text.to_string());
+    };
+
+    if config_text.trim().is_empty() {
+        return Ok(config_text.to_string());
+    }
+
+    let mut doc = config_text
+        .parse::<DocumentMut>()
+        .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
+    let Some(live_provider_id) = active_codex_model_provider_id(&doc) else {
+        return Ok(config_text.to_string());
+    };
+
+    if live_provider_id == template_provider_id {
+        return Ok(config_text.to_string());
+    }
+
+    if let Some(model_providers) = doc
+        .get_mut("model_providers")
+        .and_then(|item| item.as_table_mut())
+    {
+        let Some(provider_table) = model_providers.remove(live_provider_id.as_str()) else {
+            return Ok(config_text.to_string());
+        };
+        model_providers[template_provider_id.as_str()] = provider_table;
+    } else {
+        return Ok(config_text.to_string());
+    }
+
+    rewrite_codex_profile_model_provider_refs(&mut doc, &live_provider_id, &template_provider_id);
+    doc["model_provider"] = toml_edit::value(template_provider_id.as_str());
+
+    Ok(doc.to_string())
+}
+
+/// Convert a Codex live config that was normalized for history stability back
+/// to the provider-specific id used by the stored provider template.
+#[allow(dead_code)]
+pub fn restore_codex_settings_config_model_provider_for_backfill(
+    settings: &mut Value,
+    template_settings: &Value,
+) -> Result<(), AppError> {
+    let Some(config_text) = settings
+        .get("config")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+    else {
+        return Ok(());
+    };
+    let Some(template_config_text) = template_settings
+        .get("config")
+        .and_then(|value| value.as_str())
+    else {
+        return Ok(());
+    };
+
+    let restored = restore_codex_backfill_model_provider_id(&config_text, template_config_text)?;
+    if let Some(obj) = settings.as_object_mut() {
+        obj.insert("config".to_string(), Value::String(restored));
+    }
+
+    Ok(())
+}
+
+/// Atomically write Codex live config after normalizing provider-specific ids.
+///
+/// Use this for provider-driven live writes. Keep `write_codex_live_atomic` available
+/// for exact restore/backup paths that must preserve the config text byte-for-byte.
+#[allow(dead_code)]
+pub fn write_codex_live_atomic_with_stable_provider(
+    auth: &Value,
+    config_text_opt: Option<&str>,
+) -> Result<(), AppError> {
+    match config_text_opt {
+        Some(config_text) => {
+            let config_text = normalize_codex_config_for_live_provider(config_text)?;
+            write_codex_live_atomic(auth, Some(&config_text))
+        }
+        None => write_codex_live_atomic(auth, None),
+    }
+}
+
+#[allow(dead_code)]
+fn normalize_codex_config_for_live_provider(config_text: &str) -> Result<String, AppError> {
+    let mut settings = serde_json::Map::new();
+    settings.insert("config".to_string(), Value::String(config_text.to_string()));
+    let mut settings = Value::Object(settings);
+    normalize_codex_settings_config_model_provider(&mut settings)?;
+    Ok(settings
+        .get("config")
+        .and_then(|value| value.as_str())
+        .unwrap_or(config_text)
+        .to_string())
 }
 
 /// Write only Codex `config.toml` for provider switching.

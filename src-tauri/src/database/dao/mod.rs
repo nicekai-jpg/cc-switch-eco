@@ -2,6 +2,7 @@
 //!
 //! Database access operations for each domain
 
+pub mod ecosystems;
 pub mod failover;
 pub mod mcp;
 pub mod profiles;
@@ -16,6 +17,7 @@ pub mod universal_providers;
 pub mod usage_rollup;
 
 // 所有 DAO 方法都通过 Database impl 提供，无需单独导出
-// 导出 FailoverQueueItem / Profile 供外部使用
+// 导出 FailoverQueueItem / Profile / Ecosystem 供外部使用
+pub use ecosystems::Ecosystem;
 pub use failover::FailoverQueueItem;
 pub use profiles::Profile;

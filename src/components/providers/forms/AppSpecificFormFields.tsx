@@ -88,8 +88,6 @@ export interface AppSpecificFormFieldsProps {
   defaultOpusModelName: string;
   defaultFableModel: string;
   defaultFableModelName: string;
-  customUserAgent: string;
-  onCustomUserAgentChange: (val: string) => void;
   apiFormat: ClaudeApiFormat;
   onApiFormatChange: (val: ClaudeApiFormat) => void;
   apiKeyField: ClaudeApiKeyField;
@@ -229,8 +227,6 @@ const formFieldsRenderers: Partial<Record<AppId, FormFieldsRenderer>> = {
       defaultOpusModelName={props.defaultOpusModelName}
       defaultFableModel={props.defaultFableModel}
       defaultFableModelName={props.defaultFableModelName}
-      customUserAgent={props.customUserAgent}
-      onCustomUserAgentChange={props.onCustomUserAgentChange}
       onModelChange={props.onClaudeModelChange}
       speedTestEndpoints={props.speedTestEndpoints}
       apiFormat={props.apiFormat}
@@ -239,6 +235,11 @@ const formFieldsRenderers: Partial<Record<AppId, FormFieldsRenderer>> = {
       onApiKeyFieldChange={props.onApiKeyFieldChange}
       isFullUrl={props.isFullUrl}
       onFullUrlChange={props.onFullUrlChange}
+      subagentModel=""
+      localProxyHeadersOverride=""
+      onLocalProxyHeadersOverrideChange={() => {}}
+      localProxyBodyOverride=""
+      onLocalProxyBodyOverrideChange={() => {}}
     />
   ),
 
@@ -269,6 +270,10 @@ const formFieldsRenderers: Partial<Record<AppId, FormFieldsRenderer>> = {
       catalogModels={props.codexCatalogModels}
       onCatalogModelsChange={props.onCodexCatalogModelsChange}
       speedTestEndpoints={props.speedTestEndpoints}
+      localProxyHeadersOverride=""
+      onLocalProxyHeadersOverrideChange={() => {}}
+      localProxyBodyOverride=""
+      onLocalProxyBodyOverrideChange={() => {}}
     />
   ),
 

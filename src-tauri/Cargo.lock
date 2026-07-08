@@ -757,8 +757,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "cc-switch"
-version = "3.16.5"
+name = "cc-switch-eco"
+version = "3.25.2"
 dependencies = [
  "anyhow",
  "arboard",

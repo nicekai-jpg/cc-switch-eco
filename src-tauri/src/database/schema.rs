@@ -295,7 +295,20 @@ impl Database {
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-        // 19. Profiles 表（全应用共享的项目实体，payload 按 app 分槽快照
+        // 19. Ecosystems 表 (生态隔离)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS ecosystems (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                is_current BOOLEAN NOT NULL DEFAULT 0,
+                created_at INTEGER DEFAULT 0
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+        // 20. Profiles 表（全应用共享的项目实体，payload 按 app 分槽快照
         //     供应商/MCP/Skills/Prompt；各应用分组的 current 标记在 settings 表）
         conn.execute(
             "CREATE TABLE IF NOT EXISTS profiles (
@@ -477,6 +490,11 @@ impl Database {
                         log::info!("迁移数据库从 v11 到 v12（添加项目 Profiles 表）");
                         Self::migrate_v11_to_v12(conn)?;
                         Self::set_user_version(conn, 12)?;
+                    }
+                    12 => {
+                        log::info!("迁移数据库从 v12 到 v13（添加生态隔离 Ecosystems 表）");
+                        Self::migrate_v12_to_v13(conn)?;
+                        Self::set_user_version(conn, 13)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1319,6 +1337,23 @@ impl Database {
             [],
         )
         .map_err(|e| AppError::Database(format!("v11 -> v12 创建 profiles 表失败: {e}")))?;
+        Ok(())
+    }
+
+    /// v12 -> v13 迁移：添加生态隔离 Ecosystems 表
+    fn migrate_v12_to_v13(conn: &Connection) -> Result<(), AppError> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS ecosystems (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                is_current BOOLEAN NOT NULL DEFAULT 0,
+                created_at INTEGER DEFAULT 0
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("v12 -> v13 创建 ecosystems 表失败: {e}")))?;
+        log::info!("v12 -> v13 迁移完成：已添加生态隔离支持");
         Ok(())
     }
 

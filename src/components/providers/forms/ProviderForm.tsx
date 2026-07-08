@@ -89,7 +89,7 @@ import {
   useBaseUrlState,
   useModelState,
   useCodexConfigState,
-  useApiKeyLink,
+  useApiKeyLinkForApp,
   useTemplateValues,
   useCommonConfigSnippet,
   useCodexCommonConfig,
@@ -379,7 +379,6 @@ function ProviderFormFull({
       ),
     });
     setCodexChatReasoning(initialData?.meta?.codexChatReasoning ?? {});
-    setCustomUserAgent(initialData?.meta?.customUserAgent ?? "");
     setLocalProxyHeadersOverride(
       formatRequestOverrideObject(
         initialData?.meta?.localProxyRequestOverrides?.headers,
@@ -551,9 +550,6 @@ function ProviderFormFull({
     useState<CodexChatReasoning>(
       () => initialData?.meta?.codexChatReasoning ?? {},
     );
-  const [customUserAgent, setCustomUserAgent] = useState<string>(
-    () => initialData?.meta?.customUserAgent ?? "",
-  );
   const [localProxyHeadersOverride, setLocalProxyHeadersOverride] =
     useState<string>(() =>
       formatRequestOverrideObject(
@@ -1476,10 +1472,6 @@ function ProviderFormFull({
         localCodexApiFormat === "openai_chat"
           ? normalizeCodexChatReasoningForSave(codexChatReasoning)
           : undefined,
-      customUserAgent:
-        (appId === "claude" || appId === "codex") && category !== "official"
-          ? customUserAgent.trim() || undefined
-          : undefined,
       localProxyRequestOverrides: shouldApplyLocalProxyRequestOverrides
         ? overridesResult.overrides
         : undefined,
@@ -1526,7 +1518,7 @@ function ProviderFormFull({
     websiteUrl: claudeWebsiteUrl,
     isPartner: isClaudePartner,
     partnerPromotionKey: claudePartnerPromotionKey,
-  } = useApiKeyLink({
+  } = useApiKeyLinkForApp({
     appId: "claude",
     category,
     selectedPresetId,
@@ -1539,7 +1531,7 @@ function ProviderFormFull({
     websiteUrl: codexWebsiteUrl,
     isPartner: isCodexPartner,
     partnerPromotionKey: codexPartnerPromotionKey,
-  } = useApiKeyLink({
+  } = useApiKeyLinkForApp({
     appId: "codex",
     category,
     selectedPresetId,
@@ -1552,7 +1544,7 @@ function ProviderFormFull({
     websiteUrl: geminiWebsiteUrl,
     isPartner: isGeminiPartner,
     partnerPromotionKey: geminiPartnerPromotionKey,
-  } = useApiKeyLink({
+  } = useApiKeyLinkForApp({
     appId: "gemini",
     category,
     selectedPresetId,
@@ -1565,7 +1557,7 @@ function ProviderFormFull({
     websiteUrl: opencodeWebsiteUrl,
     isPartner: isOpencodePartner,
     partnerPromotionKey: opencodePartnerPromotionKey,
-  } = useApiKeyLink({
+  } = useApiKeyLinkForApp({
     appId: "opencode",
     category,
     selectedPresetId,
@@ -1579,7 +1571,7 @@ function ProviderFormFull({
     websiteUrl: openclawWebsiteUrl,
     isPartner: isOpenclawPartner,
     partnerPromotionKey: openclawPartnerPromotionKey,
-  } = useApiKeyLink({
+  } = useApiKeyLinkForApp({
     appId: "openclaw",
     category,
     selectedPresetId,
@@ -1593,7 +1585,7 @@ function ProviderFormFull({
     websiteUrl: hermesWebsiteUrl,
     isPartner: isHermesPartner,
     partnerPromotionKey: hermesPartnerPromotionKey,
-  } = useApiKeyLink({
+  } = useApiKeyLinkForApp({
     appId: "hermes",
     category,
     selectedPresetId,
@@ -2109,8 +2101,6 @@ function ProviderFormFull({
               onApiKeyFieldChange={handleApiKeyFieldChange}
               isFullUrl={localIsFullUrl}
               onFullUrlChange={setLocalIsFullUrl}
-              customUserAgent={customUserAgent}
-              onCustomUserAgentChange={setCustomUserAgent}
               localProxyHeadersOverride={localProxyHeadersOverride}
               onLocalProxyHeadersOverrideChange={setLocalProxyHeadersOverride}
               localProxyBodyOverride={localProxyBodyOverride}
@@ -2147,8 +2137,6 @@ function ProviderFormFull({
               catalogModels={codexCatalogModels}
               onCatalogModelsChange={setCodexCatalogModels}
               speedTestEndpoints={speedTestEndpoints}
-              customUserAgent={customUserAgent}
-              onCustomUserAgentChange={setCustomUserAgent}
               localProxyHeadersOverride={localProxyHeadersOverride}
               onLocalProxyHeadersOverrideChange={setLocalProxyHeadersOverride}
               localProxyBodyOverride={localProxyBodyOverride}

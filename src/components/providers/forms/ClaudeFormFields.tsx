@@ -47,7 +47,6 @@ import {
   showFetchModelsError,
   type FetchedModel,
 } from "@/lib/api/model-fetch";
-import { CustomUserAgentField } from "./CustomUserAgentField";
 import { LocalProxyRequestOverridesField } from "./LocalProxyRequestOverridesField";
 import type {
   ProviderCategory,
@@ -62,8 +61,8 @@ import {
 } from "./hooks/useModelState";
 import {
   providerPresets,
-  type TemplateValueConfig,
 } from "@/config/claudeProviderPresets";
+import type { TemplateValueConfig } from "@/config/baseProviderPreset";
 
 interface EndpointCandidate {
   url: string;
@@ -145,8 +144,6 @@ interface ClaudeFormFieldsProps {
   onFullUrlChange: (value: boolean) => void;
 
   // Local proxy User-Agent override
-  customUserAgent: string;
-  onCustomUserAgentChange: (value: string) => void;
   localProxyHeadersOverride: string;
   onLocalProxyHeadersOverrideChange: (value: string) => void;
   localProxyBodyOverride: string;
@@ -206,8 +203,6 @@ export function ClaudeFormFields({
   onApiKeyFieldChange,
   isFullUrl,
   onFullUrlChange,
-  customUserAgent,
-  onCustomUserAgentChange,
   localProxyHeadersOverride,
   onLocalProxyHeadersOverrideChange,
   localProxyBodyOverride,
@@ -226,7 +221,6 @@ export function ClaudeFormFields({
     subagentModel ||
     apiFormat !== "anthropic" ||
     apiKeyField !== "ANTHROPIC_AUTH_TOKEN" ||
-    customUserAgent ||
     hasRequestOverrides
   );
   const [advancedExpanded, setAdvancedExpanded] = useState(hasAnyAdvancedValue);
@@ -280,7 +274,7 @@ export function ClaudeFormFields({
     const modelsUrl = matchedPreset?.modelsUrl;
 
     setIsFetchingModels(true);
-    fetchModelsForConfig(baseUrl, apiKey, isFullUrl, modelsUrl, customUserAgent)
+    fetchModelsForConfig(baseUrl, apiKey, isFullUrl, modelsUrl)
       .then((models) => {
         setFetchedModels(models);
         showModelFetchResult(models.length);
@@ -290,7 +284,7 @@ export function ClaudeFormFields({
         showFetchModelsError(err, t);
       })
       .finally(() => setIsFetchingModels(false));
-  }, [baseUrl, apiKey, isFullUrl, customUserAgent, showModelFetchResult, t]);
+  }, [baseUrl, apiKey, isFullUrl, t]);
 
   const handleFetchCopilotModels = useCallback(() => {
     if (!isCopilotAuthenticated) {
@@ -998,12 +992,6 @@ export function ClaudeFormFields({
                 })}
               </p>
             </div>
-
-            <CustomUserAgentField
-              id="claude-custom-user-agent"
-              value={customUserAgent}
-              onChange={onCustomUserAgentChange}
-            />
 
             <div className="border-t border-border-default pt-3">
               <LocalProxyRequestOverridesField

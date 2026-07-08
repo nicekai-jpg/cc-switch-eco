@@ -32,7 +32,6 @@ import {
   showFetchModelsError,
   type FetchedModel,
 } from "@/lib/api/model-fetch";
-import { CustomUserAgentField } from "./CustomUserAgentField";
 import { LocalProxyRequestOverridesField } from "./LocalProxyRequestOverridesField";
 import { cn } from "@/lib/utils";
 import type {
@@ -83,9 +82,7 @@ interface CodexFormFieldsProps {
   // Speed Test Endpoints
   speedTestEndpoints: EndpointCandidate[];
 
-  // Local proxy User-Agent override
-  customUserAgent: string;
-  onCustomUserAgentChange: (value: string) => void;
+  // Local proxy request overrides
   localProxyHeadersOverride: string;
   onLocalProxyHeadersOverrideChange: (value: string) => void;
   localProxyBodyOverride: string;
@@ -163,8 +160,6 @@ export function CodexFormFields({
   catalogModels = [],
   onCatalogModelsChange,
   speedTestEndpoints,
-  customUserAgent,
-  onCustomUserAgentChange,
   localProxyHeadersOverride,
   onLocalProxyHeadersOverrideChange,
   localProxyBodyOverride,
@@ -190,7 +185,6 @@ export function CodexFormFields({
     localProxyHeadersOverride.trim() || localProxyBodyOverride.trim(),
   );
   const hasAnyAdvancedValue =
-    !!customUserAgent ||
     hasRequestOverrides ||
     catalogModels.length > 0 ||
     apiFormat === "openai_responses" ||
@@ -277,7 +271,6 @@ export function CodexFormFields({
       codexApiKey,
       isFullUrl,
       undefined,
-      customUserAgent,
     )
       .then((models) => {
         setFetchedModels(models);
@@ -294,7 +287,7 @@ export function CodexFormFields({
         showFetchModelsError(err, t);
       })
       .finally(() => setIsFetchingModels(false));
-  }, [codexBaseUrl, codexApiKey, isFullUrl, customUserAgent, t]);
+  }, [codexBaseUrl, codexApiKey, isFullUrl, t]);
 
   const handleAddCatalogRow = useCallback(() => {
     if (!onCatalogModelsChange) return;
@@ -689,11 +682,6 @@ export function CodexFormFields({
                   "border-t border-border-default pt-3",
               )}
             >
-              <CustomUserAgentField
-                id="codex-custom-user-agent"
-                value={customUserAgent}
-                onChange={onCustomUserAgentChange}
-              />
               <div className="border-t border-border-default pt-3">
                 <LocalProxyRequestOverridesField
                   headersJson={localProxyHeadersOverride}

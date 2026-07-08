@@ -43,7 +43,7 @@ import { ApiKeySection } from "./shared/ApiKeySection";
 import { EndpointField } from "./shared/EndpointField";
 import { ModelDropdown } from "./shared/ModelDropdown";
 import { ProviderPresetSelector } from "./ProviderPresetSelector";
-import { useApiKeyLink } from "./hooks/useApiKeyLink";
+import { useApiKeyLinkForApp } from "./hooks/useApiKeyLinkForApp";
 import { providerSchema, type ProviderFormData } from "@/lib/schemas/provider";
 import type {
   ClaudeApiFormat,
@@ -428,7 +428,7 @@ export function ClaudeDesktopProviderForm({
     websiteUrl: apiKeyLinkWebsiteUrl,
     isPartner: apiKeyLinkIsPartner,
     partnerPromotionKey: apiKeyLinkPromotionKey,
-  } = useApiKeyLink({
+  } = useApiKeyLinkForApp({
     appId: "claude-desktop",
     category: apiKeyLinkCategory,
     selectedPresetId,
