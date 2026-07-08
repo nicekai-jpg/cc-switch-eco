@@ -5,7 +5,6 @@ use std::process::Command;
 use crate::error::AppError;
 use crate::services::ecosystem::fragment;
 use crate::services::ecosystem::fs_utils;
-use crate::services::ecosystem::symlink;
 use crate::services::ecosystem_framework;
 use super::plugin_install::{
     should_use_claude_plugin_cli, install_via_claude_plugin_command,
@@ -13,6 +12,7 @@ use super::plugin_install::{
     finalize_plugin_framework_install
 };
 use super::plugin_ops::register_plugin_to_installed_plugins;
+use super::install_utils::{move_claude_files_to_eco, resolve_template};
 
 /// 执行框架安装（官方命令 + 手动复制回退）
 pub fn do_install(
@@ -122,180 +122,6 @@ pub fn install_via_official_command(
         log::warn!("清理临时目录失败 {}: {e}", eco_claude_dir.display());
     }
 
-    Ok(())
-}
-
-/// 将 Eco 的 .claude/ 目录下的文件移动到 Eco 对应目录
-pub fn move_claude_files_to_eco(
-    eco_claude_dir: &Path,
-    eco_dir: &Path,
-    framework: &ecosystem_framework::FrameworkRegistry,
-) -> Result<(), AppError> {
-    let isolation = fragment::collect_eco_isolation(eco_dir);
-
-    move_isolated_dirs(eco_claude_dir, eco_dir, framework, &isolation)?;
-
-    // 官方 npx 安装器将 hooks 命令写成 {eco_dir}/.claude/hooks/ 绝对路径；
-    // move 后 hooks 位于 eco_dir/hooks/，切换生态时 ~/.claude/hooks 通过 symlink 映射。
-    if framework.hook_delivery == "settings" {
-        rewrite_installer_hook_paths_in_claude_settings(eco_claude_dir, eco_dir)?;
-    }
-
-    move_isolated_rootfiles(eco_claude_dir, eco_dir, &framework.file_prefix, &isolation)?;
-    copy_non_isolated_files(eco_claude_dir, eco_dir, &framework.file_prefix, &isolation)?;
-
-    fragment::rebuild_all_root_files(eco_dir)?;
-    Ok(())
-}
-
-/// 移动隔离目录中的文件（skills/commands/hooks/agents/plugins 等）
-///
-/// 根据 framework 的 dir_layout 策略和 files_prefixed 字段通用处理。
-fn move_isolated_dirs(
-    eco_claude_dir: &Path,
-    eco_dir: &Path,
-    framework: &ecosystem_framework::FrameworkRegistry,
-    isolation: &fragment::EcoIsolation,
-) -> Result<(), AppError> {
-    let prefix = &framework.file_prefix;
-    let strategy = framework.dir_layout.strategy();
-
-    for dir_name in &isolation.dirs {
-        let src_dir = eco_claude_dir.join(dir_name);
-        if !src_dir.exists() || !src_dir.is_dir() {
-            continue;
-        }
-        let dst_dir = eco_dir.join(dir_name);
-        fs::create_dir_all(&dst_dir).map_err(|e| AppError::io(&dst_dir, e))?;
-
-        strategy.move_from_claude(&src_dir, &dst_dir, prefix, framework.files_prefixed)?;
-    }
-    Ok(())
-}
-
-/// 将 settings.json 中 hooks 命令路径从临时 `.claude/hooks/` 改写为 `~/.claude/hooks/`
-fn rewrite_installer_hook_paths_in_claude_settings(
-    eco_claude_dir: &Path,
-    eco_dir: &Path,
-) -> Result<(), AppError> {
-    let settings_path = eco_claude_dir.join("settings.json");
-    if !settings_path.exists() {
-        return Ok(());
-    }
-
-    let content = fs::read_to_string(&settings_path).map_err(|e| AppError::io(&settings_path, e))?;
-    let mut settings: serde_json::Value =
-        fragment::parse_json(&content, "解析 settings.json 失败")?;
-
-    let old_hooks_dir = path_prefix_for_rewrite(&eco_dir.join(".claude").join("hooks"));
-    let new_hooks_dir = path_prefix_for_rewrite(&crate::config::get_claude_config_dir().join("hooks"));
-
-    if let Some(hooks) = settings.get_mut("hooks") {
-        rewrite_hook_paths_in_json(hooks, &old_hooks_dir, &new_hooks_dir);
-    }
-
-    fs::write(&settings_path, fragment::write_json(&settings)?)
-        .map_err(|e| AppError::io(&settings_path, e))?;
-
-    log::info!(
-        "已重写 settings hooks 路径: {} → {}",
-        old_hooks_dir,
-        new_hooks_dir
-    );
-    Ok(())
-}
-
-fn path_prefix_for_rewrite(path: &Path) -> String {
-    path.to_string_lossy().trim_end_matches('/').to_string()
-}
-
-fn rewrite_hook_paths_in_json(
-    value: &mut serde_json::Value,
-    old_prefix: &str,
-    new_prefix: &str,
-) {
-    match value {
-        serde_json::Value::Object(map) => {
-            for (key, child) in map.iter_mut() {
-                if key == "command" {
-                    if let Some(command) = child.as_str() {
-                        *child = serde_json::Value::String(rewrite_hook_command_path(
-                            command, old_prefix, new_prefix,
-                        ));
-                    }
-                } else {
-                    rewrite_hook_paths_in_json(child, old_prefix, new_prefix);
-                }
-            }
-        }
-        serde_json::Value::Array(items) => {
-            for item in items.iter_mut() {
-                rewrite_hook_paths_in_json(item, old_prefix, new_prefix);
-            }
-        }
-        _ => {}
-    }
-}
-
-pub fn rewrite_hook_command_path(command: &str, old_prefix: &str, new_prefix: &str) -> String {
-    if old_prefix.is_empty() || !command.contains(old_prefix) {
-        return command.to_string();
-    }
-    command.replace(old_prefix, new_prefix)
-}
-
-/// 移动隔离根文件（settings.json/CLAUDE.md 等）到 rootfiles 目录
-fn move_isolated_rootfiles(
-    eco_claude_dir: &Path,
-    eco_dir: &Path,
-    prefix: &str,
-    isolation: &fragment::EcoIsolation,
-) -> Result<(), AppError> {
-    let rootfiles_dir = eco_dir.join("rootfiles");
-    fs::create_dir_all(&rootfiles_dir).map_err(|e| AppError::io(&rootfiles_dir, e))?;
-
-    for file_name in &isolation.files {
-        let src_path = eco_claude_dir.join(file_name);
-        if !src_path.exists() || !src_path.is_file() {
-            continue;
-        }
-        let dst_path = rootfiles_dir.join(file_name);
-        if dst_path.exists() {
-            fragment::merge_root_file(&src_path, &dst_path, prefix)?;
-        } else {
-            fs::copy(&src_path, &dst_path).map_err(|e| AppError::io(&dst_path, e))?;
-        }
-    }
-    Ok(())
-}
-
-/// 复制非隔离根文件到 Eco 根目录（带前缀）
-fn copy_non_isolated_files(
-    eco_claude_dir: &Path,
-    eco_dir: &Path,
-    prefix: &str,
-    isolation: &fragment::EcoIsolation,
-) -> Result<(), AppError> {
-    if let Ok(entries) = fs::read_dir(eco_claude_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with('.')
-                || entry.path().is_dir()
-                || isolation.files.contains(&name)
-                || symlink::BASE_ISOLATED_DIRS.contains(&name.as_str())
-                || isolation.dirs.contains(&name)
-            {
-                continue;
-            }
-            let dst_name = format!("{prefix}{name}");
-            let dst_path = eco_dir.join(&dst_name);
-            if entry.path().is_file() && !dst_path.exists() {
-                if let Err(e) = fs::copy(entry.path(), &dst_path) {
-                    log::warn!("复制文件失败: {e}");
-                }
-            }
-        }
-    }
     Ok(())
 }
 
@@ -548,13 +374,6 @@ pub fn install_via_uv_command(
     Ok(())
 }
 
-/// 解析模板变量
-pub fn resolve_template(template: &str, eco_dir: &Path, real_home: &Path) -> String {
-    template
-        .replace("{eco_dir}", eco_dir.to_str().unwrap_or(""))
-        .replace("{real_home}", real_home.to_str().unwrap_or(""))
-}
-
 /// 手动复制框架文件到 Eco 目录
 pub fn install_manual_copy(
     eco_dir: &Path,
@@ -609,59 +428,4 @@ pub fn install_manual_copy(
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_rewrite_hook_command_path() {
-        let old = "/tmp/eco/.claude/hooks";
-        let new = "/Users/me/.claude/hooks";
-        let cmd = r#""/opt/homebrew/bin/node" "/tmp/eco/.claude/hooks/gsd-check-update.js""#;
-        let rewritten = rewrite_hook_command_path(cmd, old, new);
-        assert!(rewritten.contains("/Users/me/.claude/hooks/gsd-check-update.js"));
-        assert!(!rewritten.contains("/tmp/eco/.claude/hooks"));
-    }
-
-    #[test]
-    fn test_rewrite_installer_hook_paths_in_settings() {
-        let dir = tempfile::tempdir().unwrap();
-        let eco_dir = dir.path();
-        let eco_claude = eco_dir.join(".claude");
-        fs::create_dir_all(&eco_claude).unwrap();
-
-        let old_hooks = eco_claude.join("hooks");
-        let settings = serde_json::json!({
-            "hooks": {
-                "SessionStart": [{
-                    "hooks": [{
-                        "type": "command",
-                        "command": format!("bash \"{}/gsd-session-state.sh\"", old_hooks.display())
-                    }]
-                }]
-            }
-        });
-        fs::write(
-            eco_claude.join("settings.json"),
-            serde_json::to_string_pretty(&settings).unwrap(),
-        )
-        .unwrap();
-
-        rewrite_installer_hook_paths_in_claude_settings(&eco_claude, eco_dir).unwrap();
-
-        let updated: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(eco_claude.join("settings.json")).unwrap())
-                .unwrap();
-        let cmd = updated["hooks"]["SessionStart"][0]["hooks"][0]["command"]
-            .as_str()
-            .unwrap();
-        let expected_prefix = crate::config::get_claude_config_dir().join("hooks");
-        assert!(
-            cmd.contains(&expected_prefix.to_string_lossy().to_string()),
-            "expected {cmd} to contain {}",
-            expected_prefix.display()
-        );
-    }
 }

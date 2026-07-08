@@ -17,6 +17,8 @@ pub mod plugin_sync;
 pub mod hook_ops;
 pub mod installers;
 pub mod plugin_install;
+pub mod install_utils;
+pub mod installer_hooks;
 
 use std::fs;
 use std::path::PathBuf;
