@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use crate::error::AppError;
@@ -14,7 +14,6 @@ use super::plugin_sync::{
 };
 use super::plugin_ops::{
     register_plugin_to_installed_plugins,
-    enable_plugin_in_settings,
     ensure_settings_json_in_isolated_files,
     extract_github_repo,
     resolve_plugin_hooks_dir,

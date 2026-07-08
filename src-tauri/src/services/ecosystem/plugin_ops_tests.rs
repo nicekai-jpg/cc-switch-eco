@@ -1,12 +1,8 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-
 use crate::services::ecosystem_framework;
 use crate::services::ecosystem::plugin_install::{
     should_use_claude_plugin_cli, validate_hook_delivery
 };
 use crate::services::ecosystem::hook_ops::{remove_stale_hooks_recursive, inject_plugin_hooks_to_settings};
-use super::{rewrite_plugin_install_path, resolve_plugin_source_dir};
 
 #[test]
 fn test_pua_should_use_claude_plugin_cli() {

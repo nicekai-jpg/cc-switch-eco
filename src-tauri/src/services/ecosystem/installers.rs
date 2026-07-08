@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use crate::error::AppError;
@@ -7,8 +7,6 @@ use crate::services::ecosystem::fragment;
 use crate::services::ecosystem::fs_utils;
 use crate::services::ecosystem::symlink;
 use crate::services::ecosystem_framework;
-
-use super::cmd_utils::{command_exists, get_command_path, uv_has_python_311};
 use super::plugin_install::{
     should_use_claude_plugin_cli, install_via_claude_plugin_command,
     install_plugin_from_git_source, verify_plugin_hooks_installed,
