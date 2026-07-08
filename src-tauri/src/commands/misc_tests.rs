@@ -652,17 +652,17 @@ mod anchored_upgrade {
     }
 
     #[test]
-    fn codex_nvm_anchors_to_that_npm() {
-        // Codex 官方 self-update 只在支持 of release 生效;失败时仍写回同一个
+    fn opencode_nvm_anchors_to_that_npm() {
+        // Opencode 官方 self-update 支持 of release;失败时仍写回同一个
         // node 的 npm，而非 PATH 第一个 npm。
         let cmd = anchored_command_from_paths(
-            "codex",
-            "/Users/me/.nvm/versions/node/v22.14.0/bin/codex",
-            "/Users/me/.nvm/versions/node/v22.14.0/lib/node_modules/@openai/codex/bin/codex.js",
+            "opencode",
+            "/Users/me/.nvm/versions/node/v22.14.0/bin/opencode",
+            "/Users/me/.nvm/versions/node/v22.14.0/lib/node_modules/opencode-ai/bin/opencode.js",
         );
         assert_eq!(
             cmd.as_deref(),
-            Some("/Users/me/.nvm/versions/node/v22.14.0/bin/codex update || /Users/me/.nvm/versions/node/v22.14.0/bin/npm i -g @openai/codex@latest")
+            Some("/Users/me/.nvm/versions/node/v22.14.0/bin/opencode upgrade || /Users/me/.nvm/versions/node/v22.14.0/bin/npm i -g opencode-ai@latest")
         );
     }
 
@@ -686,13 +686,13 @@ mod anchored_upgrade {
         // `~/.volta/bin` 通常不在 GUI 非登录 `bash -c` 的 PATH 里,且用户可能
         // PATH 上还有另一份 volta → 必须绝对路径锚定到命令行命中的这一份。
         let cmd = anchored_command_from_paths(
-            "codex",
-            "/Users/me/.volta/bin/codex",
-            "/Users/me/.volta/tools/image/packages/codex/lib/node_modules/@openai/codex",
+            "opencode",
+            "/Users/me/.volta/bin/opencode",
+            "/Users/me/.volta/tools/image/packages/opencode/lib/node_modules/opencode-ai",
         );
         assert_eq!(
             cmd.as_deref(),
-            Some("/Users/me/.volta/bin/codex update || /Users/me/.volta/bin/volta install @openai/codex")
+            Some("/Users/me/.volta/bin/opencode upgrade || /Users/me/.volta/bin/volta install opencode-ai")
         );
     }
 
@@ -714,13 +714,13 @@ mod anchored_upgrade {
     fn volta_path_with_space_is_quoted() {
         // volta 分支用 `<dir>/volta`,目录含空格时同样要 POSIX 引号包裹。
         let cmd = anchored_command_from_paths(
-            "codex",
-            "/Users/my name/.volta/bin/codex",
-            "/Users/my name/.volta/tools/image/packages/codex/lib/node_modules/@openai/codex",
+            "opencode",
+            "/Users/my name/.volta/bin/opencode",
+            "/Users/my name/.volta/tools/image/packages/opencode/lib/node_modules/opencode-ai",
         );
         assert_eq!(
             cmd.as_deref(),
-            Some("'/Users/my name/.volta/bin/codex' update || '/Users/my name/.volta/bin/volta' install @openai/codex")
+            Some("'/Users/my name/.volta/bin/opencode' upgrade || '/Users/my name/.volta/bin/volta' install opencode-ai")
         );
     }
 
@@ -781,14 +781,14 @@ mod anchored_upgrade {
     fn fnm_install_anchors_to_that_npm() {
         // fnm 是自带同级 npm 的 node 管理器 → 锚定到那处的 npm。
         let cmd = anchored_command_from_paths(
-            "codex",
-            "/Users/me/.local/share/fnm_multishells/12345_abc/bin/codex",
-            "/Users/me/.local/share/fnm_multishells/12345_abc/lib/node_modules/@openai/codex/bin/codex.js",
+            "opencode",
+            "/Users/me/.local/share/fnm_multishells/12345_abc/bin/opencode",
+            "/Users/me/.local/share/fnm_multishells/12345_abc/lib/node_modules/opencode-ai/bin/opencode.js",
         );
         assert_eq!(
             cmd.as_deref(),
             Some(
-                "/Users/me/.local/share/fnm_multishells/12345_abc/bin/codex update || /Users/me/.local/share/fnm_multishells/12345_abc/bin/npm i -g @openai/codex@latest"
+                "/Users/me/.local/share/fnm_multishells/12345_abc/bin/opencode upgrade || /Users/me/.local/share/fnm_multishells/12345_abc/bin/npm i -g opencode-ai@latest"
             )
         );
     }
@@ -796,13 +796,13 @@ mod anchored_upgrade {
     #[test]
     fn path_with_space_is_quoted() {
         let cmd = anchored_command_from_paths(
-            "codex",
-            "/Users/my name/.nvm/versions/node/v22/bin/codex",
-            "/Users/my name/.nvm/versions/node/v22/lib/node_modules/@openai/codex/bin/codex.js",
+            "opencode",
+            "/Users/my name/.nvm/versions/node/v22/bin/opencode",
+            "/Users/my name/.nvm/versions/node/v22/lib/node_modules/opencode-ai/bin/opencode.js",
         );
         assert_eq!(
             cmd.as_deref(),
-            Some("'/Users/my name/.nvm/versions/node/v22/bin/codex' update || '/Users/my name/.nvm/versions/node/v22/bin/npm' i -g @openai/codex@latest")
+            Some("'/Users/my name/.nvm/versions/node/v22/bin/opencode' upgrade || '/Users/my name/.nvm/versions/node/v22/bin/npm' i -g opencode-ai@latest")
         );
     }
 
@@ -1026,7 +1026,7 @@ mod install_strategy {
         );
         assert_eq!(
             static_fallback_command("codex"),
-            "codex update || npm i -g @openai/codex@latest"
+            "npm i -g @openai/codex@latest"
         );
         assert_eq!(
             static_fallback_command("gemini"),
