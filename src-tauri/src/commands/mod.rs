@@ -36,6 +36,10 @@ mod usage;
 mod webdav_sync;
 mod workspace;
 
+mod tool_lifecycle;
+mod tool_probe;
+mod provider_terminal;
+
 pub use auth::*;
 pub use balance::*;
 pub use codex_oauth::*;
@@ -70,3 +74,7 @@ pub use s3_sync::*;
 pub use usage::*;
 pub use webdav_sync::*;
 pub use workspace::*;
+
+pub use tool_lifecycle::*;
+pub use tool_probe::*;
+pub use provider_terminal::*;
