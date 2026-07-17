@@ -458,6 +458,9 @@ pub fn cleanup_orphan_plugin_skill_dirs(
         return;
     }
     let prefix = &framework.file_prefix;
+
+    let ssot_skill_names = super::plugin_sync::collect_ssot_skill_names(eco_dir);
+
     let Ok(entries) = fs::read_dir(&skills_dir) else {
         return;
     };
@@ -467,13 +470,32 @@ pub fn cleanup_orphan_plugin_skill_dirs(
             continue;
         }
         let path = entry.path();
-        if path.is_dir()
-            && !path.join(".claude-plugin").exists()
-            && !path.join("SKILL.md").exists()
-        {
+        if !path.is_dir() {
+            continue;
+        }
+
+        // 清理没有 .claude-plugin 和 SKILL.md 的孤立目录
+        if !path.join(".claude-plugin").exists() && !path.join("SKILL.md").exists() {
             log::info!("清理孤立 skill 目录: {}", path.display());
             if let Err(e) = fs::remove_dir_all(&path) {
                 log::warn!("清理孤立 skill 目录失败 {}: {e}", path.display());
+            }
+            continue;
+        }
+
+        // 清理 SSOT 已管理的重复技能：去掉前缀后如果 SSOT 中存在同名技能，
+        // 说明该技能已通过 SSOT 系统安装，eco/skills/ 下的带前缀副本是多余的。
+        let unprefixed = name.strip_prefix(prefix).unwrap_or(&name);
+        if unprefixed != name
+            && ssot_skill_names.contains(&unprefixed.to_lowercase())
+        {
+            log::info!(
+                "清理 SSOT 已管理的重复 skill 目录: {} (SSOT 已有 '{}')",
+                path.display(),
+                unprefixed
+            );
+            if let Err(e) = fs::remove_dir_all(&path) {
+                log::warn!("清理重复 skill 目录失败 {}: {e}", path.display());
             }
         }
     }

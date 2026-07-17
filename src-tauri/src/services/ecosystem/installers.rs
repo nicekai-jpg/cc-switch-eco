@@ -12,7 +12,7 @@ use super::plugin_install::{
     finalize_plugin_framework_install
 };
 use super::plugin_ops::register_plugin_to_installed_plugins;
-use super::install_utils::{move_claude_files_to_eco, resolve_template};
+use super::install_utils::{move_claude_files_to_eco, resolve_template, supplement_from_framework_source};
 
 /// 执行框架安装（官方命令 + 手动复制回退）
 pub fn do_install(
@@ -116,6 +116,9 @@ pub fn install_via_official_command(
 
     // 将 .claude/ 中的文件移动到 Eco 对应目录
     move_claude_files_to_eco(&eco_claude_dir, eco_dir, framework)?;
+
+    // 从 framework 源码补充复制 npx 安装器未部署的目录（如 scripts/、gsd-core/）
+    supplement_from_framework_source(eco_dir, framework, fw_dir)?;
 
     // 清理 Eco 的 .claude/ 目录
     if let Err(e) = fs::remove_dir_all(&eco_claude_dir) {
@@ -296,7 +299,7 @@ pub fn run_script_command(
 pub fn install_via_uv_command(
     eco_dir: &Path,
     framework: &ecosystem_framework::FrameworkRegistry,
-    _fw_dir: &Path,
+    fw_dir: &Path,
 ) -> Result<(), AppError> {
     let real_home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
 
@@ -366,6 +369,9 @@ pub fn install_via_uv_command(
     // Step 3: 将 .claude/ 中的文件移动 to Eco 对应目录
     move_claude_files_to_eco(&eco_claude_dir, eco_dir, framework)?;
 
+    // 从 framework 源码补充复制安装器未部署的目录
+    supplement_from_framework_source(eco_dir, framework, fw_dir)?;
+
     // 清理 Eco 的 .claude/ 目录
     if let Err(e) = fs::remove_dir_all(&eco_claude_dir) {
         log::warn!("清理临时目录失败 {}: {e}", eco_claude_dir.display());
@@ -424,7 +430,13 @@ pub fn install_manual_copy(
         let dst = eco_dir.join(dir_name);
         fs::create_dir_all(&dst).map_err(|e| AppError::io(&dst, e))?;
 
-        strategy.copy_to_eco(&src, &dst, prefix, framework.files_prefixed)?;
+        // isolated_dirs（如 gsd-core/）内部结构不应被策略加前缀，直接递归复制
+        if framework.isolated_dirs.contains(dir_name) {
+            fs_utils::copy_dir_recursive(&src, &dst)?;
+            continue;
+        }
+
+        strategy.copy_to_eco(&src, &dst, prefix, framework.files_prefixed, None)?;
     }
 
     Ok(())

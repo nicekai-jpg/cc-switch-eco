@@ -359,12 +359,27 @@ pub fn get_ecosystem_frameworks(eco_id: &str) -> Result<Vec<String>, AppError> {
 fn uninstall_by_prefix(eco_dir: &Path, prefix: &str, framework_id: &str) -> Result<(), AppError> {
     let isolation = fragment::collect_eco_isolation(eco_dir);
 
+    // 获取框架的 isolated_dirs，用于判断哪些目录需要整体删除
+    let framework = ecosystem_framework::find_framework(framework_id);
+    let isolated_dirs: Vec<String> = framework
+        .as_ref()
+        .map(|fw| fw.isolated_dirs.clone())
+        .unwrap_or_default();
+
     // 从各隔离目录移除带前缀的文件
     for dir_name in &isolation.dirs {
         let dir = eco_dir.join(dir_name);
         if !dir.exists() {
             continue;
         }
+
+        // isolated_dirs 中以 prefix 开头的目录（如 gsd-core/）由框架独占，
+        // 其内部文件不以 prefix 开头，需要整体删除
+        if dir_name.starts_with(prefix) && isolated_dirs.contains(dir_name) {
+            fs::remove_dir_all(&dir).map_err(|e| AppError::io(&dir, e))?;
+            continue;
+        }
+
         if let Ok(entries) = fs::read_dir(&dir) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();

@@ -70,6 +70,18 @@ pub fn expose_plugin_dirs_to_eco_isolation(
             continue;
         }
 
+        // plugin 框架的 skills/commands/agents 已通过 plugin namespace
+        // （installed_plugins.json + enabledPlugins）被 Claude Code 发现，
+        // flat exposure 会产生重复注册（如 superpowers-zh:xxx 和 superpowers-xxx）。
+        // hooks 例外：hooks 通过 settings.json 注入，不走 namespace 发现。
+        if dir_name != &"hooks" {
+            log::info!(
+                "跳过暴露插件 '{}' 目录：plugin namespace 已提供发现路径",
+                dir_name
+            );
+            continue;
+        }
+
         let eco_sub_dir = eco_dir.join(dir_name);
         fs::create_dir_all(&eco_sub_dir).map_err(|e| AppError::io(&eco_sub_dir, e))?;
 
@@ -100,24 +112,6 @@ pub fn expose_plugin_dirs_to_eco_isolation(
                         src_path.display(),
                         dst_path.display()
                     );
-                }
-
-                if dir_name == &"skills" {
-                    let plugin_dir = dst_path.join(".claude-plugin");
-                    if !plugin_dir.join("plugin.json").exists() {
-                        if let Err(e) = fs::create_dir_all(&plugin_dir) {
-                            log::warn!("创建 .claude-plugin 目录失败: {}: {e}", plugin_dir.display());
-                        } else {
-                            let mini_plugin = serde_json::json!({
-                                "name": prefixed_name,
-                                "version": "1.0.0",
-                                "skills": ["./"]
-                            });
-                            if let Ok(content) = fragment::write_json(&mini_plugin) {
-                                let _ = fs::write(plugin_dir.join("plugin.json"), content);
-                            }
-                        }
-                    }
                 }
             } else if src_path.is_file() {
                 if dir_name == &"hooks" && name == "hooks.json" {
@@ -458,6 +452,40 @@ pub fn resolve_plugin_root_in_hooks(hooks_str: &str, claude_plugins: &Path, eco_
     }
 
     result
+}
+
+/// 收集 SSOT 技能目录中所有已存在的技能目录名（小写，用于去重比较）。
+///
+/// SSOT 路径取决于设置：`~/.cc-switch/skills/` 或 `~/.agents/skills/`。
+/// 同时扫描 eco 隔离目录下的 skills/，因为 SSOT 同步后技能也会出现在那里。
+pub fn collect_ssot_skill_names(eco_dir: &Path) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+
+    // 扫描 SSOT 目录
+    if let Ok(ssot_dir) = crate::services::skill::SkillService::get_ssot_dir() {
+        collect_skill_dir_names(&ssot_dir, &mut names);
+    }
+
+    // 扫描 eco 隔离目录下的 skills/
+    let eco_skills = eco_dir.join("skills");
+    if eco_skills.is_dir() {
+        collect_skill_dir_names(&eco_skills, &mut names);
+    }
+
+    names
+}
+
+fn collect_skill_dir_names(dir: &Path, names: &mut std::collections::HashSet<String>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || !entry.path().is_dir() {
+            continue;
+        }
+        names.insert(name.to_lowercase());
+    }
 }
 
 #[cfg(test)]

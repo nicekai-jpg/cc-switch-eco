@@ -25,6 +25,11 @@ pub fn rewrite_installer_hook_paths_in_claude_settings(
         rewrite_hook_paths_in_json(hooks, &old_hooks_dir, &new_hooks_dir);
     }
 
+    // statusLine 中的 hook 路径也需要重写（如 gsd-statusline.js）
+    if let Some(statusline) = settings.get_mut("statusLine") {
+        rewrite_statusline_path(statusline, &old_hooks_dir, &new_hooks_dir);
+    }
+
     fs::write(&settings_path, fragment::write_json(&settings)?)
         .map_err(|e| AppError::io(&settings_path, e))?;
 
@@ -73,6 +78,26 @@ pub fn rewrite_hook_command_path(command: &str, old_prefix: &str, new_prefix: &s
         return command.to_string();
     }
     command.replace(old_prefix, new_prefix)
+}
+
+/// 重写 statusLine 中的 hook 路径
+///
+/// statusLine 格式为 {"type": "command", "command": "..."}，
+/// 其中的路径也需要从临时 .claude/hooks/ 改写为 ~/.claude/hooks/
+fn rewrite_statusline_path(
+    statusline: &mut serde_json::Value,
+    old_prefix: &str,
+    new_prefix: &str,
+) {
+    if let Some(obj) = statusline.as_object_mut() {
+        if let Some(command) = obj.get_mut("command") {
+            if let Some(cmd_str) = command.as_str() {
+                *command = serde_json::Value::String(rewrite_hook_command_path(
+                    cmd_str, old_prefix, new_prefix,
+                ));
+            }
+        }
+    }
 }
 
 #[cfg(test)]
