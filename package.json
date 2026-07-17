@@ -1,6 +1,6 @@
 {
   "name": "cc-switch-eco",
-  "version": "3.25.2",
+  "version": "3.26.0",
   "description": "All-in-One Assistant for Claude Code, Codex & Gemini CLI",
   "type": "module",
   "scripts": {
