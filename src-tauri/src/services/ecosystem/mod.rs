@@ -39,6 +39,7 @@ pub struct EcosystemStatus {
     pub eco_id: String,
     pub frameworks: Vec<String>,
     pub framework_details: HashMap<String, FrameworkDetail>,
+    #[serde(default)]
     pub merge_conflicts: HashMap<String, Vec<String>>,
     #[serde(default)]
     pub install_errors: Vec<String>,
