@@ -418,7 +418,9 @@ export function buildOmoProfilePreview(
         result[k] = v;
       }
     }
-  } catch {}
+  } catch (e) {
+    console.warn("[OMO] Failed to parse OMO other fields:", e);
+  }
 
   return result;
 }

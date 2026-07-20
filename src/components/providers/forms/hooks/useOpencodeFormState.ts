@@ -91,7 +91,9 @@ export function useOpencodeFormState({
         ) as Record<string, any>;
         updater(config);
         onSettingsConfigChange(JSON.stringify(config, null, 2));
-      } catch {}
+      } catch (e) {
+        console.warn("[useOpencodeFormState] Failed to update config:", e);
+      }
     },
     [getSettingsConfig, onSettingsConfigChange],
   );

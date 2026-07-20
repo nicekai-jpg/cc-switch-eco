@@ -376,7 +376,7 @@ pub fn run() {
 
             // 初始化数据库
             let app_config_dir = crate::config::get_app_config_dir();
-            let db_path = app_config_dir.join("cc-switch.db");
+            let db_path = app_config_dir.join("cc-switch-eco.db");
             let json_path = app_config_dir.join("config.json");
 
             // 检查是否需要从 config.json 迁移到 SQLite
@@ -1521,6 +1521,7 @@ pub fn run() {
             commands::uninstall_framework_from_ecosystem,
             commands::update_framework_in_ecosystem,
             commands::get_ecosystem_frameworks,
+            commands::get_ecosystem_status,
             commands::save_user_preferences,
             commands::remove_user_preference,
         ]);
@@ -1958,8 +1959,8 @@ fn show_database_init_error_dialog(
             您的数据尚未丢失，应用不会自动删除数据库文件。\n\
             常见原因包括：数据库版本过新、文件损坏、权限不足、磁盘空间不足等。\n\n\
             建议：\n\
-            1) 先备份整个配置目录（包含 cc-switch.db）\n\
-            2) 如果提示“数据库版本过新”，请升级到更新版本\n\
+            1) 先备份整个配置目录（包含 cc-switch-eco.db）\n\
+            2) 如果提示”数据库版本过新”，请升级到更新版本\n\
             3) 如果刚升级出现异常，可回退旧版本导出/备份后再升级\n\n\
             点击「重试」重新尝试初始化\n\
             点击「退出」关闭程序",
@@ -1972,7 +1973,7 @@ fn show_database_init_error_dialog(
             Your data is NOT lost - the app will not delete the database automatically.\n\
             Common causes include: newer database version, corrupted file, permission issues, or low disk space.\n\n\
             Suggestions:\n\
-            1) Back up the entire config directory (including cc-switch.db)\n\
+            1) Back up the entire config directory (including cc-switch-eco.db)\n\
             2) If you see “database version is newer”, please upgrade CC Switch\n\
             3) If this happened right after upgrading, consider rolling back to export/backup then upgrade again\n\n\
             Click 'Retry' to attempt initialization again\n\

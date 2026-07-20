@@ -20,9 +20,11 @@ import {
   useUninstallFramework,
   useUpdateFramework,
   useSaveUserPreferences,
+  useEcosystemStatus,
 } from "@/hooks/useEcosystem";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { FrameworkPicker } from "./FrameworkPicker";
+import { ConflictWarning } from "./ConflictWarning";
 import type { Ecosystem } from "@/lib/api/ecosystem";
 
 interface EcoCardProps {
@@ -46,6 +48,7 @@ export function EcoCard({
 }: EcoCardProps) {
   const { t } = useTranslation();
   const { data: installedFrameworks = [] } = useEcosystemFrameworks(eco.id);
+  const { data: status } = useEcosystemStatus(expanded ? eco.id : undefined);
   const installMutation = useInstallFramework();
   const uninstallMutation = useUninstallFramework();
   const updateMutation = useUpdateFramework();
@@ -288,6 +291,11 @@ export function EcoCard({
               installingFrameworkId={operatingFrameworkId}
             />
           )}
+
+          <ConflictWarning
+            mergeConflicts={status?.mergeConflicts}
+            installErrors={status?.installErrors}
+          />
         </div>
       )}
     </div>

@@ -63,12 +63,18 @@ export function EcosystemPanel(_props: EcosystemPanelProps) {
       return;
     }
     try {
-      await createMutation.mutateAsync({
+      const result = await createMutation.mutateAsync({
         name: newName.trim(),
         description: newDescription.trim(),
         frameworks: selectedFrameworks,
       });
       toast.success(t("ecosystem.created", { name: newName.trim() }));
+      if (result.installErrors && result.installErrors.length > 0) {
+        toast.warning(t("ecosystem.partialInstallFailed"), {
+          description: result.installErrors.join("\n"),
+          duration: 8000,
+        });
+      }
       resetCreateForm();
     } catch (e: unknown) {
       toast.error(extractErrorMessage(e) || t("ecosystem.createFailed"));

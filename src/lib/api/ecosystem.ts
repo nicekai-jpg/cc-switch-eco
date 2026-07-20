@@ -20,6 +20,24 @@ export interface FrameworkRegistry {
   isolatedFiles: string[];
 }
 
+export interface FrameworkDetail {
+  installedAt: number;
+  commitHash: string;
+}
+
+export interface EcosystemStatus {
+  ecoId: string;
+  frameworks: string[];
+  frameworkDetails: Record<string, FrameworkDetail>;
+  mergeConflicts: Record<string, string[]>;
+  installErrors: string[];
+}
+
+export interface CreateEcosystemResult {
+  ecosystem: Ecosystem;
+  installErrors: string[];
+}
+
 export const ecosystemApi = {
   async list(): Promise<Ecosystem[]> {
     return await invoke("list_ecosystems");
@@ -33,7 +51,7 @@ export const ecosystemApi = {
     name: string,
     description: string,
     frameworks: string[] = [],
-  ): Promise<Ecosystem> {
+  ): Promise<CreateEcosystemResult> {
     return await invoke("create_ecosystem", { name, description, frameworks });
   },
 
@@ -72,6 +90,10 @@ export const ecosystemApi = {
 
   async getEcosystemFrameworks(ecoId: string): Promise<string[]> {
     return await invoke("get_ecosystem_frameworks", { ecoId });
+  },
+
+  async getEcosystemStatus(ecoId: string): Promise<EcosystemStatus> {
+    return await invoke("get_ecosystem_status", { ecoId });
   },
 
   async saveUserPreferences(ecoId: string, fileName: string): Promise<void> {

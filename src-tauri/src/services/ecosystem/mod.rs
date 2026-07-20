@@ -23,6 +23,7 @@ pub mod plugin_install;
 pub mod install_utils;
 pub mod installer_hooks;
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -30,6 +31,26 @@ use crate::config::get_app_config_dir;
 use crate::database::Ecosystem;
 use crate::error::AppError;
 use crate::store::AppState;
+
+/// 生态状态信息（从 eco.json 读取，不存数据库）
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EcosystemStatus {
+    pub eco_id: String,
+    pub frameworks: Vec<String>,
+    pub framework_details: HashMap<String, FrameworkDetail>,
+    pub merge_conflicts: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    pub install_errors: Vec<String>,
+}
+
+/// 框架安装详情
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrameworkDetail {
+    pub installed_at: i64,
+    pub commit_hash: String,
+}
 
 /// 获取生态根目录 (~/.cc-switch-eco/ecosystems/)
 pub fn ecosystems_root() -> PathBuf {
@@ -50,7 +71,7 @@ impl EcosystemService {
         name: &str,
         description: &str,
         frameworks: Vec<String>,
-    ) -> Result<Ecosystem, AppError> {
+    ) -> Result<(Ecosystem, Vec<String>), AppError> {
         let id = fs_utils::sanitize_id(name);
 
         if state.db.ecosystem_exists(&id)? {
@@ -124,6 +145,27 @@ impl EcosystemService {
                 "生态 '{id}' 已创建，但部分框架安装失败：\n{}",
                 install_errors.join("\n")
             );
+            // 将安装错误持久化到 eco.json
+            let eco_json_path = eco_dir.join("eco.json");
+            if eco_json_path.exists() {
+                if let Ok(content) = fs::read_to_string(&eco_json_path) {
+                    if let Ok(mut json) = fragment::parse_json(&content, "解析 eco.json 失败") {
+                        if let Some(obj) = json.as_object_mut() {
+                            obj.insert(
+                                "installErrors".to_string(),
+                                serde_json::Value::Array(
+                                    install_errors.iter()
+                                        .map(|e| serde_json::Value::String(e.clone()))
+                                        .collect(),
+                                ),
+                            );
+                        }
+                        if let Ok(new_content) = fragment::write_json(&json) {
+                            let _ = fs::write(&eco_json_path, new_content);
+                        }
+                    }
+                }
+            }
         }
 
         log::info!("生态 '{id}' 创建成功，自动切换到该生态");
@@ -132,7 +174,7 @@ impl EcosystemService {
             is_current: true,
             ..eco
         };
-        Ok(eco)
+        Ok((eco, install_errors))
     }
 
     /// 切换到指定生态
@@ -234,6 +276,97 @@ impl EcosystemService {
     /// 获取生态已安装的框架列表
     pub fn get_ecosystem_frameworks(eco_id: &str) -> Result<Vec<String>, AppError> {
         framework_ops::get_ecosystem_frameworks(eco_id)
+    }
+
+    /// 获取生态状态（mergeConflicts、installErrors 等）
+    pub fn get_status(eco_id: &str) -> Result<EcosystemStatus, AppError> {
+        let eco_dir = ecosystem_dir(eco_id);
+        let eco_json_path = eco_dir.join("eco.json");
+
+        if !eco_json_path.exists() {
+            return Ok(EcosystemStatus {
+                eco_id: eco_id.to_string(),
+                frameworks: vec![],
+                framework_details: HashMap::new(),
+                merge_conflicts: HashMap::new(),
+                install_errors: vec![],
+            });
+        }
+
+        let content =
+            fs::read_to_string(&eco_json_path).map_err(|e| AppError::io(&eco_json_path, e))?;
+        let json: serde_json::Value =
+            fragment::parse_json(&content, "解析 eco.json 失败")?;
+
+        let frameworks = json
+            .get("frameworks")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let framework_details = json
+            .get("frameworkDetails")
+            .and_then(|v| v.as_object())
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(k, v)| {
+                        let installed_at = v.get("installedAt").and_then(|n| n.as_i64()).unwrap_or(0);
+                        let commit_hash = v
+                            .get("commitHash")
+                            .and_then(|s| s.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        Some((k.clone(), FrameworkDetail { installed_at, commit_hash }))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let merge_conflicts = json
+            .get("mergeConflicts")
+            .and_then(|v| v.as_object())
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(k, v)| {
+                        let conflicts: Vec<String> = v
+                            .as_array()
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|c| c.as_str().map(String::from))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        if conflicts.is_empty() {
+                            None
+                        } else {
+                            Some((k.clone(), conflicts))
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let install_errors = json
+            .get("installErrors")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|e| e.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(EcosystemStatus {
+            eco_id: eco_id.to_string(),
+            frameworks,
+            framework_details,
+            merge_conflicts,
+            install_errors,
+        })
     }
 
     /// 保存用户偏好到 user-fragment

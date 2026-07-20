@@ -768,7 +768,9 @@ function ProviderFormFull({
         }
         config.env[key] = value;
         form.setValue("settingsConfig", JSON.stringify(config, null, 2));
-      } catch {}
+      } catch (e) {
+        console.warn("[ProviderForm] Failed to update env field:", e);
+      }
     },
     [form],
   );

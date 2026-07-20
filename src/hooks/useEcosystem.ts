@@ -60,6 +60,14 @@ export function useEcosystemFrameworks(ecoId: string | undefined) {
   });
 }
 
+export function useEcosystemStatus(ecoId: string | undefined) {
+  return useQuery({
+    queryKey: ["ecosystems", "status", ecoId],
+    queryFn: () => ecosystemApi.getEcosystemStatus(ecoId!),
+    enabled: !!ecoId,
+  });
+}
+
 // ================================================================
 // 变更 Hooks
 // ================================================================
@@ -110,6 +118,7 @@ export function useInstallFramework() {
       queryClient.invalidateQueries({
         queryKey: ["ecosystems", "frameworks", ecoId],
       });
+      queryClient.invalidateQueries({ queryKey: ["ecosystems", "status", ecoId] });
       queryClient.invalidateQueries({ queryKey: ["ecosystems", "all"] });
     },
   });
@@ -124,6 +133,7 @@ export function useUninstallFramework() {
       queryClient.invalidateQueries({
         queryKey: ["ecosystems", "frameworks", ecoId],
       });
+      queryClient.invalidateQueries({ queryKey: ["ecosystems", "status", ecoId] });
       queryClient.invalidateQueries({ queryKey: ["ecosystems", "all"] });
     },
   });
@@ -138,6 +148,7 @@ export function useUpdateFramework() {
       queryClient.invalidateQueries({
         queryKey: ["ecosystems", "frameworks", ecoId],
       });
+      queryClient.invalidateQueries({ queryKey: ["ecosystems", "status", ecoId] });
     },
   });
 }

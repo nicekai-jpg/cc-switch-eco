@@ -1,7 +1,22 @@
-use crate::services::ecosystem::EcosystemService;
+use crate::services::ecosystem::{EcosystemService, EcosystemStatus};
 use crate::services::ecosystem_framework;
 use crate::store::AppState;
+use serde::{Deserialize, Serialize};
 use tauri::State;
+
+/// 创建生态的返回结果（包含部分安装失败信息）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateEcosystemResult {
+    pub ecosystem: crate::database::Ecosystem,
+    #[serde(default)]
+    pub install_errors: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn get_ecosystem_status(eco_id: String) -> Result<EcosystemStatus, String> {
+    EcosystemService::get_status(&eco_id).map_err(|e| e.to_string())
+}
 
 #[tauri::command]
 pub async fn create_ecosystem(
@@ -9,8 +24,13 @@ pub async fn create_ecosystem(
     name: String,
     description: String,
     frameworks: Vec<String>,
-) -> Result<crate::database::Ecosystem, String> {
-    EcosystemService::create(&state, &name, &description, frameworks).map_err(|e| e.to_string())
+) -> Result<CreateEcosystemResult, String> {
+    EcosystemService::create(&state, &name, &description, frameworks)
+        .map(|(ecosystem, install_errors)| CreateEcosystemResult {
+            ecosystem,
+            install_errors,
+        })
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
